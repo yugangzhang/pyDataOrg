@@ -446,7 +446,7 @@ ChemicalSpec(
 pip install numpy matplotlib
 
 # Run the complete demo
-python demo_nanoorganizer.py
+python example/demo_nanoorganizer.py
 
 # This will create:
 # - NanoOrganizer_Demo/ with example data
@@ -541,11 +541,35 @@ Start with the demo, then adapt it for your experiments!
 
 ---
 
+# 🤝 Contributing
+
+Contributions welcome! Please:
+
+Fork the repository
+Create a feature branch
+Add tests for new features
+Submit a pull request
+
+# 📄 License
+MIT License - see LICENSE file for details
+
+# 🙏 Acknowledgments
+
+Built with:
+
+NumPy
+
+
+# 📮 Contact
+For questions or issues, please open an issue on GitHub.
+ 
+
 ## 📞 Questions?
 
 Check:
 1. `demo_nanoorganizer.py` - Complete working example
 2. `quick_reference.py` - Common usage patterns
-3. The inline documentation in `NanoOrganizer.py`
+3. Run `Create_Load_Viz.ipynb` - notebook to implement demo py
+
 
 Happy experimenting! 🔬✨
