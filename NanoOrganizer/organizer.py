@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 from datetime import datetime
 
-from metadata import RunMetadata
-from run import Run
+from NanoOrganizer.metadata import RunMetadata
+from NanoOrganizer.run import Run
 
 
 class DataOrganizer:
@@ -82,7 +82,7 @@ class DataOrganizer:
         print(f"✓ Created run: {run_key}")
         return run
     
-    def get_run(self, project: str, experiment: str, run_id: str) -> Optional[Run]:
+    def get_run(self, run_key: str = '', project: str='', experiment: str='', run_id: str ='') -> Optional[Run]:
         """
         Get a run by its identifiers.
         
@@ -100,7 +100,8 @@ class DataOrganizer:
         Run or None
             The requested run, or None if not found
         """
-        run_key = f"{project}/{experiment}/{run_id}"
+        if run_key =='':
+            run_key = f"{project}/{experiment}/{run_id}"            
         return self.runs.get(run_key)
     
     def list_runs(self) -> List[str]:
@@ -113,6 +114,37 @@ class DataOrganizer:
             List of run keys
         """
         return list(self.runs.keys())
+
+    def list_run_ids(self) -> List[str]:
+        """
+        List all runs.
+        
+        Returns
+        -------
+        list
+            List of run keys
+        """
+        ks = self.list_runs()
+        lst = [ self.get_run(  k ).metadata.sample_id for k in ks ] 
+        return lst 
+        
+    def get_run_dict(self) -> Dict:
+        """
+        List all runs.
+        
+        Returns
+        -------
+        list
+            List of run keys
+        """
+        ks = self.list_runs()        
+        lst =  self.list_run_ids()
+        self.run_dict = {}
+        for i, k in enumerate( ks ):
+            self.run_dict[i] = [ k, lst[i] ]        
+        return self.run_dict
+
+        
     
     def save(self):
         """Save all metadata to JSON files."""

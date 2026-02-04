@@ -19,7 +19,7 @@ import warnings
 from pathlib import Path
 from typing import List, Dict, Optional, Union, Any
 
-from data_links import DataLink
+from NanoOrganizer.data_links import DataLink
 
 
 class UVVisData:
@@ -221,6 +221,8 @@ class SAXSData:
     
     def link_data(self, csv_files: List[Union[str, Path]], 
                   time_points: Optional[List[float]] = None,
+                  dtime_points: Optional[List[float]] = None,
+                  temperature_points: Optional[List[float]] = None,                   
                   metadata: Optional[Dict] = None):
         """Link SAXS CSV files to this run."""
         self.link.file_paths = [str(Path(f).absolute()) for f in csv_files]
@@ -230,7 +232,12 @@ class SAXSData:
         
         if time_points is not None:
             self.link.metadata['time_points'] = time_points
-        
+        if dtime_points is not None:
+            self.link.metadata['dtime_points'] = dtime_points            
+        if temperature_points is not None:
+            self.link.metadata['temperature_points'] = temperature_points
+ 
+            
         print(f"  ✓ Linked {len(csv_files)} SAXS CSV files")
     
     def validate(self) -> bool:
@@ -241,7 +248,7 @@ class SAXSData:
             return False
         return True
     
-    def load(self, force_reload: bool = False) -> Dict[str, np.ndarray]:
+    def load(self, force_reload: bool = False, verbose=False ) -> Dict[str, np.ndarray]:
         """Load SAXS data from CSV files."""
         if self._loaded_data is not None and not force_reload:
             return self._loaded_data
@@ -249,29 +256,33 @@ class SAXSData:
         if not self.link.file_paths:
             raise ValueError("No data files linked. Use link_data() first.")
         
-        all_times = []
+        #all_times = []
         all_q = []
         all_intensity = []
         
         time_points = self.link.metadata.get('time_points')
-        
+        dtime_points = self.link.metadata.get('dtime_points')
+        temperature_points = self.link.metadata.get('temperature_points')
+          
+        all_times =   time_points 
+        all_dtimes =   dtime_points 
+        all_temperatures = temperature_points
         for i, fpath in enumerate(self.link.file_paths):
             fpath = Path(fpath)
             if not fpath.exists():
                 warnings.warn(f"File not found: {fpath}")
-                continue
-            
+                continue            
             try:
                 data = np.loadtxt(fpath, delimiter=',', skiprows=1)
                 q = data[:, 0]
-                intensity = data[:, 1]
+                intensity = data[:, 1]                
+                #time = np.array( [ time_points[i]  if time_points else float(i)  ] )      
+                #times = np.full(len(q), time)
+                #all_times.extend(times)
                 
-                time = time_points[i] if time_points else float(i)
-                times = np.full(len(q), time)
-                
-                all_times.extend(times)
-                all_q.extend(q)
-                all_intensity.extend(intensity)
+                #all_times.extend([time])                
+                all_q.extend([q])
+                all_intensity.extend([intensity])
                 
             except Exception as e:
                 warnings.warn(f"Error reading {fpath}: {e}")
@@ -279,15 +290,17 @@ class SAXSData:
         
         self._loaded_data = {
             'times': np.array(all_times),
+            'dtimes': np.array(all_dtimes),
+            'temperatures': np.array(all_temperatures),            
             'q': np.array(all_q),
             'intensity': np.array(all_intensity)
         }
         
-        print(f"  ✓ Loaded {len(self.link.file_paths)} SAXS profiles")
+        if verbose:
+            print(f"  ✓ Loaded {len(self.link.file_paths)} SAXS profiles")
         return self._loaded_data
     
-    def plot(self, plot_type: str = "profile", time_point: Optional[float] = None,
-             q_value: Optional[float] = None, loglog: bool = True, ax=None, **kwargs):
+    def plot(self, plot_type: str = "profile", time_point: Optional[float] = None,  q_value: Optional[float] = None, loglog: bool = True, ax=None, **kwargs):
         """Plot SAXS data."""
         data = self.load()
         
@@ -321,18 +334,22 @@ class SAXSData:
         closest_time = unique_times[np.argmin(np.abs(unique_times - time_point))]
         mask = times == closest_time
         
-        q_vals = q[mask]
-        I_vals = intensity[mask]
-        
+        q_vals = q[mask].ravel()
+        I_vals = intensity[mask].ravel()
+        legend = kwargs.get('legend', '')
         if loglog:
-            ax.loglog(q_vals, I_vals, 'o-', linewidth=2, markersize=4)
+            ax.loglog(q_vals, I_vals, 'o-', linewidth=2, markersize=4, label=legend,)
         else:
-            ax.plot(q_vals, I_vals, 'o-', linewidth=2, markersize=4)
+            ax.plot(q_vals, I_vals, 'o-', linewidth=2, markersize=4,label=legend)
         
         ax.set_xlabel('q (1/Å)', fontsize=12)
         ax.set_ylabel('Intensity (a.u.)', fontsize=12)
         ax.set_title(kwargs.get('title', f'SAXS Profile at t={closest_time:.0f}s'), fontsize=13)
         ax.grid(True, alpha=0.3)
+        if legend !='':
+            legend_fontsize = kwargs.get('legend_fontsize', 8)
+            ax.legend(loc='best', fontsize=legend_fontsize)
+            
     
     def _plot_kinetics(self, data, q_value, ax, **kwargs):
         """Plot I(t) at specific q."""

@@ -9,8 +9,10 @@ Contains:
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime
+
+TimeLike = Union[str, int, float, List[str], List[int], List[float]]
 
 
 @dataclass
@@ -63,7 +65,14 @@ class RunMetadata:
     experiment: str  # Usually a date like "2024-10-20"
     run_id: str
     sample_id: str
-    reaction: ReactionParams
+    reaction: Optional[ReactionParams] = None
+    filename: Optional[str] = None
+    # ✅ Annotated + flexible types
+    data_collection_time_string: Optional[TimeLike] = None
+    data_collection_time_epoch: Optional[TimeLike] = None
+    reaction_time: Optional[TimeLike] = None
+    reaction_temperature: Optional[TimeLike] = None  
+    
     notes: str = ""
     tags: List[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -71,11 +80,21 @@ class RunMetadata:
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         data = asdict(self)
-        data['reaction'] = self.reaction.to_dict()
+        if data['reaction'] != None:
+            data['reaction'] = self.reaction.to_dict()
         return data
     
     @classmethod
     def from_dict(cls, data: dict) -> 'RunMetadata':
         """Create from dictionary."""
-        reaction = ReactionParams.from_dict(data.pop('reaction'))
-        return cls(reaction=reaction, **data)
+        if data['reaction'] != None:
+        #print( data ) 
+            reaction = ReactionParams.from_dict(data.pop('reaction'))
+            return cls(reaction=reaction, **data)
+        else:             
+            return cls( **data)
+
+
+
+
+        

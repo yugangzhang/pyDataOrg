@@ -10,9 +10,9 @@ A Run contains:
 from pathlib import Path
 from typing import Dict
 
-from metadata import RunMetadata
-from data_accessors import UVVisData, SAXSData, WAXSData, ImageData
-from data_links import DataLink
+from NanoOrganizer.metadata import RunMetadata
+from NanoOrganizer.data_accessors import UVVisData, SAXSData, WAXSData, ImageData
+from NanoOrganizer.data_links import DataLink
 
 
 class Run:
@@ -35,7 +35,7 @@ class Run:
         TEM image data accessor
     """
     
-    def __init__(self, metadata: RunMetadata, base_dir: Path):
+    def __init__(self, metadata: RunMetadata, base_dir: Path = None, create_folder = False ):
         """
         Initialize a Run.
         
@@ -47,9 +47,11 @@ class Run:
             Base directory for the project
         """
         self.metadata = metadata
-        self.base_dir = Path(base_dir)
-        self.run_dir = self.base_dir / metadata.project / metadata.experiment / metadata.run_id
-        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.create_folder = create_folder
+        if self.create_folder:
+            self.base_dir = Path(base_dir)
+            self.run_dir = self.base_dir / metadata.project / metadata.experiment / metadata.run_id
+            self.run_dir.mkdir(parents=True, exist_ok=True)
         
         # Create data accessors
         self.uvvis = UVVisData(metadata.run_id)

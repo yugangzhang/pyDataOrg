@@ -12,6 +12,41 @@ from pathlib import Path
 from typing import List
 
 
+def save_lists( data, label=None,  use_index=False, filename=None, path=None, sep=',',  return_res = False, verbose=False, return_path=False):    
+    ''' Y.G. Dev@CHX Nov, 2017, 
+    save_lists( data, label=None,  filename=None, path=None)
+    
+    save lists to a CSV file with filename in path
+    Parameters
+    ----------
+        data: list
+        label: the column name, the length should be equal to the column number of list
+        filename: the filename to be saved
+        path: the filepath to be saved
+    Returns
+    -------
+        None
+    Example  
+    -------    
+        save_arrays(  [q,iq], label= ['q_A-1', 'Iq'], filename='uid=%s-q-Iq'%uid, path= data_dir  )    
+    '''    
+    M,N = len(data[0]),len(data)
+    d = np.zeros( [N,M] )
+    for i in range(N):
+        d[i] = data[i]         
+    df = trans_data_to_pd(data=d.T, label=label, dtype= 'array',  use_index= use_index)  
+    #print(df)
+    if filename is None:
+        filename = 'data'
+    filename = os.path.join(path, filename  +'.csv')
+    df.to_csv(filename, index=use_index, sep=sep )
+    if verbose:
+        print('The data was saved in: %s.'%filename)
+    if return_res:
+        return df
+    if return_path:
+        return filename
+        
 def save_time_series_to_csv(
     output_dir: Path, 
     prefix: str, 
