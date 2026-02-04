@@ -1,29 +1,18 @@
 """
-Nanoorganizer - Modular Fitting Framework
-Setup script
+Nanoorganizer – modular data organizer for nanoparticle synthesis.
 """
 
-#!/usr/bin/env python
-from __future__ import (absolute_import, division, print_function)
-
-import sys
-import warnings
-import versioneer
-
 from setuptools import setup, find_packages
- 
 
- 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
     name="Nanoorganizer",
-    version="0.1.0",
-    #version=versioneer.get_version(),
+    version="1.0.0",
     author='Brookhaven National Laboratory_YugangZhang@CFN',
     author_email="yuzhang@bnl.gov",
-    description="A clean, modular, extensible framework for nano-synthesis data orgnizer",
+    description="A clean, modular, extensible framework for nano-synthesis data organizer",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yugangzhang/Nanoorganizer",
@@ -43,13 +32,22 @@ setup(
     install_requires=[
         "numpy>=1.20.0",
         "scipy>=1.7.0",
-        "pandas>=1.3.0",
+        "matplotlib>=3.3.0",
     ],
     extras_require={
+        "image": [
+            "Pillow>=8.0.0",
+        ],
+        "hdf5": [
+            "h5py>=3.0.0",
+        ],
+        "web": [
+            "streamlit>=1.20.0",
+        ],
         "dev": [
             "pytest>=6.0",
             "pytest-cov",
-            "matplotlib>=3.3.0",
+            "Pillow>=8.0.0",
         ],
     },
 )

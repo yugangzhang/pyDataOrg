@@ -22,14 +22,12 @@ class ChemicalSpec:
     concentration: float
     concentration_unit: str = "mM"
     volume_uL: float = 0.0
-    
+
     def to_dict(self) -> dict:
-        """Convert to dictionary."""
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> 'ChemicalSpec':
-        """Create from dictionary."""
         return cls(**data)
 
 
@@ -44,16 +42,14 @@ class ReactionParams:
     solvent: str = "Water"
     conductor: str = "Unknown"
     description: str = ""
-    
+
     def to_dict(self) -> dict:
-        """Convert to dictionary."""
         data = asdict(self)
         data['chemicals'] = [c.to_dict() for c in self.chemicals]
         return data
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> 'ReactionParams':
-        """Create from dictionary."""
         chemicals = [ChemicalSpec.from_dict(c) for c in data.pop('chemicals')]
         return cls(chemicals=chemicals, **data)
 
@@ -62,39 +58,31 @@ class ReactionParams:
 class RunMetadata:
     """Metadata for a single experimental run."""
     project: str
-    experiment: str  # Usually a date like "2024-10-20"
+    experiment: str          # Usually a date like "2024-10-20"
     run_id: str
     sample_id: str
     reaction: Optional[ReactionParams] = None
     filename: Optional[str] = None
-    # ✅ Annotated + flexible types
+
+    # Flexible time fields: scalar or list, string or numeric
     data_collection_time_string: Optional[TimeLike] = None
     data_collection_time_epoch: Optional[TimeLike] = None
     reaction_time: Optional[TimeLike] = None
-    reaction_temperature: Optional[TimeLike] = None  
-    
+    reaction_temperature: Optional[TimeLike] = None
+
     notes: str = ""
     tags: List[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    
+
     def to_dict(self) -> dict:
-        """Convert to dictionary."""
         data = asdict(self)
-        if data['reaction'] != None:
+        if self.reaction is not None:
             data['reaction'] = self.reaction.to_dict()
         return data
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> 'RunMetadata':
-        """Create from dictionary."""
-        if data['reaction'] != None:
-        #print( data ) 
+        if data.get('reaction') is not None:
             reaction = ReactionParams.from_dict(data.pop('reaction'))
             return cls(reaction=reaction, **data)
-        else:             
-            return cls( **data)
-
-
-
-
-        
+        return cls(**data)

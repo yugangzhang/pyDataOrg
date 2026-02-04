@@ -1,42 +1,27 @@
 #!/usr/bin/env python3
 """
-NanoOrganizer: Metadata and data management for nanoparticle synthesis.
+NanoOrganizer – metadata and data management for nanoparticle synthesis.
 
-A modular, reusable system for organizing experimental data from 
-high-throughput reactor synthesis.
-
-Main Components
----------------
-DataOrganizer : Main organizer class
-    Manages all runs, saves/loads metadata
-Run : Single experimental run
-    Contains metadata and data accessors
-RunMetadata : Experiment metadata
-    Reaction conditions, chemicals, etc.
-ReactionParams : Reaction parameters
-    Temperature, time, chemicals, etc.
-ChemicalSpec : Chemical specification
-    Name, concentration, volume
-
-Data Accessors
+Package layout
 --------------
-UVVisData : UV-Vis spectroscopy
-SAXSData : Small-angle X-ray scattering
-WAXSData : Wide-angle X-ray diffraction
-ImageData : Microscopy images (SEM/TEM)
+core/         Metadata dataclasses, DataOrganizer, Run, file-link logic.
+loaders/      One loader class per data type.  Each reads files into a
+              standardised dict.  New types: add a module here + one line
+              in LOADER_REGISTRY.
+viz/          One plotter class per data type.  Each takes a loader's
+              output dict and produces matplotlib Axes.
+simulations/  Synthetic data generators for demos and testing.
 
-Utilities
----------
-save_time_series_to_csv : Save time-series data to CSV files
+Supported data types
+--------------------
+UV-Vis, SAXS (1D), WAXS (1D), DLS, XAS, SAXS (2D), WAXS (2D),
+SEM images, TEM images.
 
-Basic Usage
+Quick start
 -----------
 >>> from NanoOrganizer import DataOrganizer, RunMetadata, ReactionParams, ChemicalSpec
->>> 
->>> # Create organizer
+>>>
 >>> org = DataOrganizer("./MyProject")
->>> 
->>> # Create run
 >>> metadata = RunMetadata(
 ...     project="Project_Au",
 ...     experiment="2024-10-25",
@@ -44,102 +29,125 @@ Basic Usage
 ...     sample_id="Sample_001",
 ...     reaction=ReactionParams(
 ...         chemicals=[ChemicalSpec(name="HAuCl4", concentration=0.5)],
-...         temperature_C=80.0
-...     )
+...         temperature_C=80.0,
+...     ),
 ... )
 >>> run = org.create_run(metadata)
->>> 
->>> # Link data
 >>> run.uvvis.link_data(csv_files, time_points=[0, 30, 60])
->>> 
->>> # Save
 >>> org.save()
->>> 
->>> # Later: load and analyze
->>> org = DataOrganizer.load("./MyProject")
->>> run = org.get_run("Project_Au", "2024-10-25", "Au_Test_001")
->>> data = run.uvvis.load()
+>>>
+>>> # Later —
+>>> org  = DataOrganizer.load("./MyProject")
+>>> run  = org.get_run("Project_Au/2024-10-25/Au_Test_001")
+>>> data = run.uvvis.load()          # dict with times / wavelengths / absorbance
 >>> run.uvvis.plot(plot_type="heatmap")
 """
 
 __version__ = "1.0.0"
-__author__ = "NanoOrganizer Team"
+__author__  = "NanoOrganizer Team"
 
-# Import main classes for public API
-from NanoOrganizer.metadata import ChemicalSpec, ReactionParams, RunMetadata
-from NanoOrganizer.organizer import DataOrganizer
-from NanoOrganizer.run import Run
-from NanoOrganizer.utils import save_time_series_to_csv
+# ---------------------------------------------------------------------------
+# Core
+# ---------------------------------------------------------------------------
+from NanoOrganizer.core.metadata   import ChemicalSpec, ReactionParams, RunMetadata
+from NanoOrganizer.core.data_links import DataLink
+from NanoOrganizer.core.organizer  import DataOrganizer
+from NanoOrganizer.core.run        import Run
+from NanoOrganizer.core.utils      import save_time_series_to_csv
 
-# Import data accessors (optional, but convenient)
-from NanoOrganizer.data_accessors import UVVisData, SAXSData, WAXSData, ImageData
-from NanoOrganizer.data_links import DataLink
+# ---------------------------------------------------------------------------
+# Loaders
+# ---------------------------------------------------------------------------
+from NanoOrganizer.loaders import (
+    UVVisLoader, SAXSLoader, WAXSLoader,
+    DLSLoader, XASLoader, SAXS2DLoader, WAXS2DLoader,
+    ImageLoader,
+    LOADER_REGISTRY,
+)
 
+# ---------------------------------------------------------------------------
+# Viz
+# ---------------------------------------------------------------------------
+from NanoOrganizer.viz import (
+    UVVisPlotter, SAXSPlotter, WAXSPlotter,
+    DLSPlotter, XASPlotter, SAXS2DPlotter, WAXS2DPlotter,
+    ImagePlotter,
+    PLOTTER_REGISTRY,
+)
 
-from NanoOrganizer.time_series_simulations import (
+# ---------------------------------------------------------------------------
+# Simulations
+# ---------------------------------------------------------------------------
+from NanoOrganizer.simulations import (
     simulate_uvvis_time_series_data,
     simulate_saxs_time_series_data,
     simulate_waxs_time_series_data,
-    create_fake_image_series
+    simulate_dls_time_series_data,
+    simulate_xas_time_series_data,
+    simulate_saxs2d_time_series_data,
+    simulate_waxs2d_time_series_data,
+    create_fake_image_series,
 )
 
+# ---------------------------------------------------------------------------
+# Backward-compatibility aliases
+# The old combined accessor classes are now split into loader + plotter.
+# Existing code that does  ``from NanoOrganizer import UVVisData``  or
+# ``run.uvvis = UVVisData(...)``  keeps working because the loaders expose
+# the same  link_data / load / validate / plot  interface.
+# ---------------------------------------------------------------------------
+UVVisData = UVVisLoader
+SAXSData  = SAXSLoader
+WAXSData  = WAXSLoader
+ImageData = ImageLoader
 
-# Define public API
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 __all__ = [
-    # Main classes
-    'DataOrganizer',
-    'Run',
-    
-    # Metadata classes
-    'RunMetadata',
-    'ReactionParams',
-    'ChemicalSpec',
-    
-    # Data accessors
-    'UVVisData',
-    'SAXSData',
-    'WAXSData',
-    'ImageData',
-    
-    # Data links
+    # Core
+    'DataOrganizer', 'Run',
+    'RunMetadata', 'ReactionParams', 'ChemicalSpec',
     'DataLink',
-    
-    # Utilities
     'save_time_series_to_csv',
+
+    # Loaders
+    'UVVisLoader', 'SAXSLoader', 'WAXSLoader',
+    'DLSLoader', 'XASLoader', 'SAXS2DLoader', 'WAXS2DLoader',
+    'ImageLoader',
+    'LOADER_REGISTRY',
+
+    # Viz
+    'UVVisPlotter', 'SAXSPlotter', 'WAXSPlotter',
+    'DLSPlotter', 'XASPlotter', 'SAXS2DPlotter', 'WAXS2DPlotter',
+    'ImagePlotter',
+    'PLOTTER_REGISTRY',
+
+    # Simulations
+    'simulate_uvvis_time_series_data',
+    'simulate_saxs_time_series_data',
+    'simulate_waxs_time_series_data',
+    'simulate_dls_time_series_data',
+    'simulate_xas_time_series_data',
+    'simulate_saxs2d_time_series_data',
+    'simulate_waxs2d_time_series_data',
+    'create_fake_image_series',
+
+    # Backward-compat aliases
+    'UVVisData', 'SAXSData', 'WAXSData', 'ImageData',
 ]
 
 
-# Package information
 def get_version():
-    """Get package version."""
+    """Return the package version string."""
     return __version__
 
 
 def get_info():
-    """Get package information."""
+    """Return a dict of basic package metadata."""
     return {
-        'name': 'NanoOrganizer',
-        'version': __version__,
+        'name':        'NanoOrganizer',
+        'version':     __version__,
         'description': 'Metadata and data management for nanoparticle synthesis',
-        'author': __author__,
+        'author':      __author__,
     }
-
-
-if __name__ == "__main__":
-    print("NanoOrganizer Package")
-    print("=" * 50)
-    print(f"Version: {__version__}")
-    print("\nImport this module to use:")
-    print("  from NanoOrganizer import DataOrganizer, RunMetadata, ReactionParams, ChemicalSpec")
-    print("\nAvailable classes:")
-    for item in __all__:
-        print(f"  - {item}")
-        
-        
-# from NanoOrganizer.nanoorganizer import ( DataOrganizer, RunMetadata, ReactionParams, ChemicalSpec, DataOrganizer, save_time_series_to_csv ) # DirectoryMap, ImportSchema,  VisualizationHelper, save_time_series_to_csv )
-
-
-# from NanoOrganizer.demo_toy_sim import (simulate_uvvis_data, simulate_saxs_data  , simulate_waxs_data,  create_fake_image ) 
-
-
- 
