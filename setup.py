@@ -34,6 +34,11 @@ setup(
         "scipy>=1.7.0",
         "matplotlib>=3.3.0",
     ],
+    entry_points={
+        'console_scripts': [
+            'nanoorganizer-viz=NanoOrganizer.web.cli:main',
+        ],
+    },
     extras_require={
         "image": [
             "Pillow>=8.0.0",
