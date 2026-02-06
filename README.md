@@ -155,16 +155,47 @@ by the azimuthal-average plotter to convert pixel radius → *q* (SAXS) or 2θ
 
 ---
 
-## Web app
+## Web GUI Suite
 
-Launch the interactive browser:
+NanoOrganizer provides **four integrated web applications** for different workflows:
 
+### 1. Data Viewer (`nanoorganizer-viz`) - Main visualization tool
 ```bash
 nanoorganizer-viz
 ```
+- Multi-dataset overlay and comparison
+- Advanced plot controls (log/linear scales, colormaps)
+- Side-by-side image comparison
+- High-quality plot export
 
-The app auto-detects the bundled `Demo/` directory.  Use the sidebar to pick a
-run, data type, and plot type; dynamic selector controls appear as needed.
+### 2. CSV Plotter (`nanoorganizer-csv`) - Quick plotting
+```bash
+nanoorganizer-csv
+```
+- Fast CSV plotting without NanoOrganizer metadata
+- Upload files or browse server
+- Auto-detect columns
+- Overlay multiple datasets
+
+### 3. Data Manager (`nanoorganizer-manage`) - Project creation
+```bash
+nanoorganizer-manage
+```
+- Create new projects
+- Fill metadata forms
+- Link data files
+- Browse server filesystem
+
+### 4. 3D Plotter (`nanoorganizer-3d`) - Volumetric visualization
+```bash
+nanoorganizer-3d
+```
+- 3D surface/wireframe/scatter plots
+- XYZ + color dimension
+- Adjustable view angles
+- Export high-quality 3D plots
+
+All GUIs auto-detect the bundled `Demo/` directory. See `docs/WEB_GUI_GUIDE.md` for complete usage guide.
 
 Requires the `web` extra (`pip install NanoOrganizer[web]`).
 

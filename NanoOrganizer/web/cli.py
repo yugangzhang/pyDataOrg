@@ -9,7 +9,10 @@ from pathlib import Path
 def main():
     """Launch the Streamlit app."""
     app_path = Path(__file__).resolve().parent / "app.py"
-    sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", str(app_path)]))
+    sys.exit(subprocess.call([
+        sys.executable, "-m", "streamlit", "run", str(app_path),
+        "--server.headless", "true"
+    ]))
 
 
 if __name__ == "__main__":

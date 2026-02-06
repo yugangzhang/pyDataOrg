@@ -33,10 +33,14 @@ setup(
         "numpy>=1.20.0",
         "scipy>=1.7.0",
         "matplotlib>=3.3.0",
+        "pandas>=1.3.0",
     ],
     entry_points={
         'console_scripts': [
             'nanoorganizer-viz=NanoOrganizer.web.cli:main',
+            'nanoorganizer-csv=NanoOrganizer.web.csv_plotter_cli:main',
+            'nanoorganizer-manage=NanoOrganizer.web.data_manager_cli:main',
+            'nanoorganizer-3d=NanoOrganizer.web.plotter_3d_cli:main',
         ],
     },
     extras_require={
@@ -48,6 +52,7 @@ setup(
         ],
         "web": [
             "streamlit>=1.20.0",
+            "pandas>=1.3.0",
         ],
         "dev": [
             "pytest>=6.0",
