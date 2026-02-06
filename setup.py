@@ -34,13 +34,23 @@ setup(
         "scipy>=1.7.0",
         "matplotlib>=3.3.0",
         "pandas>=1.3.0",
+        "plotly>=5.0.0",
+        "seaborn>=0.11.0",
     ],
     entry_points={
         'console_scripts': [
+            # MAIN APP - All tools in one (port 8501) - RECOMMENDED!
+            'nanoorganizer=NanoOrganizer.web_app.app_cli:main',
+
+            # Legacy individual tools (still available)
+            'nanoorganizer-hub=NanoOrganizer.web.hub_cli:main',
             'nanoorganizer-viz=NanoOrganizer.web.cli:main',
             'nanoorganizer-csv=NanoOrganizer.web.csv_plotter_cli:main',
+            'nanoorganizer-csv-enhanced=NanoOrganizer.web.csv_enhanced_cli:main',
             'nanoorganizer-manage=NanoOrganizer.web.data_manager_cli:main',
             'nanoorganizer-3d=NanoOrganizer.web.plotter_3d_cli:main',
+            'nanoorganizer-img=NanoOrganizer.web.image_viewer_cli:main',
+            'nanoorganizer-multi=NanoOrganizer.web.multi_axes_cli:main',
         ],
     },
     extras_require={
@@ -53,6 +63,9 @@ setup(
         "web": [
             "streamlit>=1.20.0",
             "pandas>=1.3.0",
+            "plotly>=5.0.0",
+            "seaborn>=0.11.0",
+            "kaleido",  # For plotly image export
         ],
         "dev": [
             "pytest>=6.0",
