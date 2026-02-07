@@ -128,6 +128,12 @@ def browse_directory(base_dir, pattern="*.*"):
 if 'curve_styles' not in st.session_state:
     st.session_state['curve_styles'] = {}
 
+if 'dataframes_csv' not in st.session_state:
+    st.session_state['dataframes_csv'] = {}
+
+if 'file_paths_csv' not in st.session_state:
+    st.session_state['file_paths_csv'] = {}
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
@@ -149,9 +155,6 @@ with st.sidebar:
         help="Upload files from your computer or browse server filesystem"
     )
 
-    dataframes = {}
-    file_paths = {}  # Store full paths
-
     if data_source == "Upload files":
         uploaded_files = st.file_uploader(
             "Upload data files",
@@ -170,8 +173,8 @@ with st.sidebar:
 
                     df = load_data_file(str(temp_path))
                     if df is not None:
-                        dataframes[uploaded_file.name] = df
-                        file_paths[uploaded_file.name] = uploaded_file.name
+                        st.session_state['dataframes_csv'][uploaded_file.name] = df
+                        st.session_state['file_paths_csv'][uploaded_file.name] = uploaded_file.name
                 except Exception as e:
                     st.error(f"Error loading {uploaded_file.name}: {e}")
 
@@ -180,11 +183,15 @@ with st.sidebar:
         st.markdown("Click folders to navigate, select files with checkboxes:")
 
         # File pattern selector
+        st.markdown("**📋 File Type Filter:**")
         pattern = st.selectbox(
-            "File type",
+            "Extension pattern",
             ["*.csv", "*.npz", "*.txt", "*.dat", "*.*"],
-            help="Filter files by pattern"
+            help="Filter files by extension",
+            label_visibility="collapsed"
         )
+
+        st.info("💡 Tip: Use '🔍 Advanced Filters' below for name-based filtering (contains, not contains, etc.)")
 
         # Use folder browser component
         selected_files = folder_browser(
@@ -200,8 +207,21 @@ with st.sidebar:
                 df = load_data_file(full_path)
                 if df is not None:
                     file_name = Path(full_path).name
-                    dataframes[file_name] = df
-                    file_paths[file_name] = full_path
+                    st.session_state['dataframes_csv'][file_name] = df
+                    st.session_state['file_paths_csv'][file_name] = full_path
+                    st.success(f"✅ Loaded {file_name}")
+
+    # Get dataframes from session state
+    dataframes = st.session_state['dataframes_csv']
+    file_paths = st.session_state['file_paths_csv']
+
+    # Clear button
+    if dataframes:
+        if st.button("🗑️ Clear All Data", key="clear_csv_data"):
+            st.session_state['dataframes_csv'] = {}
+            st.session_state['file_paths_csv'] = {}
+            st.session_state['curve_styles'] = {}
+            st.rerun()
 
     if not dataframes:
         st.info("👆 Upload or select files to get started")

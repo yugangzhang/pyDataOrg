@@ -34,7 +34,7 @@ setup(
         "scipy>=1.7.0",
         "matplotlib>=3.3.0",
         "pandas>=1.3.0",
-        "plotly>=5.0.0",
+        "plotly>=6.1.1",
         "seaborn>=0.11.0",
     ],
     entry_points={
@@ -63,9 +63,9 @@ setup(
         "web": [
             "streamlit>=1.20.0",
             "pandas>=1.3.0",
-            "plotly>=5.0.0",
+            "plotly>=6.1.1",
             "seaborn>=0.11.0",
-            "kaleido",  # For plotly image export
+            "kaleido>=0.2.1",  # For plotly image export (compatible with plotly 6+)
         ],
         "dev": [
             "pytest>=6.0",

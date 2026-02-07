@@ -8,6 +8,61 @@ Provides a visual folder navigation interface without text input.
 import streamlit as st
 from pathlib import Path
 import os
+import re
+
+
+def filter_file_list(file_list, and_list=[], or_list=[], no_list=[]):
+    """
+    Filter file list based on string patterns in filenames.
+
+    Parameters
+    ----------
+    file_list : list of Path or str
+        List of files to filter
+    and_list : list of str
+        Only return files containing ALL strings in this list
+    or_list : list of str
+        Only return files containing AT LEAST ONE string in this list
+    no_list : list of str
+        Only return files NOT containing any strings in this list
+
+    Returns
+    -------
+    list
+        Filtered file list
+    """
+    filtered = []
+    n_or = len(or_list)
+
+    for file in file_list:
+        filename = str(file.name) if isinstance(file, Path) else str(file)
+        flag = 1
+
+        # Check AND conditions - must contain ALL
+        if len(and_list):
+            for pattern in and_list:
+                if pattern not in filename:
+                    flag *= 0
+
+        # Check OR conditions - must contain AT LEAST ONE
+        if len(or_list):
+            count = 0
+            for pattern in or_list:
+                if pattern not in filename:
+                    count += 1
+            if count == n_or:  # None of the OR patterns matched
+                flag *= 0
+
+        # Check NO conditions - must NOT contain ANY
+        if len(no_list):
+            for pattern in no_list:
+                if pattern in filename:
+                    flag *= 0
+
+        if flag:
+            filtered.append(file)
+
+    return filtered
 
 
 def folder_browser(
@@ -117,6 +172,57 @@ def folder_browser(
     st.divider()
 
     # -------------------------------------------------------------------------
+    # Advanced File Filters
+    # -------------------------------------------------------------------------
+    with st.expander("🔍 Advanced Filters", expanded=False):
+        st.markdown("**Filter files by name patterns:**")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            contains_all = st.text_input(
+                "Must contain ALL (comma-separated)",
+                key=f"{key}_contains_all",
+                help="e.g., 'data, 2024' → only files with both 'data' AND '2024'"
+            )
+
+            contains_any = st.text_input(
+                "Must contain ANY (comma-separated)",
+                key=f"{key}_contains_any",
+                help="e.g., 'sample1, sample2' → files with 'sample1' OR 'sample2'"
+            )
+
+        with col2:
+            not_contains = st.text_input(
+                "Must NOT contain (comma-separated)",
+                key=f"{key}_not_contains",
+                help="e.g., 'temp, backup' → exclude files with 'temp' or 'backup'"
+            )
+
+            if st.button("🔄 Reset Filters", key=f"{key}_reset_filters"):
+                st.session_state[f"{key}_contains_all"] = ""
+                st.session_state[f"{key}_contains_any"] = ""
+                st.session_state[f"{key}_not_contains"] = ""
+                st.rerun()
+
+        # Parse filter inputs
+        and_list = [s.strip() for s in contains_all.split(',') if s.strip()]
+        or_list = [s.strip() for s in contains_any.split(',') if s.strip()]
+        no_list = [s.strip() for s in not_contains.split(',') if s.strip()]
+
+        # Show active filters
+        if and_list or or_list or no_list:
+            st.markdown("**Active filters:**")
+            if and_list:
+                st.info(f"✅ Must contain ALL: {', '.join(and_list)}")
+            if or_list:
+                st.info(f"🔵 Must contain ANY: {', '.join(or_list)}")
+            if no_list:
+                st.warning(f"❌ Must NOT contain: {', '.join(no_list)}")
+
+    st.divider()
+
+    # -------------------------------------------------------------------------
     # Breadcrumb navigation
     # -------------------------------------------------------------------------
     st.markdown("**📂 Current Path:**")
@@ -152,6 +258,15 @@ def folder_browser(
         # Get files matching pattern
         if show_files:
             files = sorted(current_path.glob(file_pattern))
+
+            # Apply advanced filters
+            if and_list or or_list or no_list:
+                files_before_filter = len(files)
+                files = filter_file_list(files, and_list=and_list, or_list=or_list, no_list=no_list)
+                files_after_filter = len(files)
+
+                if files_before_filter != files_after_filter:
+                    st.caption(f"🔍 Filtered: {files_before_filter} → {files_after_filter} files")
         else:
             files = []
 
@@ -178,7 +293,10 @@ def folder_browser(
             # Show files
             if show_files and files:
                 st.divider()
-                st.markdown(f"**📄 Files** ({len(files)} matching `{file_pattern}`):")
+                filter_desc = f"{file_pattern}"
+                if and_list or or_list or no_list:
+                    filter_desc += " (with advanced filters)"
+                st.markdown(f"**📄 Files** ({len(files)} matching `{filter_desc}`):")
 
                 if multi_select:
                     # Show checkboxes for multi-select
