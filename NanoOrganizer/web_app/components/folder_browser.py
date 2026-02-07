@@ -223,27 +223,26 @@ def folder_browser(
     st.divider()
 
     # -------------------------------------------------------------------------
-    # Breadcrumb navigation
+    # Breadcrumb navigation (collapsible)
     # -------------------------------------------------------------------------
-    st.markdown("**📂 Current Path:**")
+    with st.expander("📂 Current Path", expanded=True):
+        # Show breadcrumb as clickable parts
+        parts = current_path.parts
+        breadcrumb_cols = st.columns(min(len(parts), 8))
 
-    # Show breadcrumb as clickable parts
-    parts = current_path.parts
-    breadcrumb_cols = st.columns(min(len(parts), 8))
+        for i, part in enumerate(parts):
+            col_idx = i % len(breadcrumb_cols)
+            with breadcrumb_cols[col_idx]:
+                # Truncate long names
+                display_name = part if len(part) <= 12 else part[:10] + "..."
+                if st.button(f"{display_name}", key=f"{key}_breadcrumb_{i}"):
+                    # Navigate to this level
+                    new_path = Path(*parts[:i+1])
+                    st.session_state[f'{key}_current_path'] = str(new_path)
+                    st.rerun()
 
-    for i, part in enumerate(parts):
-        col_idx = i % len(breadcrumb_cols)
-        with breadcrumb_cols[col_idx]:
-            # Truncate long names
-            display_name = part if len(part) <= 12 else part[:10] + "..."
-            if st.button(f"{display_name}", key=f"{key}_breadcrumb_{i}"):
-                # Navigate to this level
-                new_path = Path(*parts[:i+1])
-                st.session_state[f'{key}_current_path'] = str(new_path)
-                st.rerun()
-
-    # Show full path as text (copyable)
-    st.code(str(current_path), language="bash")
+        # Show full path as text (copyable)
+        st.code(str(current_path), language="bash")
 
     st.divider()
 
@@ -270,66 +269,67 @@ def folder_browser(
         else:
             files = []
 
-        # Show content in scrollable container (max height 500px)
-        with st.container(height=500, border=True):
-            # Show subdirectories
-            if subdirs:
-                st.markdown("**📁 Folders:**")
+        # Show content in scrollable container (max height 500px) with expander
+        with st.expander("📁 Folders & Files", expanded=True):
+            with st.container(height=400, border=True):
+                # Show subdirectories
+                if subdirs:
+                    st.markdown("**📁 Folders:**")
 
-                # Create grid of folder buttons (3 per row)
-                n_cols = 3
-                for i in range(0, len(subdirs), n_cols):
-                    cols = st.columns(n_cols)
-                    for j, subdir in enumerate(subdirs[i:i+n_cols]):
-                        with cols[j]:
-                            folder_name = subdir.name
-                            if len(folder_name) > 20:
-                                folder_name = folder_name[:18] + "..."
+                    # Create grid of folder buttons (3 per row)
+                    n_cols = 3
+                    for i in range(0, len(subdirs), n_cols):
+                        cols = st.columns(n_cols)
+                        for j, subdir in enumerate(subdirs[i:i+n_cols]):
+                            with cols[j]:
+                                folder_name = subdir.name
+                                if len(folder_name) > 20:
+                                    folder_name = folder_name[:18] + "..."
 
-                            if st.button(f"📁 {folder_name}", key=f"{key}_dir_{i}_{j}", use_container_width=True):
-                                st.session_state[f'{key}_current_path'] = str(subdir)
-                                st.rerun()
+                                if st.button(f"📁 {folder_name}", key=f"{key}_dir_{i}_{j}", use_container_width=True):
+                                    st.session_state[f'{key}_current_path'] = str(subdir)
+                                    st.rerun()
 
-            # Show files
-            if show_files and files:
-                st.divider()
-                filter_desc = f"{file_pattern}"
-                if and_list or or_list or no_list:
-                    filter_desc += " (with advanced filters)"
-                st.markdown(f"**📄 Files** ({len(files)} matching `{filter_desc}`):")
+                # Show files
+                if show_files and files:
+                    st.divider()
+                    filter_desc = f"{file_pattern}"
+                    if and_list or or_list or no_list:
+                        filter_desc += " (with advanced filters)"
+                    st.markdown(f"**📄 Files** ({len(files)} matching `{filter_desc}`):")
 
-                if multi_select:
-                    # Show checkboxes for multi-select
-                    selected = []
-                    for file in files:
-                        file_name = file.name
-                        if st.checkbox(
-                            f"📄 {file_name}",
-                            key=f"{key}_file_{file}",
-                            value=str(file) in st.session_state[f'{key}_selected_files']
-                        ):
-                            selected.append(str(file))
+                    if multi_select:
+                        # Show checkboxes for multi-select
+                        selected = []
+                        for file in files:
+                            file_name = file.name
+                            if st.checkbox(
+                                f"📄 {file_name}",
+                                key=f"{key}_file_{file}",
+                                value=str(file) in st.session_state[f'{key}_selected_files']
+                            ):
+                                selected.append(str(file))
 
-                    st.session_state[f'{key}_selected_files'] = selected
+                        st.session_state[f'{key}_selected_files'] = selected
 
-                    # Show count
-                    if selected:
-                        st.success(f"✅ {len(selected)} file(s) selected")
-                else:
-                    # Show radio buttons for single select
-                    file_names = [f.name for f in files]
-                    selected_name = st.radio(
-                        "Select file:",
-                        file_names,
-                        key=f"{key}_file_radio"
-                    )
+                        # Show count
+                        if selected:
+                            st.success(f"✅ {len(selected)} file(s) selected")
+                    else:
+                        # Show radio buttons for single select
+                        file_names = [f.name for f in files]
+                        selected_name = st.radio(
+                            "Select file:",
+                            file_names,
+                            key=f"{key}_file_radio"
+                        )
 
-                    if selected_name:
-                        selected_file = [str(f) for f in files if f.name == selected_name][0]
-                        st.session_state[f'{key}_selected_files'] = [selected_file]
+                        if selected_name:
+                            selected_file = [str(f) for f in files if f.name == selected_name][0]
+                            st.session_state[f'{key}_selected_files'] = [selected_file]
 
-            elif show_files:
-                st.info(f"No files matching pattern `{file_pattern}` in this directory")
+                elif show_files:
+                    st.info(f"No files matching pattern `{file_pattern}` in this directory")
 
     except PermissionError:
         st.error("❌ Permission denied - cannot access this directory")

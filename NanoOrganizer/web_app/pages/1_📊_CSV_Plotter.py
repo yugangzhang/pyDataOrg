@@ -139,6 +139,44 @@ if 'file_paths_csv' not in st.session_state:
 # ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="Enhanced CSV Plotter", layout="wide")
+
+# Add custom CSS and JavaScript for bottom sidebar toggle
+st.markdown("""
+<style>
+.bottom-toggle-btn {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 999;
+    background-color: #ff4b4b;
+    color: white;
+    padding: 10px 18px;
+    border-radius: 25px;
+    font-size: 18px;
+    border: none;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+    cursor: pointer;
+    transition: all 0.3s;
+}
+.bottom-toggle-btn:hover {
+    background-color: #ff6b6b;
+    transform: scale(1.1);
+}
+</style>
+
+<button class="bottom-toggle-btn" onclick="
+    // Find and click the Streamlit sidebar toggle button
+    const toggleButton = window.parent.document.querySelector('[data-testid=\\'collapsedControl\\']');
+    if (toggleButton) {
+        toggleButton.click();
+    } else {
+        // If sidebar is open, find the close button
+        const closeButton = window.parent.document.querySelector('[kind=\\'header\\'] button');
+        if (closeButton) closeButton.click();
+    }
+">☰</button>
+""", unsafe_allow_html=True)
+
 st.title("📊 Enhanced CSV/NPZ Plotter")
 st.markdown("Quick visualization with per-curve styling - supports CSV, TXT, DAT, NPZ")
 
@@ -245,38 +283,74 @@ with st.sidebar:
         st.error("No columns found")
         st.stop()
 
-    # Auto-detect likely X and Y columns
+    # Auto-detect likely X column
     x_default = None
-    y_default = None
-
     for col in all_columns:
         col_lower = col.lower()
         if x_default is None and any(kw in col_lower for kw in
                                      ['wavelength', 'q', 'theta', 'energy', 'time', 'x']):
             x_default = col
-        if y_default is None and any(kw in col_lower for kw in
-                                     ['intensity', 'absorbance', 'absorption', 'y', 'signal']):
-            y_default = col
 
     if x_default is None and len(all_columns) > 0:
         x_default = all_columns[0]
-    if y_default is None and len(all_columns) > 1:
-        y_default = all_columns[1]
 
     x_col = st.selectbox(
-        "X-axis column",
+        "X-axis column (common for all files)",
         all_columns,
         index=all_columns.index(x_default) if x_default in all_columns else 0,
-        help="Select column for X-axis"
+        help="Select X-axis column - will be used for all files"
     )
 
-    y_col = st.selectbox(
-        "Y-axis column",
-        all_columns,
-        index=all_columns.index(y_default) if y_default in all_columns else
-             (1 if len(all_columns) > 1 else 0),
-        help="Select column for Y-axis"
-    )
+    # Per-file Y column selection
+    st.markdown("**Y-axis columns (per file):**")
+    st.info("💡 Select multiple Y columns from each file to plot them as separate curves")
+
+    # Store Y column selections in session state
+    if 'y_column_selections' not in st.session_state:
+        st.session_state['y_column_selections'] = {}
+
+    file_y_columns = {}  # {file_name: [y_col1, y_col2, ...]}
+
+    for file_name, df in dataframes.items():
+        available_y_cols = [col for col in df.columns if col != x_col]
+
+        if not available_y_cols:
+            st.warning(f"⚠️ {file_name}: No Y columns available (only X column found)")
+            continue
+
+        # Auto-detect Y columns for first time
+        if file_name not in st.session_state['y_column_selections']:
+            # Default: select columns with keywords
+            default_y = []
+            for col in available_y_cols:
+                col_lower = col.lower()
+                if any(kw in col_lower for kw in ['intensity', 'absorbance', 'absorption', 'y', 'signal']):
+                    default_y.append(col)
+
+            # If no keywords match, select first available column
+            if not default_y and available_y_cols:
+                default_y = [available_y_cols[0]]
+
+            st.session_state['y_column_selections'][file_name] = default_y
+
+        selected_y_cols = st.multiselect(
+            f"📄 {shorten_path(file_name, 40)}",
+            available_y_cols,
+            default=st.session_state['y_column_selections'][file_name],
+            key=f"y_cols_{file_name}",
+            help=f"Select one or more Y columns from {file_name}"
+        )
+
+        st.session_state['y_column_selections'][file_name] = selected_y_cols
+        file_y_columns[file_name] = selected_y_cols
+
+    # Check if any Y columns selected
+    total_curves = sum(len(cols) for cols in file_y_columns.values())
+    if total_curves == 0:
+        st.error("No Y columns selected. Please select at least one Y column from any file.")
+        st.stop()
+
+    st.success(f"✅ Total curves to plot: {total_curves}")
 
     # ---------------------------------------------------------------------------
     # Global Plot Controls
@@ -330,7 +404,7 @@ with st.sidebar:
     with st.expander("📝 Labels", expanded=False):
         plot_title = st.text_input("Plot title", value="Data Comparison")
         x_label = st.text_input("X-axis label", value=x_col)
-        y_label = st.text_input("Y-axis label", value=y_col)
+        y_label = st.text_input("Y-axis label", value="Intensity")
 
 # ---------------------------------------------------------------------------
 # Main Area: Per-Curve Styling
@@ -338,105 +412,112 @@ with st.sidebar:
 
 st.header("🎨 Per-Curve Styling")
 
-# Create expanders for each curve
+# Create expanders for each curve (file_name, y_col combination)
 curve_settings = {}
+curve_idx = 0
 
-for file_name in dataframes.keys():
-    with st.expander(f"🔧 {shorten_path(file_paths.get(file_name, file_name), 60)}", expanded=False):
-        # Initialize defaults if not in session state
-        if file_name not in st.session_state['curve_styles']:
-            idx = list(dataframes.keys()).index(file_name)
-            st.session_state['curve_styles'][file_name] = {
-                'color': list(COLORS_NAMED.keys())[idx % len(COLORS_NAMED)],
-                'marker': list(MARKERS_DICT.keys())[idx % len(MARKERS_DICT)],
-                'linestyle': 'Solid',
-                'linewidth': 2.0,
-                'alpha': 0.8,
-                'enabled': True  # NEW: Enable/disable curve
-            }
+for file_name, y_cols in file_y_columns.items():
+    for y_col in y_cols:
+        curve_key = f"{file_name}::{y_col}"  # Unique key for each curve
+        curve_label = f"{shorten_path(file_name, 30)} : {y_col}"
 
-        # Initialize curve_settings entry for this file
-        if file_name not in curve_settings:
-            curve_settings[file_name] = {}
+        with st.expander(f"🔧 {curve_label}", expanded=False):
+            # Initialize defaults if not in session state
+            if curve_key not in st.session_state['curve_styles']:
+                st.session_state['curve_styles'][curve_key] = {
+                    'color': list(COLORS_NAMED.keys())[curve_idx % len(COLORS_NAMED)],
+                    'marker': list(MARKERS_DICT.keys())[curve_idx % len(MARKERS_DICT)],
+                    'linestyle': 'Solid',
+                    'linewidth': 2.0,
+                    'alpha': 0.8,
+                    'enabled': True
+                }
 
-        # Enable/Disable checkbox (prominent position)
-        enabled = st.checkbox(
-            f"✅ Show this curve",
-            value=st.session_state['curve_styles'][file_name].get('enabled', True),
-            key=f"enabled_{file_name}",
-            help="Toggle to show/hide this curve in the plot"
-        )
-        st.session_state['curve_styles'][file_name]['enabled'] = enabled
-        curve_settings[file_name]['enabled'] = enabled
+            # Initialize curve_settings entry
+            if curve_key not in curve_settings:
+                curve_settings[curve_key] = {}
 
-        if not enabled:
-            st.info("⚠️ This curve is hidden. Enable to show in plot.")
-            continue  # Skip styling controls if disabled
-
-        st.divider()
-        col1, col2, col3, col4, col5 = st.columns(5)
-
-        with col1:
-            color_name = st.selectbox(
-                "Color",
-                list(COLORS_NAMED.keys()),
-                index=list(COLORS_NAMED.keys()).index(
-                    st.session_state['curve_styles'][file_name]['color']
-                ),
-                key=f"color_{file_name}"
+            # Enable/Disable checkbox
+            enabled = st.checkbox(
+                f"✅ Show this curve",
+                value=st.session_state['curve_styles'][curve_key].get('enabled', True),
+                key=f"enabled_{curve_key}",
+                help="Toggle to show/hide this curve in the plot"
             )
-            curve_settings[file_name]['color'] = COLORS_NAMED[color_name]
+            st.session_state['curve_styles'][curve_key]['enabled'] = enabled
+            curve_settings[curve_key]['enabled'] = enabled
 
-        with col2:
-            marker_name = st.selectbox(
-                "Marker",
-                list(MARKERS_DICT.keys()),
-                index=list(MARKERS_DICT.keys()).index(
-                    st.session_state['curve_styles'][file_name]['marker']
-                ),
-                key=f"marker_{file_name}"
-            )
-            curve_settings[file_name]['marker'] = MARKERS_DICT[marker_name]
+            if not enabled:
+                st.info("⚠️ This curve is hidden. Enable to show in plot.")
+                curve_idx += 1
+                continue
 
-        with col3:
-            linestyle_name = st.selectbox(
-                "Line Style",
-                list(LINESTYLES_DICT.keys()),
-                index=list(LINESTYLES_DICT.keys()).index(
-                    st.session_state['curve_styles'][file_name]['linestyle']
-                ),
-                key=f"linestyle_{file_name}"
-            )
-            curve_settings[file_name]['linestyle'] = LINESTYLES_DICT[linestyle_name]
+            st.divider()
+            col1, col2, col3, col4, col5 = st.columns(5)
 
-        with col4:
-            linewidth = st.slider(
-                "Line Width",
-                0.5, 5.0,
-                st.session_state['curve_styles'][file_name]['linewidth'],
-                0.5,
-                key=f"linewidth_{file_name}"
-            )
-            curve_settings[file_name]['linewidth'] = linewidth
+            with col1:
+                color_name = st.selectbox(
+                    "Color",
+                    list(COLORS_NAMED.keys()),
+                    index=list(COLORS_NAMED.keys()).index(
+                        st.session_state['curve_styles'][curve_key]['color']
+                    ),
+                    key=f"color_{curve_key}"
+                )
+                curve_settings[curve_key]['color'] = COLORS_NAMED[color_name]
 
-        with col5:
-            alpha = st.slider(
-                "Opacity",
-                0.1, 1.0,
-                st.session_state['curve_styles'][file_name]['alpha'],
-                0.1,
-                key=f"alpha_{file_name}"
-            )
-            curve_settings[file_name]['alpha'] = alpha
+            with col2:
+                marker_name = st.selectbox(
+                    "Marker",
+                    list(MARKERS_DICT.keys()),
+                    index=list(MARKERS_DICT.keys()).index(
+                        st.session_state['curve_styles'][curve_key]['marker']
+                    ),
+                    key=f"marker_{curve_key}"
+                )
+                curve_settings[curve_key]['marker'] = MARKERS_DICT[marker_name]
 
-        # Update session state
-        st.session_state['curve_styles'][file_name].update({
-            'color': color_name,
-            'marker': marker_name,
-            'linestyle': linestyle_name,
-            'linewidth': linewidth,
-            'alpha': alpha
-        })
+            with col3:
+                linestyle_name = st.selectbox(
+                    "Line Style",
+                    list(LINESTYLES_DICT.keys()),
+                    index=list(LINESTYLES_DICT.keys()).index(
+                        st.session_state['curve_styles'][curve_key]['linestyle']
+                    ),
+                    key=f"linestyle_{curve_key}"
+                )
+                curve_settings[curve_key]['linestyle'] = LINESTYLES_DICT[linestyle_name]
+
+            with col4:
+                linewidth = st.slider(
+                    "Line Width",
+                    0.5, 5.0,
+                    st.session_state['curve_styles'][curve_key]['linewidth'],
+                    0.5,
+                    key=f"linewidth_{curve_key}"
+                )
+                curve_settings[curve_key]['linewidth'] = linewidth
+
+            with col5:
+                alpha = st.slider(
+                    "Opacity",
+                    0.1, 1.0,
+                    st.session_state['curve_styles'][curve_key]['alpha'],
+                    0.1,
+                    key=f"alpha_{curve_key}"
+                )
+                curve_settings[curve_key]['alpha'] = alpha
+
+            # Update session state
+            st.session_state['curve_styles'][curve_key].update({
+                'color': color_name,
+                'marker': marker_name,
+                'linestyle': linestyle_name,
+                'linewidth': linewidth,
+                'alpha': alpha
+            })
+
+        curve_idx += 1
 
 # ---------------------------------------------------------------------------
 # Plot
@@ -452,31 +533,36 @@ if use_plotly:
     fig = go.Figure()
 
     plotted_count = 0
-    for file_name, df in dataframes.items():
-        # Check if enabled
-        if not curve_settings.get(file_name, {}).get('enabled', True):
-            continue
+    for file_name, y_cols in file_y_columns.items():
+        df = dataframes[file_name]
 
-        # Check if columns exist
-        if x_col not in df.columns or y_col not in df.columns:
-            st.warning(f"⚠️ {file_name}: missing columns {x_col} or {y_col}")
-            continue
+        for y_col in y_cols:
+            curve_key = f"{file_name}::{y_col}"
 
-        # Get data
-        x_data = df[x_col].values
-        y_data = df[y_col].values
+            # Check if enabled
+            if not curve_settings.get(curve_key, {}).get('enabled', True):
+                continue
 
-        # Remove NaN
-        mask = ~(np.isnan(x_data) | np.isnan(y_data))
-        x_data = x_data[mask]
-        y_data = y_data[mask]
+            # Check if columns exist
+            if x_col not in df.columns or y_col not in df.columns:
+                st.warning(f"⚠️ {file_name}, {y_col}: missing columns")
+                continue
 
-        if len(x_data) == 0:
-            st.warning(f"⚠️ {file_name}: no valid data")
-            continue
+            # Get data
+            x_data = df[x_col].values
+            y_data = df[y_col].values
 
-        # Get styling
-        style = curve_settings.get(file_name, {})
+            # Remove NaN
+            mask = ~(np.isnan(x_data) | np.isnan(y_data))
+            x_data = x_data[mask]
+            y_data = y_data[mask]
+
+            if len(x_data) == 0:
+                st.warning(f"⚠️ {file_name}, {y_col}: no valid data")
+                continue
+
+            # Get styling
+            style = curve_settings.get(curve_key, {})
 
         # Map matplotlib markers to plotly symbols
         marker_map = {
@@ -504,11 +590,12 @@ if use_plotly:
             mode = 'lines'
 
         # Add trace
+        trace_name = f"{shorten_path(file_name, 20)}: {y_col}"
         fig.add_trace(go.Scatter(
             x=x_data,
             y=y_data,
             mode=mode,
-            name=shorten_path(file_name, 30),
+            name=trace_name,
             line=dict(
                 color=style.get('color', '#1f77b4'),
                 width=style.get('linewidth', 2.0),
@@ -569,52 +656,59 @@ else:
     fig, ax = plt.subplots(figsize=(12, 7))
 
     plotted_count = 0
-    for file_name, df in dataframes.items():
-        # Check if enabled
-        if not curve_settings.get(file_name, {}).get('enabled', True):
-            continue
+    for file_name, y_cols in file_y_columns.items():
+        df = dataframes[file_name]
 
-        # Check if columns exist
-        if x_col not in df.columns or y_col not in df.columns:
-            st.warning(f"⚠️ {file_name}: missing columns {x_col} or {y_col}")
-            continue
+        for y_col in y_cols:
+            curve_key = f"{file_name}::{y_col}"
 
-        # Get data
-        x_data = df[x_col].values
-        y_data = df[y_col].values
+            # Check if enabled
+            if not curve_settings.get(curve_key, {}).get('enabled', True):
+                continue
 
-        # Remove NaN
-        mask = ~(np.isnan(x_data) | np.isnan(y_data))
-        x_data = x_data[mask]
-        y_data = y_data[mask]
+            # Check if columns exist
+            if x_col not in df.columns or y_col not in df.columns:
+                st.warning(f"⚠️ {file_name}, {y_col}: missing columns")
+                continue
 
-        if len(x_data) == 0:
-            st.warning(f"⚠️ {file_name}: no valid data")
-            continue
+            # Get data
+            x_data = df[x_col].values
+            y_data = df[y_col].values
 
-        # Get styling
-        style = curve_settings.get(file_name, {})
+            # Remove NaN
+            mask = ~(np.isnan(x_data) | np.isnan(y_data))
+            x_data = x_data[mask]
+            y_data = y_data[mask]
 
-        # Plot
-        marker = style.get('marker', 'None')
-        marker = None if marker == 'None' else marker
+            if len(x_data) == 0:
+                st.warning(f"⚠️ {file_name}, {y_col}: no valid data")
+                continue
 
-        linestyle = style.get('linestyle', '-')
-        linestyle = '' if linestyle == 'None' else linestyle
+            # Get styling
+            style = curve_settings.get(curve_key, {})
 
-        ax.plot(
-            x_data, y_data,
-            color=style.get('color', '#1f77b4'),
-            marker=marker,
-            linestyle=linestyle,
-            linewidth=style.get('linewidth', 2.0),
-            alpha=style.get('alpha', 0.8),
-            label=shorten_path(file_name, 30),
-            markersize=6,
-            markevery=max(1, len(x_data)//20) if marker else None
-        )
+            # Plot
+            marker = style.get('marker', 'None')
+            marker = None if marker == 'None' else marker
 
-        plotted_count += 1
+            linestyle = style.get('linestyle', '-')
+            linestyle = '' if linestyle == 'None' else linestyle
+
+            trace_label = f"{shorten_path(file_name, 20)}: {y_col}"
+
+            ax.plot(
+                x_data, y_data,
+                color=style.get('color', '#1f77b4'),
+                marker=marker,
+                linestyle=linestyle,
+                linewidth=style.get('linewidth', 2.0),
+                alpha=style.get('alpha', 0.8),
+                label=trace_label,
+                markersize=6,
+                markevery=max(1, len(x_data)//20) if marker else None
+            )
+
+            plotted_count += 1
 
     if plotted_count == 0:
         st.error("No curves enabled. Enable curves in Per-Curve Styling section.")
