@@ -19,6 +19,12 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from pathlib import Path  # noqa: E402
 import io  # noqa: E402
+import sys  # noqa: E402
+import plotly.graph_objects as go  # noqa: E402
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.folder_browser import folder_browser  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Styling options
@@ -170,37 +176,32 @@ with st.sidebar:
                     st.error(f"Error loading {uploaded_file.name}: {e}")
 
     else:  # Browse server
-        default_dir = str(Path.cwd())
-        server_dir = st.text_input("Server directory", value=default_dir)
+        st.markdown("**🗂️ Interactive Folder Browser**")
+        st.markdown("Click folders to navigate, select files with checkboxes:")
 
-        pattern = st.text_input("File pattern", value="*.csv",
-                               help="e.g., *.csv, *.npz, data*.txt")
+        # File pattern selector
+        pattern = st.selectbox(
+            "File type",
+            ["*.csv", "*.npz", "*.txt", "*.dat", "*.*"],
+            help="Filter files by pattern"
+        )
 
-        if st.button("🔍 Search"):
-            found_files = browse_directory(server_dir, pattern)
-            st.session_state['found_files_csv'] = found_files
+        # Use folder browser component
+        selected_files = folder_browser(
+            key="csv_plotter_browser",
+            show_files=True,
+            file_pattern=pattern,
+            multi_select=True
+        )
 
-        if 'found_files_csv' in st.session_state and st.session_state['found_files_csv']:
-            found_files = st.session_state['found_files_csv']
-            if found_files:
-                st.success(f"Found {len(found_files)} files")
-
-                # Show shortened paths in selector
-                file_display = {shorten_path(f, 50): f for f in found_files}
-
-                selected_display = st.multiselect(
-                    "Select files",
-                    list(file_display.keys()),
-                    help="Select files to plot (showing shortened paths)"
-                )
-
-                for display_name in selected_display:
-                    full_path = file_display[display_name]
-                    df = load_data_file(full_path)
-                    if df is not None:
-                        file_name = Path(full_path).name
-                        dataframes[file_name] = df
-                        file_paths[file_name] = full_path
+        # Load button
+        if selected_files and st.button("📥 Load Selected Files", key="csv_load_btn"):
+            for full_path in selected_files:
+                df = load_data_file(full_path)
+                if df is not None:
+                    file_name = Path(full_path).name
+                    dataframes[file_name] = df
+                    file_paths[file_name] = full_path
 
     if not dataframes:
         st.info("👆 Upload or select files to get started")
@@ -263,12 +264,42 @@ with st.sidebar:
 
     st.header("⚙️ Global Controls")
 
+    # Plot mode
+    plot_mode = st.radio(
+        "Plot mode",
+        ["Interactive (Plotly)", "Static (Matplotlib)"],
+        horizontal=True,
+        help="Plotly shows values on hover! Matplotlib is static but publication-ready."
+    )
+    use_plotly = plot_mode.startswith("Interactive")
+
     # Scale
     col1, col2 = st.columns(2)
     with col1:
         x_scale = st.radio("X Scale", ["linear", "log"], horizontal=True)
     with col2:
         y_scale = st.radio("Y Scale", ["linear", "log"], horizontal=True)
+
+    # Axis limits
+    with st.expander("📏 Axis Limits", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**X-axis limits:**")
+            use_xlim = st.checkbox("Set X limits", value=False)
+            if use_xlim:
+                xlim_min = st.number_input("X min", value=0.0, format="%.4f")
+                xlim_max = st.number_input("X max", value=100.0, format="%.4f")
+            else:
+                xlim_min, xlim_max = None, None
+
+        with col2:
+            st.markdown("**Y-axis limits:**")
+            use_ylim = st.checkbox("Set Y limits", value=False)
+            if use_ylim:
+                ylim_min = st.number_input("Y min", value=0.0, format="%.4f")
+                ylim_max = st.number_input("Y max", value=100.0, format="%.4f")
+            else:
+                ylim_min, ylim_max = None, None
 
     # Global style
     with st.expander("🎨 Global Style", expanded=False):
@@ -292,8 +323,6 @@ curve_settings = {}
 
 for file_name in dataframes.keys():
     with st.expander(f"🔧 {shorten_path(file_paths.get(file_name, file_name), 60)}", expanded=False):
-        col1, col2, col3, col4, col5 = st.columns(5)
-
         # Initialize defaults if not in session state
         if file_name not in st.session_state['curve_styles']:
             idx = list(dataframes.keys()).index(file_name)
@@ -302,8 +331,30 @@ for file_name in dataframes.keys():
                 'marker': list(MARKERS_DICT.keys())[idx % len(MARKERS_DICT)],
                 'linestyle': 'Solid',
                 'linewidth': 2.0,
-                'alpha': 0.8
+                'alpha': 0.8,
+                'enabled': True  # NEW: Enable/disable curve
             }
+
+        # Initialize curve_settings entry for this file
+        if file_name not in curve_settings:
+            curve_settings[file_name] = {}
+
+        # Enable/Disable checkbox (prominent position)
+        enabled = st.checkbox(
+            f"✅ Show this curve",
+            value=st.session_state['curve_styles'][file_name].get('enabled', True),
+            key=f"enabled_{file_name}",
+            help="Toggle to show/hide this curve in the plot"
+        )
+        st.session_state['curve_styles'][file_name]['enabled'] = enabled
+        curve_settings[file_name]['enabled'] = enabled
+
+        if not enabled:
+            st.info("⚠️ This curve is hidden. Enable to show in plot.")
+            continue  # Skip styling controls if disabled
+
+        st.divider()
+        col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             color_name = st.selectbox(
@@ -314,7 +365,7 @@ for file_name in dataframes.keys():
                 ),
                 key=f"color_{file_name}"
             )
-            curve_settings[file_name] = {'color': COLORS_NAMED[color_name]}
+            curve_settings[file_name]['color'] = COLORS_NAMED[color_name]
 
         with col2:
             marker_name = st.selectbox(
@@ -374,98 +425,276 @@ for file_name in dataframes.keys():
 st.divider()
 st.header(f"📈 Plot: {y_col} vs {x_col}")
 
-fig, ax = plt.subplots(figsize=(12, 7))
+if use_plotly:
+    # -------------------------------------------------------------------------
+    # Plotly Interactive Plot (with hover!)
+    # -------------------------------------------------------------------------
+    fig = go.Figure()
 
-plotted_count = 0
-for file_name, df in dataframes.items():
-    # Check if columns exist
-    if x_col not in df.columns or y_col not in df.columns:
-        st.warning(f"⚠️ {file_name}: missing columns {x_col} or {y_col}")
-        continue
+    plotted_count = 0
+    for file_name, df in dataframes.items():
+        # Check if enabled
+        if not curve_settings.get(file_name, {}).get('enabled', True):
+            continue
 
-    # Get data
-    x_data = df[x_col].values
-    y_data = df[y_col].values
+        # Check if columns exist
+        if x_col not in df.columns or y_col not in df.columns:
+            st.warning(f"⚠️ {file_name}: missing columns {x_col} or {y_col}")
+            continue
 
-    # Remove NaN
-    mask = ~(np.isnan(x_data) | np.isnan(y_data))
-    x_data = x_data[mask]
-    y_data = y_data[mask]
+        # Get data
+        x_data = df[x_col].values
+        y_data = df[y_col].values
 
-    if len(x_data) == 0:
-        st.warning(f"⚠️ {file_name}: no valid data")
-        continue
+        # Remove NaN
+        mask = ~(np.isnan(x_data) | np.isnan(y_data))
+        x_data = x_data[mask]
+        y_data = y_data[mask]
 
-    # Get styling
-    style = curve_settings.get(file_name, {})
+        if len(x_data) == 0:
+            st.warning(f"⚠️ {file_name}: no valid data")
+            continue
 
-    # Plot
-    marker = style.get('marker', 'None')
-    marker = None if marker == 'None' else marker
+        # Get styling
+        style = curve_settings.get(file_name, {})
 
-    linestyle = style.get('linestyle', '-')
-    linestyle = '' if linestyle == 'None' else linestyle
+        # Map matplotlib markers to plotly symbols
+        marker_map = {
+            'o': 'circle', 's': 'square', '^': 'triangle-up', 'v': 'triangle-down',
+            'D': 'diamond', 'p': 'pentagon', '*': 'star', 'h': 'hexagon',
+            '+': 'cross', 'x': 'x', '.': 'circle', 'None': None
+        }
 
-    ax.plot(
-        x_data, y_data,
-        color=style.get('color', '#1f77b4'),
-        marker=marker,
-        linestyle=linestyle,
-        linewidth=style.get('linewidth', 2.0),
-        alpha=style.get('alpha', 0.8),
-        label=shorten_path(file_name, 30),
-        markersize=6,
-        markevery=max(1, len(x_data)//20) if marker else None
+        # Map matplotlib linestyles to plotly dash
+        linestyle_map = {
+            '-': 'solid', '--': 'dash', '-.': 'dashdot', ':': 'dot', 'None': None
+        }
+
+        marker_style = marker_map.get(style.get('marker', 'o'), 'circle')
+        line_dash = linestyle_map.get(style.get('linestyle', '-'), 'solid')
+
+        # Determine mode
+        if marker_style and line_dash:
+            mode = 'lines+markers'
+        elif marker_style:
+            mode = 'markers'
+        elif line_dash:
+            mode = 'lines'
+        else:
+            mode = 'lines'
+
+        # Add trace
+        fig.add_trace(go.Scatter(
+            x=x_data,
+            y=y_data,
+            mode=mode,
+            name=shorten_path(file_name, 30),
+            line=dict(
+                color=style.get('color', '#1f77b4'),
+                width=style.get('linewidth', 2.0),
+                dash=line_dash if line_dash else 'solid'
+            ),
+            marker=dict(
+                symbol=marker_style if marker_style else 'circle',
+                size=8,
+                color=style.get('color', '#1f77b4')
+            ),
+            opacity=style.get('alpha', 0.8),
+            hovertemplate=f'<b>{x_col}</b>: %{{x:.4f}}<br><b>{y_col}</b>: %{{y:.4f}}<extra></extra>'
+        ))
+
+        plotted_count += 1
+
+    if plotted_count == 0:
+        st.error("No curves enabled. Enable curves in Per-Curve Styling section.")
+        st.stop()
+
+    # Apply settings
+    fig.update_xaxes(
+        title=x_label,
+        type='log' if x_scale == 'log' else 'linear',
+        range=[np.log10(xlim_min) if x_scale == 'log' and use_xlim and xlim_min > 0 else xlim_min,
+               np.log10(xlim_max) if x_scale == 'log' and use_xlim else xlim_max] if use_xlim else None,
+        showgrid=show_grid,
+        gridcolor='lightgray',
+        gridwidth=0.5
     )
 
-    plotted_count += 1
+    fig.update_yaxes(
+        title=y_label,
+        type='log' if y_scale == 'log' else 'linear',
+        range=[np.log10(ylim_min) if y_scale == 'log' and use_ylim and ylim_min > 0 else ylim_min,
+               np.log10(ylim_max) if y_scale == 'log' and use_ylim else ylim_max] if use_ylim else None,
+        showgrid=show_grid,
+        gridcolor='lightgray',
+        gridwidth=0.5
+    )
 
-if plotted_count == 0:
-    st.error("No data could be plotted. Check your column selections.")
-    st.stop()
+    fig.update_layout(
+        title=plot_title,
+        height=600,
+        hovermode='closest',
+        showlegend=show_legend,
+        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
+    )
 
-# Apply settings
-ax.set_xscale(x_scale)
-ax.set_yscale(y_scale)
-ax.set_xlabel(x_label, fontsize=12)
-ax.set_ylabel(y_label, fontsize=12)
-ax.set_title(plot_title, fontsize=14, fontweight='bold')
+    # Show plot
+    st.plotly_chart(fig, use_container_width=True)
+    st.success(f"✅ {plotted_count} curve(s) plotted. **Hover over curves to see (x,y) values!**")
 
-if show_grid:
-    ax.grid(True, alpha=0.3, linestyle='--')
+else:
+    # -------------------------------------------------------------------------
+    # Matplotlib Static Plot
+    # -------------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(12, 7))
 
-if show_legend and len(dataframes) > 1:
-    ax.legend(loc='best', framealpha=0.9, fontsize=9)
+    plotted_count = 0
+    for file_name, df in dataframes.items():
+        # Check if enabled
+        if not curve_settings.get(file_name, {}).get('enabled', True):
+            continue
 
-# Show plot
-st.pyplot(fig)
+        # Check if columns exist
+        if x_col not in df.columns or y_col not in df.columns:
+            st.warning(f"⚠️ {file_name}: missing columns {x_col} or {y_col}")
+            continue
+
+        # Get data
+        x_data = df[x_col].values
+        y_data = df[y_col].values
+
+        # Remove NaN
+        mask = ~(np.isnan(x_data) | np.isnan(y_data))
+        x_data = x_data[mask]
+        y_data = y_data[mask]
+
+        if len(x_data) == 0:
+            st.warning(f"⚠️ {file_name}: no valid data")
+            continue
+
+        # Get styling
+        style = curve_settings.get(file_name, {})
+
+        # Plot
+        marker = style.get('marker', 'None')
+        marker = None if marker == 'None' else marker
+
+        linestyle = style.get('linestyle', '-')
+        linestyle = '' if linestyle == 'None' else linestyle
+
+        ax.plot(
+            x_data, y_data,
+            color=style.get('color', '#1f77b4'),
+            marker=marker,
+            linestyle=linestyle,
+            linewidth=style.get('linewidth', 2.0),
+            alpha=style.get('alpha', 0.8),
+            label=shorten_path(file_name, 30),
+            markersize=6,
+            markevery=max(1, len(x_data)//20) if marker else None
+        )
+
+        plotted_count += 1
+
+    if plotted_count == 0:
+        st.error("No curves enabled. Enable curves in Per-Curve Styling section.")
+        st.stop()
+
+    # Apply settings
+    ax.set_xscale(x_scale)
+    ax.set_yscale(y_scale)
+    ax.set_xlabel(x_label, fontsize=12)
+    ax.set_ylabel(y_label, fontsize=12)
+    ax.set_title(plot_title, fontsize=14, fontweight='bold')
+
+    # Set axis limits
+    if use_xlim:
+        ax.set_xlim(xlim_min, xlim_max)
+    if use_ylim:
+        ax.set_ylim(ylim_min, ylim_max)
+
+    if show_grid:
+        ax.grid(True, alpha=0.3, linestyle='--')
+
+    if show_legend and len(dataframes) > 1:
+        ax.legend(loc='best', framealpha=0.9, fontsize=9)
+
+    # Show plot
+    st.pyplot(fig)
+    st.info(f"✅ {plotted_count} curve(s) plotted. Switch to 'Interactive (Plotly)' mode to see hover values!")
 
 # Export
 st.divider()
-col1, col2, col3 = st.columns([2, 1, 1])
 
-with col1:
-    buf = _save_fig_to_bytes(fig, dpi=300)
-    st.download_button(
-        label="💾 Download Plot (PNG, 300 DPI)",
-        data=buf,
-        file_name=f"plot_{x_col}_vs_{y_col}.png",
-        mime="image/png"
-    )
+if use_plotly:
+    # Plotly export
+    col1, col2, col3, col4 = st.columns(4)
 
-with col2:
-    buf_svg = _save_fig_to_bytes(fig, format='svg')
-    st.download_button(
-        label="💾 Download (SVG)",
-        data=buf_svg,
-        file_name=f"plot_{x_col}_vs_{y_col}.svg",
-        mime="image/svg+xml"
-    )
+    with col1:
+        html_buffer = io.StringIO()
+        fig.write_html(html_buffer)
+        html_bytes = html_buffer.getvalue().encode()
+        st.download_button(
+            label="💾 Download HTML",
+            data=html_bytes,
+            file_name=f"plot_{x_col}_vs_{y_col}.html",
+            mime="text/html",
+            help="Interactive plot - preserves hover functionality!"
+        )
 
-with col3:
-    st.metric("Curves", plotted_count)
+    with col2:
+        try:
+            img_bytes = fig.to_image(format="png", width=1200, height=800)
+            st.download_button(
+                label="💾 Download PNG",
+                data=img_bytes,
+                file_name=f"plot_{x_col}_vs_{y_col}.png",
+                mime="image/png"
+            )
+        except:
+            st.info("Install kaleido for PNG export")
 
-plt.close(fig)
+    with col3:
+        try:
+            img_bytes = fig.to_image(format="svg")
+            st.download_button(
+                label="💾 Download SVG",
+                data=img_bytes,
+                file_name=f"plot_{x_col}_vs_{y_col}.svg",
+                mime="image/svg+xml"
+            )
+        except:
+            st.info("Install kaleido for SVG export")
+
+    with col4:
+        st.metric("Curves", plotted_count)
+
+else:
+    # Matplotlib export
+    col1, col2, col3 = st.columns([2, 1, 1])
+
+    with col1:
+        buf = _save_fig_to_bytes(fig, dpi=300)
+        st.download_button(
+            label="💾 Download Plot (PNG, 300 DPI)",
+            data=buf,
+            file_name=f"plot_{x_col}_vs_{y_col}.png",
+            mime="image/png"
+        )
+
+    with col2:
+        buf_svg = _save_fig_to_bytes(fig, format='svg')
+        st.download_button(
+            label="💾 Download (SVG)",
+            data=buf_svg,
+            file_name=f"plot_{x_col}_vs_{y_col}.svg",
+            mime="image/svg+xml"
+        )
+
+    with col3:
+        st.metric("Curves", plotted_count)
+
+    plt.close(fig)
 
 # ---------------------------------------------------------------------------
 # Data Preview & Statistics

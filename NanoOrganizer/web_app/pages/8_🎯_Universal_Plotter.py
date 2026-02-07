@@ -17,6 +17,11 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import io
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.folder_browser import folder_browser
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -273,25 +278,32 @@ with st.sidebar:
                     st.error(f"Error loading {uploaded_file.name}: {e}")
 
     elif data_source == "Browse server":
-        default_dir = str(Path.cwd())
-        server_dir = st.text_input("Server directory", value=default_dir)
-        pattern = st.text_input("File pattern", value="*.csv")
+        st.markdown("**🗂️ Interactive Folder Browser**")
+        st.markdown("Navigate by clicking folders below:")
 
-        if st.button("🔍 Search"):
-            found_files = browse_directory(server_dir, pattern)
-            st.session_state['found_files'] = found_files
+        # File pattern selector
+        pattern = st.selectbox(
+            "File type",
+            ["*.csv", "*.npz", "*.npy", "*.txt", "*.dat", "*.*"],
+            help="Filter files by pattern"
+        )
 
-        if 'found_files' in st.session_state and st.session_state['found_files']:
-            selected_files = st.multiselect(
-                "Select files",
-                st.session_state['found_files']
-            )
+        # Use folder browser component
+        selected_files = folder_browser(
+            key="universal_plotter_browser",
+            show_files=True,
+            file_pattern=pattern,
+            multi_select=True
+        )
 
+        # Load button
+        if selected_files and st.button("📥 Load Selected Files"):
             for file_path in selected_files:
                 df = load_data_file(file_path)
                 if df is not None:
                     file_name = Path(file_path).name
                     st.session_state['loaded_data'][file_name] = df
+                    st.success(f"✅ Loaded {file_name}")
 
     else:  # Generate synthetic
         st.markdown("**Quick test data:**")
