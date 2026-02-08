@@ -114,17 +114,25 @@ def make_plotly_heatmap(display_data, original_data, title, cmap, vmin, vmax,
     colorscale = _PLOTLY_CMAP.get(cmap, 'Viridis')
     colorbar_title = "log₁₀(I)" if use_log else "Intensity"
 
+    # For Heatmap, customdata must be 3D (M x N x K) — access via %{customdata[0]}
+    custom_3d = original_data[:, :, np.newaxis]
+
+    hover_parts = ['x: %{x}', 'y: %{y}']
+    if use_log:
+        hover_parts.append('Intensity: %{customdata[0]:.4g}')
+        hover_parts.append('log₁₀(I): %{z:.3f}')
+    else:
+        hover_parts.append('Intensity: %{customdata[0]:.4g}')
+    hover = '<br>'.join(hover_parts) + '<extra></extra>'
+
     fig = go.Figure(go.Heatmap(
         z=display_data,
         zmin=vmin,
         zmax=vmax,
         colorscale=colorscale,
         colorbar=dict(title=colorbar_title),
-        customdata=original_data,
-        hovertemplate=(
-            'x: %{x}<br>y: %{y}<br>'
-            'Intensity: %{customdata:.4g}<extra></extra>'
-        ),
+        customdata=custom_3d,
+        hovertemplate=hover,
     ))
 
     fig.update_layout(
@@ -163,16 +171,19 @@ def make_plotly_grid(image_list, name_list, cmap, use_log, auto_contrast,
         display_data, _ = prepare_display_data(img, use_log)
         vmin, vmax = calc_intensity_range(display_data, auto_contrast, vmin_pct, vmax_pct)
 
+        # customdata must be 3D for Heatmap
+        custom_3d = img.astype(np.float64)[:, :, np.newaxis]
+
         fig.add_trace(
             go.Heatmap(
                 z=display_data,
                 zmin=vmin, zmax=vmax,
                 colorscale=colorscale,
-                customdata=img,
+                customdata=custom_3d,
                 hovertemplate=(
                     f'<b>{name}</b><br>'
                     'x: %{x}  y: %{y}<br>'
-                    'Intensity: %{customdata:.4g}<extra></extra>'
+                    'Intensity: %{customdata[0]:.4g}<extra></extra>'
                 ),
                 showscale=(idx == 0),
             ),
