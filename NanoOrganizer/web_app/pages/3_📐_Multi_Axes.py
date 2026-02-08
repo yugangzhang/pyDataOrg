@@ -148,7 +148,7 @@ with st.sidebar:
         st.markdown("**📋 File Type Filter:**")
         pattern = st.selectbox(
             "Extension pattern",
-            ["*.csv", "*.npz", "*.txt", "*.dat", "*.*"],
+            ["*.*", "*.csv", "*.npz", "*.txt", "*.dat"],
             help="Filter files by extension",
             label_visibility="collapsed"
         )
