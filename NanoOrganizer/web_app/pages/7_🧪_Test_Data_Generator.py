@@ -8,11 +8,17 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import json
+import sys
 
-st.set_page_config(page_title="Test Data Generator", page_icon="🧪", layout="wide")
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.floating_button import floating_sidebar_toggle
 
 st.title("🧪 Test Data Generator")
 st.markdown("Create comprehensive simulated data for testing all tools")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
 
 # ---------------------------------------------------------------------------
 # Configuration

@@ -18,6 +18,12 @@ import streamlit as st  # noqa: E402
 import numpy as np  # noqa: E402
 from pathlib import Path  # noqa: E402
 import io  # noqa: E402
+import sys  # noqa: E402
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.folder_browser import folder_browser  # noqa: E402
+from components.floating_button import floating_sidebar_toggle  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -72,9 +78,17 @@ def _save_fig_to_bytes(fig, format='png', dpi=300):
 # Main App
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="2D Image Viewer", layout="wide")
 st.title("🖼️ 2D Image Viewer")
 st.markdown("Dedicated viewer for 2D images, detector data, and image stacks")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
+
+# Session state for persistent data
+if 'images_viewer' not in st.session_state:
+    st.session_state['images_viewer'] = {}
+if 'image_paths_viewer' not in st.session_state:
+    st.session_state['image_paths_viewer'] = {}
 
 # ---------------------------------------------------------------------------
 # Sidebar: Load Images
@@ -88,9 +102,6 @@ with st.sidebar:
         ["Upload files", "Browse server"],
         help="Upload images or browse server filesystem"
     )
-
-    images = {}  # {filename: image_array}
-    file_paths = {}
 
     if data_source == "Upload files":
         uploaded_files = st.file_uploader(
@@ -109,38 +120,54 @@ with st.sidebar:
 
                     img = load_image(str(temp_path))
                     if img is not None:
-                        images[uploaded_file.name] = img
-                        file_paths[uploaded_file.name] = uploaded_file.name
+                        st.session_state['images_viewer'][uploaded_file.name] = img
+                        st.session_state['image_paths_viewer'][uploaded_file.name] = uploaded_file.name
                 except Exception as e:
                     st.error(f"Error: {e}")
 
     else:  # Browse server
-        server_dir = st.text_input("Server directory", value=str(Path.cwd()))
-        pattern = st.text_input("File pattern", value="*.npy",
-                               help="e.g., *.npy, *.png, *.tif")
+        st.markdown("**🗂️ Interactive Folder Browser**")
+        st.markdown("Click folders to navigate, select files with checkboxes:")
 
-        if st.button("🔍 Search"):
-            found_files = browse_directory(server_dir, pattern)
-            st.session_state['found_images'] = found_files
+        # File pattern selector
+        st.markdown("**📋 File Type Filter:**")
+        pattern = st.selectbox(
+            "Extension pattern",
+            ["*.npy", "*.npz", "*.png", "*.tif", "*.tiff", "*.jpg", "*.*"],
+            help="Filter files by extension",
+            label_visibility="collapsed"
+        )
 
-        if 'found_images' in st.session_state and st.session_state['found_images']:
-            found_files = st.session_state['found_images']
-            if found_files:
-                st.success(f"Found {len(found_files)} files")
+        st.info("💡 Tip: Use '🔍 Advanced Filters' below for name-based filtering")
 
-                selected_files = st.multiselect(
-                    "Select files",
-                    found_files,
-                    default=found_files[:min(5, len(found_files))],
-                    help="Select image files to load"
-                )
+        # Use folder browser component
+        selected_files = folder_browser(
+            key="image_viewer_browser",
+            show_files=True,
+            file_pattern=pattern,
+            multi_select=True
+        )
 
-                for file_path in selected_files:
-                    img = load_image(file_path)
-                    if img is not None:
-                        file_name = Path(file_path).name
-                        images[file_name] = img
-                        file_paths[file_name] = file_path
+        # Load button
+        if selected_files and st.button("📥 Load Selected Files", key="img_load_btn"):
+            for full_path in selected_files:
+                img = load_image(full_path)
+                if img is not None:
+                    file_name = Path(full_path).name
+                    st.session_state['images_viewer'][file_name] = img
+                    st.session_state['image_paths_viewer'][file_name] = full_path
+                    st.success(f"✅ Loaded {file_name}")
+
+    # Get images from session state
+    images = st.session_state['images_viewer']
+    file_paths = st.session_state['image_paths_viewer']
+
+    # Clear button
+    if images:
+        if st.button("🗑️ Clear All Images", key="clear_img_data"):
+            st.session_state['images_viewer'] = {}
+            st.session_state['image_paths_viewer'] = {}
+            st.rerun()
 
     if not images:
         st.info("👆 Upload or select images to get started")

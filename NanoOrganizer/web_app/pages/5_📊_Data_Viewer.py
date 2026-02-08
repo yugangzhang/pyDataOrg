@@ -22,6 +22,11 @@ import streamlit as st            # noqa: E402
 import numpy as np                # noqa: E402
 from pathlib import Path          # noqa: E402
 import io                          # noqa: E402
+import sys                         # noqa: E402
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.floating_button import floating_sidebar_toggle  # noqa: E402
 
 from NanoOrganizer import DataOrganizer                       # noqa: E402
 from NanoOrganizer.viz import PLOTTER_REGISTRY                # noqa: E402
@@ -114,8 +119,10 @@ def _save_fig_to_bytes(fig, format='png', dpi=300):
 # main app
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="NanoOrganizer Viz", layout="wide")
 st.title("NanoOrganizer — Data Browser")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
 
 # ---- sidebar: data directory & load ----------------------------------------
 with st.sidebar:

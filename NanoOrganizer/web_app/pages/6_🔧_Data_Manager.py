@@ -16,6 +16,11 @@ import streamlit as st  # noqa: E402
 from pathlib import Path  # noqa: E402
 import json  # noqa: E402
 from datetime import datetime  # noqa: E402
+import sys  # noqa: E402
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.floating_button import floating_sidebar_toggle  # noqa: E402
 
 from NanoOrganizer import (  # noqa: E402
     DataOrganizer, RunMetadata, ReactionParams, ChemicalSpec,
@@ -104,9 +109,11 @@ if 'chemicals_list' not in st.session_state:
 # Main App
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Data Manager", layout="wide")
 st.title("🔧 NanoOrganizer Data Manager")
 st.markdown("Create projects, add metadata, and link experimental data")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
 
 # ---------------------------------------------------------------------------
 # Sidebar: Project Management

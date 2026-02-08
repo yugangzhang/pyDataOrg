@@ -12,11 +12,18 @@ from pathlib import Path
 import plotly.graph_objects as go
 import plotly.express as px
 from scipy.interpolate import griddata
+import sys
 
-st.set_page_config(page_title="3D Plotter", page_icon="📈", layout="wide")
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.folder_browser import folder_browser
+from components.floating_button import floating_sidebar_toggle
 
 st.title("📈 Interactive 3D Plotter (Plotly)")
 st.markdown("XYZ + Color dimension - Fully interactive and rotatable!")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -106,20 +113,37 @@ with st.sidebar:
             df = load_data_file(str(temp_path))
 
     elif data_source == "Browse server":
-        server_dir = st.text_input("Server directory", value=str(Path.cwd()))
-        pattern = st.text_input("File pattern", value="*.csv")
+        st.markdown("**🗂️ Interactive Folder Browser**")
+        st.markdown("Click folders to navigate, select file:")
 
-        if st.button("🔍 Search"):
-            found_files = browse_directory(server_dir, pattern)
-            st.session_state['found_3d_files'] = found_files
+        # File pattern selector
+        st.markdown("**📋 File Type Filter:**")
+        pattern = st.selectbox(
+            "Extension pattern",
+            ["*.csv", "*.npz", "*.txt", "*.dat", "*.*"],
+            help="Filter files by extension",
+            label_visibility="collapsed"
+        )
 
-        if 'found_3d_files' in st.session_state and st.session_state['found_3d_files']:
-            found_files = st.session_state['found_3d_files']
-            if found_files:
-                st.success(f"Found {len(found_files)} files")
-                selected_file = st.selectbox("Select file", found_files)
-                if selected_file:
-                    df = load_data_file(selected_file)
+        st.info("💡 Tip: Use '🔍 Advanced Filters' below for name-based filtering")
+
+        # Use folder browser component (single select for 3D)
+        selected_files = folder_browser(
+            key="3d_plotter_browser",
+            show_files=True,
+            file_pattern=pattern,
+            multi_select=False
+        )
+
+        # Load button
+        if selected_files and st.button("📥 Load Selected File", key="3d_load_btn"):
+            df = load_data_file(selected_files[0])
+            if df is not None:
+                st.session_state['loaded_3d_df'] = df
+                st.success(f"✅ Loaded {Path(selected_files[0]).name}")
+
+        if 'loaded_3d_df' in st.session_state:
+            df = st.session_state['loaded_3d_df']
 
     else:  # Generate synthetic
         st.subheader("Synthetic Data")

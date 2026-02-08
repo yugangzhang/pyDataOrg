@@ -25,6 +25,7 @@ import plotly.graph_objects as go  # noqa: E402
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.folder_browser import folder_browser  # noqa: E402
+from components.floating_button import floating_sidebar_toggle  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Styling options
@@ -138,47 +139,11 @@ if 'file_paths_csv' not in st.session_state:
 # Main App
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Enhanced CSV Plotter", layout="wide")
-
-# Add custom CSS and JavaScript for bottom sidebar toggle
-st.markdown("""
-<style>
-.bottom-toggle-btn {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    z-index: 999;
-    background-color: #ff4b4b;
-    color: white;
-    padding: 10px 18px;
-    border-radius: 25px;
-    font-size: 18px;
-    border: none;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-    cursor: pointer;
-    transition: all 0.3s;
-}
-.bottom-toggle-btn:hover {
-    background-color: #ff6b6b;
-    transform: scale(1.1);
-}
-</style>
-
-<button class="bottom-toggle-btn" onclick="
-    // Find and click the Streamlit sidebar toggle button
-    const toggleButton = window.parent.document.querySelector('[data-testid=\\'collapsedControl\\']');
-    if (toggleButton) {
-        toggleButton.click();
-    } else {
-        // If sidebar is open, find the close button
-        const closeButton = window.parent.document.querySelector('[kind=\\'header\\'] button');
-        if (closeButton) closeButton.click();
-    }
-">☰</button>
-""", unsafe_allow_html=True)
-
 st.title("📊 Enhanced CSV/NPZ Plotter")
 st.markdown("Quick visualization with per-curve styling - supports CSV, TXT, DAT, NPZ")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
 
 # ---------------------------------------------------------------------------
 # Sidebar: Data Source
@@ -524,7 +489,12 @@ for file_name, y_cols in file_y_columns.items():
 # ---------------------------------------------------------------------------
 
 st.divider()
-st.header(f"📈 Plot: {y_col} vs {x_col}")
+st.header(f"📈 Plot: Y columns vs {x_col}")
+
+# Debug: Show what will be plotted
+with st.expander("🔍 Debug: Curves to Plot", expanded=False):
+    for fname, ycols in file_y_columns.items():
+        st.write(f"**{fname}**: {len(ycols)} columns → {', '.join(ycols)}")
 
 if use_plotly:
     # -------------------------------------------------------------------------
@@ -533,6 +503,7 @@ if use_plotly:
     fig = go.Figure()
 
     plotted_count = 0
+    skipped_count = 0
     for file_name, y_cols in file_y_columns.items():
         df = dataframes[file_name]
 
@@ -541,6 +512,7 @@ if use_plotly:
 
             # Check if enabled
             if not curve_settings.get(curve_key, {}).get('enabled', True):
+                skipped_count += 1
                 continue
 
             # Check if columns exist
@@ -561,56 +533,56 @@ if use_plotly:
                 st.warning(f"⚠️ {file_name}, {y_col}: no valid data")
                 continue
 
-            # Get styling
+                # Get styling
             style = curve_settings.get(curve_key, {})
 
-        # Map matplotlib markers to plotly symbols
-        marker_map = {
-            'o': 'circle', 's': 'square', '^': 'triangle-up', 'v': 'triangle-down',
-            'D': 'diamond', 'p': 'pentagon', '*': 'star', 'h': 'hexagon',
-            '+': 'cross', 'x': 'x', '.': 'circle', 'None': None
-        }
+            # Map matplotlib markers to plotly symbols
+            marker_map = {
+                'o': 'circle', 's': 'square', '^': 'triangle-up', 'v': 'triangle-down',
+                'D': 'diamond', 'p': 'pentagon', '*': 'star', 'h': 'hexagon',
+                '+': 'cross', 'x': 'x', '.': 'circle', 'None': None
+            }
 
-        # Map matplotlib linestyles to plotly dash
-        linestyle_map = {
-            '-': 'solid', '--': 'dash', '-.': 'dashdot', ':': 'dot', 'None': None
-        }
+            # Map matplotlib linestyles to plotly dash
+            linestyle_map = {
+                '-': 'solid', '--': 'dash', '-.': 'dashdot', ':': 'dot', 'None': None
+            }
 
-        marker_style = marker_map.get(style.get('marker', 'o'), 'circle')
-        line_dash = linestyle_map.get(style.get('linestyle', '-'), 'solid')
+            marker_style = marker_map.get(style.get('marker', 'o'), 'circle')
+            line_dash = linestyle_map.get(style.get('linestyle', '-'), 'solid')
 
-        # Determine mode
-        if marker_style and line_dash:
-            mode = 'lines+markers'
-        elif marker_style:
-            mode = 'markers'
-        elif line_dash:
-            mode = 'lines'
-        else:
-            mode = 'lines'
+            # Determine mode
+            if marker_style and line_dash:
+                mode = 'lines+markers'
+            elif marker_style:
+                mode = 'markers'
+            elif line_dash:
+                mode = 'lines'
+            else:
+                mode = 'lines'
 
-        # Add trace
-        trace_name = f"{shorten_path(file_name, 20)}: {y_col}"
-        fig.add_trace(go.Scatter(
-            x=x_data,
-            y=y_data,
-            mode=mode,
-            name=trace_name,
-            line=dict(
-                color=style.get('color', '#1f77b4'),
-                width=style.get('linewidth', 2.0),
-                dash=line_dash if line_dash else 'solid'
-            ),
-            marker=dict(
-                symbol=marker_style if marker_style else 'circle',
-                size=8,
-                color=style.get('color', '#1f77b4')
-            ),
-            opacity=style.get('alpha', 0.8),
-            hovertemplate=f'<b>{x_col}</b>: %{{x:.4f}}<br><b>{y_col}</b>: %{{y:.4f}}<extra></extra>'
-        ))
+            # Add trace
+            trace_name = f"{shorten_path(file_name, 20)}: {y_col}"
+            fig.add_trace(go.Scatter(
+                x=x_data,
+                y=y_data,
+                mode=mode,
+                name=trace_name,
+                line=dict(
+                    color=style.get('color', '#1f77b4'),
+                    width=style.get('linewidth', 2.0),
+                    dash=line_dash if line_dash else 'solid'
+                ),
+                marker=dict(
+                    symbol=marker_style if marker_style else 'circle',
+                    size=8,
+                    color=style.get('color', '#1f77b4')
+                ),
+                opacity=style.get('alpha', 0.8),
+                hovertemplate=f'<b>{x_col}</b>: %{{x:.4f}}<br><b>{y_col}</b>: %{{y:.4f}}<extra></extra>'
+            ))
 
-        plotted_count += 1
+            plotted_count += 1
 
     if plotted_count == 0:
         st.error("No curves enabled. Enable curves in Per-Curve Styling section.")
@@ -647,7 +619,10 @@ if use_plotly:
 
     # Show plot
     st.plotly_chart(fig, use_container_width=True)
-    st.success(f"✅ {plotted_count} curve(s) plotted. **Hover over curves to see (x,y) values!**")
+    if skipped_count > 0:
+        st.success(f"✅ {plotted_count} curve(s) plotted. **Hover over curves to see (x,y) values!** ({skipped_count} disabled)")
+    else:
+        st.success(f"✅ {plotted_count} curve(s) plotted. **Hover over curves to see (x,y) values!**")
 
 else:
     # -------------------------------------------------------------------------
@@ -656,6 +631,7 @@ else:
     fig, ax = plt.subplots(figsize=(12, 7))
 
     plotted_count = 0
+    skipped_count = 0
     for file_name, y_cols in file_y_columns.items():
         df = dataframes[file_name]
 
@@ -664,6 +640,7 @@ else:
 
             # Check if enabled
             if not curve_settings.get(curve_key, {}).get('enabled', True):
+                skipped_count += 1
                 continue
 
             # Check if columns exist
@@ -735,7 +712,10 @@ else:
 
     # Show plot
     st.pyplot(fig)
-    st.info(f"✅ {plotted_count} curve(s) plotted. Switch to 'Interactive (Plotly)' mode to see hover values!")
+    if skipped_count > 0:
+        st.info(f"✅ {plotted_count} curve(s) plotted. Switch to 'Interactive (Plotly)' mode to see hover values! ({skipped_count} disabled)")
+    else:
+        st.info(f"✅ {plotted_count} curve(s) plotted. Switch to 'Interactive (Plotly)' mode to see hover values!")
 
 # Export
 st.divider()
@@ -827,20 +807,14 @@ with col1:
 with col2:
     with st.expander("📊 Statistics"):
         for file_name, df in dataframes.items():
-            if x_col in df.columns and y_col in df.columns:
+            y_cols_for_file = file_y_columns.get(file_name, [])
+            if x_col in df.columns and y_cols_for_file:
                 st.subheader(shorten_path(file_name, 50))
-                col_a, col_b = st.columns(2)
-
-                with col_a:
+                if x_col in df.columns:
                     st.markdown(f"**{x_col}**")
-                    st.text(f"Min:  {df[x_col].min():.4f}")
-                    st.text(f"Max:  {df[x_col].max():.4f}")
-                    st.text(f"Mean: {df[x_col].mean():.4f}")
-
-                with col_b:
-                    st.markdown(f"**{y_col}**")
-                    st.text(f"Min:  {df[y_col].min():.4f}")
-                    st.text(f"Max:  {df[y_col].max():.4f}")
-                    st.text(f"Mean: {df[y_col].mean():.4f}")
-
+                    st.text(f"  Min: {df[x_col].min():.4f}  Max: {df[x_col].max():.4f}  Mean: {df[x_col].mean():.4f}")
+                for yc in y_cols_for_file:
+                    if yc in df.columns:
+                        st.markdown(f"**{yc}**")
+                        st.text(f"  Min: {df[yc].min():.4f}  Max: {df[yc].max():.4f}  Mean: {df[yc].mean():.4f}")
                 st.divider()

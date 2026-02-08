@@ -22,6 +22,7 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.folder_browser import folder_browser
+from components.floating_button import floating_sidebar_toggle
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -215,6 +216,9 @@ if 'loaded_data' not in st.session_state:
 
 st.title("🎯 Universal Plotter")
 st.markdown("**Create integrated figures with 1D, 2D, and 3D plots - All interactive with hover values!**")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
 
 # ---------------------------------------------------------------------------
 # Sidebar: Layout & Data Loading

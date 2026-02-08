@@ -19,6 +19,12 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from pathlib import Path  # noqa: E402
 import io  # noqa: E402
+import sys  # noqa: E402
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from components.folder_browser import folder_browser  # noqa: E402
+from components.floating_button import floating_sidebar_toggle  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -85,13 +91,21 @@ def _save_fig_to_bytes(fig, format='png', dpi=300):
 if 'axes_assignments' not in st.session_state:
     st.session_state['axes_assignments'] = {}
 
+if 'dataframes_multi' not in st.session_state:
+    st.session_state['dataframes_multi'] = {}
+
+if 'file_paths_multi' not in st.session_state:
+    st.session_state['file_paths_multi'] = {}
+
 # ---------------------------------------------------------------------------
 # Main App
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Multi-Axes Plotter", layout="wide")
 st.title("📐 Multi-Axes Plotter")
 st.markdown("Create complex multi-panel figures with flexible layouts")
+
+# Floating sidebar toggle button (bottom-left)
+floating_sidebar_toggle()
 
 # ---------------------------------------------------------------------------
 # Sidebar: Load Data
@@ -104,9 +118,6 @@ with st.sidebar:
         "Data source",
         ["Upload files", "Browse server"]
     )
-
-    dataframes = {}
-    file_paths = {}
 
     if data_source == "Upload files":
         uploaded_files = st.file_uploader(
@@ -124,35 +135,55 @@ with st.sidebar:
 
                     df = load_data_file(str(temp_path))
                     if df is not None:
-                        dataframes[uploaded_file.name] = df
-                        file_paths[uploaded_file.name] = uploaded_file.name
+                        st.session_state['dataframes_multi'][uploaded_file.name] = df
+                        st.session_state['file_paths_multi'][uploaded_file.name] = uploaded_file.name
                 except Exception as e:
                     st.error(f"Error: {e}")
 
     else:  # Browse server
-        server_dir = st.text_input("Server directory", value=str(Path.cwd()))
-        pattern = st.text_input("File pattern", value="*.csv")
+        st.markdown("**🗂️ Interactive Folder Browser**")
+        st.markdown("Click folders to navigate, select files with checkboxes:")
 
-        if st.button("🔍 Search"):
-            found_files = browse_directory(server_dir, pattern)
-            st.session_state['found_files_multi'] = found_files
+        # File pattern selector
+        st.markdown("**📋 File Type Filter:**")
+        pattern = st.selectbox(
+            "Extension pattern",
+            ["*.csv", "*.npz", "*.txt", "*.dat", "*.*"],
+            help="Filter files by extension",
+            label_visibility="collapsed"
+        )
 
-        if 'found_files_multi' in st.session_state and st.session_state['found_files_multi']:
-            found_files = st.session_state['found_files_multi']
-            if found_files:
-                st.success(f"Found {len(found_files)} files")
+        st.info("💡 Tip: Use '🔍 Advanced Filters' below for name-based filtering")
 
-                selected_files = st.multiselect(
-                    "Select files",
-                    found_files
-                )
+        # Use folder browser component
+        selected_files = folder_browser(
+            key="multi_axes_browser",
+            show_files=True,
+            file_pattern=pattern,
+            multi_select=True
+        )
 
-                for file_path in selected_files:
-                    df = load_data_file(file_path)
-                    if df is not None:
-                        file_name = Path(file_path).name
-                        dataframes[file_name] = df
-                        file_paths[file_name] = file_path
+        # Load button
+        if selected_files and st.button("📥 Load Selected Files", key="multi_load_btn"):
+            for full_path in selected_files:
+                df = load_data_file(full_path)
+                if df is not None:
+                    file_name = Path(full_path).name
+                    st.session_state['dataframes_multi'][file_name] = df
+                    st.session_state['file_paths_multi'][file_name] = full_path
+                    st.success(f"✅ Loaded {file_name}")
+
+    # Get dataframes from session state
+    dataframes = st.session_state['dataframes_multi']
+    file_paths = st.session_state['file_paths_multi']
+
+    # Clear button
+    if dataframes:
+        if st.button("🗑️ Clear All Data", key="clear_multi_data"):
+            st.session_state['dataframes_multi'] = {}
+            st.session_state['file_paths_multi'] = {}
+            st.session_state['axes_assignments'] = {}
+            st.rerun()
 
     if not dataframes:
         st.info("👆 Upload or select data files to get started")
