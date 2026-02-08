@@ -5,20 +5,26 @@
 Features:
 - Load image stacks (NPY, PNG, TIF, etc.)
 - Browse through frames
+- Interactive (Plotly) and Static (Matplotlib) modes
+- Log scale display
 - Colormap selection
 - Intensity adjustment
 - Side-by-side comparison
+- Export: PNG, SVG, interactive HTML
 """
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.colors as mcolors  # noqa: E402
 
 import streamlit as st  # noqa: E402
 import numpy as np  # noqa: E402
 from pathlib import Path  # noqa: E402
 import io  # noqa: E402
 import sys  # noqa: E402
+import plotly.graph_objects as go  # noqa: E402
+from plotly.subplots import make_subplots  # noqa: E402
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -26,12 +32,26 @@ from components.folder_browser import folder_browser  # noqa: E402
 from components.floating_button import floating_sidebar_toggle  # noqa: E402
 
 # ---------------------------------------------------------------------------
+# Constants
 # ---------------------------------------------------------------------------
 
 COLORMAPS = ['viridis', 'plasma', 'inferno', 'magma', 'cividis',
              'turbo', 'jet', 'hot', 'cool', 'gray', 'bone', 'seismic',
              'RdYlBu', 'RdBu', 'coolwarm']
 
+# Matplotlib colormap -> Plotly colorscale name mapping
+_PLOTLY_CMAP = {
+    'viridis': 'Viridis', 'plasma': 'Plasma', 'inferno': 'Inferno',
+    'magma': 'Magma', 'cividis': 'Cividis', 'turbo': 'Turbo',
+    'jet': 'Jet', 'hot': 'Hot', 'cool': 'ice', 'gray': 'Greys',
+    'bone': 'Greys', 'seismic': 'RdBu', 'RdYlBu': 'RdYlBu',
+    'RdBu': 'RdBu', 'coolwarm': 'RdBu',
+}
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
 
 def load_image(file_path):
     """Load image from various formats."""
@@ -43,12 +63,11 @@ def load_image(file_path):
             return np.load(file_path)
         elif suffix == '.npz':
             data = np.load(file_path)
-            # Return first array
             return data[data.files[0]]
         elif suffix in ['.png', '.jpg', '.jpeg', '.tif', '.tiff']:
             from PIL import Image
             img = Image.open(file_path)
-            return np.array(img)
+            return np.array(img, dtype=np.float64)
         else:
             st.error(f"Unsupported format: {suffix}")
             return None
@@ -57,21 +76,190 @@ def load_image(file_path):
         return None
 
 
-def browse_directory(base_dir, pattern="*.npy"):
-    """Browse directory and find files."""
-    base_path = Path(base_dir)
-    if not base_path.exists():
-        return []
-    files = list(base_path.rglob(pattern))
-    return [str(f) for f in sorted(files)]
-
-
 def _save_fig_to_bytes(fig, format='png', dpi=300):
     """Save matplotlib figure to bytes buffer."""
     buf = io.BytesIO()
     fig.savefig(buf, format=format, dpi=dpi, bbox_inches='tight')
     buf.seek(0)
     return buf
+
+
+def prepare_display_data(img, use_log):
+    """Apply log10 transform if requested. Returns (display_data, label_suffix)."""
+    if not use_log:
+        return img.astype(np.float64), ""
+    # log10 with floor for zero/negative values
+    floor_val = np.min(img[img > 0]) if np.any(img > 0) else 1e-10
+    clipped = np.clip(img.astype(np.float64), floor_val, None)
+    return np.log10(clipped), " (log₁₀)"
+
+
+def calc_intensity_range(img, auto_contrast, vmin_pct, vmax_pct):
+    """Calculate vmin/vmax from percentiles."""
+    if auto_contrast:
+        return np.nanpercentile(img, [1, 99])
+    return np.nanpercentile(img, vmin_pct), np.nanpercentile(img, vmax_pct)
+
+
+def get_frame(img, frame_idx=None):
+    """Extract single frame from stack or return 2D image as-is."""
+    if img.ndim == 3:
+        return img[frame_idx if frame_idx is not None else 0]
+    return img
+
+
+def make_plotly_heatmap(display_data, original_data, title, cmap, vmin, vmax,
+                        use_log, equal_aspect=True):
+    """Create a Plotly heatmap figure with hover showing original intensity."""
+    colorscale = _PLOTLY_CMAP.get(cmap, 'Viridis')
+    colorbar_title = "log₁₀(I)" if use_log else "Intensity"
+
+    fig = go.Figure(go.Heatmap(
+        z=display_data,
+        zmin=vmin,
+        zmax=vmax,
+        colorscale=colorscale,
+        colorbar=dict(title=colorbar_title),
+        customdata=original_data,
+        hovertemplate=(
+            'x: %{x}<br>y: %{y}<br>'
+            'Intensity: %{customdata:.4g}<extra></extra>'
+        ),
+    ))
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=14)),
+        height=700,
+        hovermode='closest',
+    )
+
+    # y-axis: row 0 at top (like imshow origin='upper')
+    fig.update_yaxes(autorange='reversed')
+
+    if equal_aspect:
+        fig.update_yaxes(scaleanchor='x', scaleratio=1)
+
+    return fig
+
+
+def make_plotly_grid(image_list, name_list, cmap, use_log, auto_contrast,
+                     vmin_pct, vmax_pct, n_cols):
+    """Create Plotly subplots grid of heatmaps."""
+    n = len(image_list)
+    n_rows = (n + n_cols - 1) // n_cols
+    colorscale = _PLOTLY_CMAP.get(cmap, 'Viridis')
+
+    fig = make_subplots(
+        rows=n_rows, cols=n_cols,
+        subplot_titles=name_list,
+        horizontal_spacing=0.05,
+        vertical_spacing=0.08,
+    )
+
+    for idx, (img, name) in enumerate(zip(image_list, name_list)):
+        row = idx // n_cols + 1
+        col = idx % n_cols + 1
+
+        display_data, _ = prepare_display_data(img, use_log)
+        vmin, vmax = calc_intensity_range(display_data, auto_contrast, vmin_pct, vmax_pct)
+
+        fig.add_trace(
+            go.Heatmap(
+                z=display_data,
+                zmin=vmin, zmax=vmax,
+                colorscale=colorscale,
+                customdata=img,
+                hovertemplate=(
+                    f'<b>{name}</b><br>'
+                    'x: %{x}  y: %{y}<br>'
+                    'Intensity: %{customdata:.4g}<extra></extra>'
+                ),
+                showscale=(idx == 0),
+            ),
+            row=row, col=col,
+        )
+
+        # y-axis reversed for image convention
+        fig.update_yaxes(autorange='reversed', row=row, col=col)
+        fig.update_yaxes(scaleanchor=f'x{idx+1 if idx > 0 else ""}',
+                         scaleratio=1, row=row, col=col)
+
+    fig.update_layout(
+        height=max(400, 350 * n_rows),
+        hovermode='closest',
+    )
+
+    return fig
+
+
+def export_section_plotly(fig, file_stem):
+    """Render Plotly export buttons."""
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        html_buffer = io.StringIO()
+        fig.write_html(html_buffer)
+        html_bytes = html_buffer.getvalue().encode()
+        st.download_button(
+            label="💾 HTML (interactive)",
+            data=html_bytes,
+            file_name=f"{file_stem}.html",
+            mime="text/html",
+            help="Interactive plot — zoom, pan, hover preserved!"
+        )
+
+    with col2:
+        try:
+            img_bytes = fig.to_image(format="png", width=1200, height=900)
+            st.download_button(
+                label="💾 PNG",
+                data=img_bytes,
+                file_name=f"{file_stem}.png",
+                mime="image/png"
+            )
+        except Exception:
+            st.info("Install kaleido for PNG export")
+
+    with col3:
+        try:
+            img_bytes = fig.to_image(format="svg")
+            st.download_button(
+                label="💾 SVG",
+                data=img_bytes,
+                file_name=f"{file_stem}.svg",
+                mime="image/svg+xml"
+            )
+        except Exception:
+            st.info("Install kaleido for SVG export")
+
+    with col4:
+        st.metric("Mode", "Interactive")
+
+
+def export_section_matplotlib(mpl_fig, file_stem):
+    """Render Matplotlib export buttons."""
+    col1, col2, col3 = st.columns([2, 1, 1])
+
+    with col1:
+        buf = _save_fig_to_bytes(mpl_fig, dpi=300)
+        st.download_button(
+            label="💾 PNG (300 DPI)",
+            data=buf,
+            file_name=f"{file_stem}.png",
+            mime="image/png"
+        )
+
+    with col2:
+        buf_svg = _save_fig_to_bytes(mpl_fig, format='svg')
+        st.download_button(
+            label="💾 SVG",
+            data=buf_svg,
+            file_name=f"{file_stem}.svg",
+            mime="image/svg+xml"
+        )
+
+    with col3:
+        st.metric("Mode", "Static")
 
 
 # ---------------------------------------------------------------------------
@@ -175,11 +363,20 @@ with st.sidebar:
 
     st.success(f"✅ Loaded {len(images)} image(s)")
 
-    # ---------------------------------------------------------------------------
+    # -----------------------------------------------------------------------
     # Display Controls
-    # ---------------------------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     st.header("🎨 Display Controls")
+
+    # Plot mode
+    plot_mode = st.radio(
+        "Plot mode",
+        ["Interactive (Plotly)", "Static (Matplotlib)"],
+        horizontal=True,
+        help="Plotly: hover values, zoom, pan. Matplotlib: publication-ready static."
+    )
+    use_plotly = plot_mode.startswith("Interactive")
 
     # View mode
     view_mode = st.radio(
@@ -190,6 +387,13 @@ with st.sidebar:
 
     # Colormap
     cmap = st.selectbox("Colormap", COLORMAPS, index=0)
+
+    # Log scale
+    use_log_scale = st.checkbox(
+        "Log scale",
+        value=False,
+        help="Display log₁₀(intensity). Useful for data with large dynamic range (e.g. diffraction)."
+    )
 
     # Intensity controls
     with st.expander("🔆 Intensity", expanded=True):
@@ -205,16 +409,15 @@ with st.sidebar:
             vmin_pct = 0.0
             vmax_pct = 100.0
 
-    # Aspect ratio
-    aspect = st.radio("Aspect ratio", ["equal", "auto"], horizontal=True)
-
-    # Interpolation
-    interpolation = st.selectbox(
-        "Interpolation",
-        ["nearest", "bilinear", "bicubic", "gaussian"],
-        index=0,
-        help="Image interpolation method"
-    )
+    # Matplotlib-only controls
+    if not use_plotly:
+        aspect = st.radio("Aspect ratio", ["equal", "auto"], horizontal=True)
+        interpolation = st.selectbox(
+            "Interpolation",
+            ["nearest", "bilinear", "bicubic", "gaussian"],
+            index=0,
+            help="Image interpolation method"
+        )
 
 # ---------------------------------------------------------------------------
 # Main Area: Display Images
@@ -223,63 +426,76 @@ with st.sidebar:
 st.header("📊 Image Display")
 
 if view_mode == "Single image":
-    # Single image view with frame slider for stacks
+    # ----- Single image view -----
     selected_file = st.selectbox("Select image", list(images.keys()))
-    img = images[selected_file]
+    img_raw = images[selected_file]
 
-    # Check if it's a stack (3D array)
-    if img.ndim == 3:
-        st.info(f"Image stack: {img.shape[0]} frames, {img.shape[1]}×{img.shape[2]} pixels")
-        frame_idx = st.slider("Frame", 0, img.shape[0]-1, 0)
-        img_to_show = img[frame_idx]
+    # Handle stacks
+    if img_raw.ndim == 3:
+        st.info(f"Image stack: {img_raw.shape[0]} frames, "
+                f"{img_raw.shape[1]}×{img_raw.shape[2]} pixels")
+        frame_idx = st.slider("Frame", 0, img_raw.shape[0] - 1, 0)
+        img_frame = img_raw[frame_idx]
     else:
-        img_to_show = img
+        img_frame = img_raw
 
-    # Calculate intensity range
-    if auto_contrast:
-        vmin, vmax = np.percentile(img_to_show, [1, 99])
+    # Prepare display data
+    display_data, label_suffix = prepare_display_data(img_frame, use_log_scale)
+    vmin, vmax = calc_intensity_range(display_data, auto_contrast, vmin_pct, vmax_pct)
+    file_stem = Path(selected_file).stem
+
+    if use_plotly:
+        fig = make_plotly_heatmap(
+            display_data, img_frame.astype(np.float64),
+            title=selected_file,
+            cmap=cmap, vmin=vmin, vmax=vmax,
+            use_log=use_log_scale,
+            equal_aspect=True,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.success("**Hover** to see intensity values. **Scroll** to zoom. **Drag** to pan.")
+
+        # Export
+        st.divider()
+        export_section_plotly(fig, f"{file_stem}_display")
+
     else:
-        vmin = np.percentile(img_to_show, vmin_pct)
-        vmax = np.percentile(img_to_show, vmax_pct)
+        mpl_fig, ax = plt.subplots(figsize=(12, 10))
+        if use_log_scale:
+            im = ax.imshow(img_frame.astype(np.float64), cmap=cmap,
+                           norm=mcolors.LogNorm(vmin=max(vmin, 1e-10), vmax=vmax),
+                           aspect=aspect, interpolation=interpolation)
+        else:
+            im = ax.imshow(display_data, cmap=cmap, vmin=vmin, vmax=vmax,
+                           aspect=aspect, interpolation=interpolation)
+        ax.set_title(selected_file, fontsize=14, fontweight='bold')
+        plt.colorbar(im, ax=ax, label=f"Intensity{label_suffix}")
 
-    # Plot
-    fig, ax = plt.subplots(figsize=(12, 10))
-    im = ax.imshow(img_to_show, cmap=cmap, vmin=vmin, vmax=vmax,
-                   aspect=aspect, interpolation=interpolation)
-    ax.set_title(f"{selected_file}", fontsize=14, fontweight='bold')
-    plt.colorbar(im, ax=ax, label="Intensity")
+        st.pyplot(mpl_fig)
 
-    st.pyplot(fig)
-
-    # Export
-    buf = _save_fig_to_bytes(fig, dpi=300)
-    st.download_button(
-        label="💾 Download Image",
-        data=buf,
-        file_name=f"{Path(selected_file).stem}_display.png",
-        mime="image/png"
-    )
-    plt.close(fig)
+        # Export
+        st.divider()
+        export_section_matplotlib(mpl_fig, f"{file_stem}_display")
+        plt.close(mpl_fig)
 
     # Statistics
     with st.expander("📊 Statistics"):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Shape", f"{img_to_show.shape[0]}×{img_to_show.shape[1]}")
+            st.metric("Shape", f"{img_frame.shape[0]}×{img_frame.shape[1]}")
         with col2:
-            st.metric("Min", f"{img_to_show.min():.2f}")
+            st.metric("Min", f"{img_frame.min():.2f}")
         with col3:
-            st.metric("Max", f"{img_to_show.max():.2f}")
+            st.metric("Max", f"{img_frame.max():.2f}")
         with col4:
-            st.metric("Mean", f"{img_to_show.mean():.2f}")
+            st.metric("Mean", f"{img_frame.mean():.2f}")
 
 elif view_mode == "Side-by-side comparison":
-    # Side-by-side comparison
+    # ----- Side-by-side comparison -----
     if len(images) < 2:
         st.warning("Need at least 2 images for comparison")
         st.stop()
 
-    # Select images to compare
     selected_files = st.multiselect(
         "Select images to compare",
         list(images.keys()),
@@ -295,108 +511,130 @@ elif view_mode == "Side-by-side comparison":
         st.warning("Maximum 4 images for side-by-side. Showing first 4.")
         selected_files = selected_files[:4]
 
-    # Create figure with subplots
     n_images = len(selected_files)
-    cols = st.columns(n_images)
 
-    for idx, (col, file_name) in enumerate(zip(cols, selected_files)):
-        with col:
-            img = images[file_name]
-
-            # Handle stacks
-            if img.ndim == 3:
-                frame_idx = st.slider(f"Frame {idx+1}", 0, img.shape[0]-1, 0,
-                                     key=f"frame_{idx}")
-                img_to_show = img[frame_idx]
+    # Collect frames (with optional per-image frame slider)
+    frames = []
+    names = []
+    frame_cols = st.columns(n_images)
+    for idx, file_name in enumerate(selected_files):
+        img_raw = images[file_name]
+        with frame_cols[idx]:
+            if img_raw.ndim == 3:
+                fi = st.slider(f"Frame: {Path(file_name).stem}",
+                               0, img_raw.shape[0] - 1, 0,
+                               key=f"sbs_frame_{idx}")
+                frames.append(img_raw[fi])
             else:
-                img_to_show = img
+                frames.append(img_raw)
+        names.append(Path(file_name).stem)
 
-            # Calculate intensity
-            if auto_contrast:
-                vmin, vmax = np.percentile(img_to_show, [1, 99])
-            else:
-                vmin = np.percentile(img_to_show, vmin_pct)
-                vmax = np.percentile(img_to_show, vmax_pct)
+    if use_plotly:
+        fig = make_plotly_grid(frames, names, cmap, use_log_scale,
+                               auto_contrast, vmin_pct, vmax_pct, n_cols=n_images)
+        st.plotly_chart(fig, use_container_width=True)
+        st.success("**Hover** for intensity. **Scroll** to zoom. **Drag** to pan.")
 
-            # Plot
-            fig, ax = plt.subplots(figsize=(6, 6))
-            im = ax.imshow(img_to_show, cmap=cmap, vmin=vmin, vmax=vmax,
-                          aspect=aspect, interpolation=interpolation)
-            ax.set_title(Path(file_name).stem, fontsize=10)
-            plt.colorbar(im, ax=ax)
+        st.divider()
+        export_section_plotly(fig, "comparison")
 
-            st.pyplot(fig)
-            plt.close(fig)
+    else:
+        cols = st.columns(n_images)
+        for idx, (col, img_frame, name) in enumerate(zip(cols, frames, names)):
+            with col:
+                display_data, _ = prepare_display_data(img_frame, use_log_scale)
+                vmin, vmax = calc_intensity_range(display_data, auto_contrast,
+                                                  vmin_pct, vmax_pct)
+                mpl_fig, ax = plt.subplots(figsize=(6, 6))
+                if use_log_scale:
+                    im = ax.imshow(img_frame.astype(np.float64), cmap=cmap,
+                                   norm=mcolors.LogNorm(vmin=max(vmin, 1e-10), vmax=vmax),
+                                   aspect=aspect, interpolation=interpolation)
+                else:
+                    im = ax.imshow(display_data, cmap=cmap, vmin=vmin, vmax=vmax,
+                                   aspect=aspect, interpolation=interpolation)
+                ax.set_title(name, fontsize=10)
+                plt.colorbar(im, ax=ax)
+                st.pyplot(mpl_fig)
+                plt.close(mpl_fig)
 
 else:  # Grid view
-    # Grid view of all images
+    # ----- Grid view of all images -----
     n_images = len(images)
-    n_cols = st.slider("Columns", 1, 4, min(3, n_images))
-    n_rows = (n_images + n_cols - 1) // n_cols
+    n_cols_grid = st.slider("Columns", 1, 4, min(3, n_images))
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
-    if n_images == 1:
-        axes = np.array([axes])
-    axes = axes.flatten()
-
-    for idx, (file_name, img) in enumerate(images.items()):
-        ax = axes[idx]
-
-        # Handle stacks (take middle frame)
-        if img.ndim == 3:
-            img_to_show = img[img.shape[0]//2]
+    # Collect frames (middle frame for stacks)
+    grid_frames = []
+    grid_names = []
+    for file_name, img_raw in images.items():
+        if img_raw.ndim == 3:
+            grid_frames.append(img_raw[img_raw.shape[0] // 2])
         else:
-            img_to_show = img
+            grid_frames.append(img_raw)
+        grid_names.append(Path(file_name).stem)
 
-        # Calculate intensity
-        if auto_contrast:
-            vmin, vmax = np.percentile(img_to_show, [1, 99])
-        else:
-            vmin = np.percentile(img_to_show, vmin_pct)
-            vmax = np.percentile(img_to_show, vmax_pct)
+    if use_plotly:
+        fig = make_plotly_grid(grid_frames, grid_names, cmap, use_log_scale,
+                               auto_contrast, vmin_pct, vmax_pct, n_cols=n_cols_grid)
+        st.plotly_chart(fig, use_container_width=True)
+        st.success("**Hover** for intensity. **Scroll** to zoom. **Drag** to pan.")
 
-        im = ax.imshow(img_to_show, cmap=cmap, vmin=vmin, vmax=vmax,
-                      aspect=aspect, interpolation=interpolation)
-        ax.set_title(Path(file_name).stem, fontsize=9)
-        ax.axis('off')
+        st.divider()
+        export_section_plotly(fig, "image_grid")
 
-    # Hide unused axes
-    for idx in range(n_images, len(axes)):
-        axes[idx].axis('off')
+    else:
+        n_rows = (n_images + n_cols_grid - 1) // n_cols_grid
+        mpl_fig, axes = plt.subplots(n_rows, n_cols_grid,
+                                     figsize=(4 * n_cols_grid, 4 * n_rows))
+        if n_images == 1:
+            axes = np.array([axes])
+        axes = np.array(axes).flatten()
 
-    plt.tight_layout()
-    st.pyplot(fig)
+        for idx, (img_frame, name) in enumerate(zip(grid_frames, grid_names)):
+            ax = axes[idx]
+            display_data, _ = prepare_display_data(img_frame, use_log_scale)
+            vmin, vmax = calc_intensity_range(display_data, auto_contrast,
+                                              vmin_pct, vmax_pct)
+            if use_log_scale:
+                im = ax.imshow(img_frame.astype(np.float64), cmap=cmap,
+                               norm=mcolors.LogNorm(vmin=max(vmin, 1e-10), vmax=vmax),
+                               aspect=aspect, interpolation=interpolation)
+            else:
+                im = ax.imshow(display_data, cmap=cmap, vmin=vmin, vmax=vmax,
+                               aspect=aspect, interpolation=interpolation)
+            ax.set_title(name, fontsize=9)
+            ax.axis('off')
 
-    # Export
-    buf = _save_fig_to_bytes(fig, dpi=300)
-    st.download_button(
-        label="💾 Download Grid",
-        data=buf,
-        file_name="image_grid.png",
-        mime="image/png"
-    )
-    plt.close(fig)
+        for idx in range(n_images, len(axes)):
+            axes[idx].axis('off')
+
+        plt.tight_layout()
+        st.pyplot(mpl_fig)
+
+        st.divider()
+        export_section_matplotlib(mpl_fig, "image_grid")
+        plt.close(mpl_fig)
 
 # ---------------------------------------------------------------------------
 # Image Info
 # ---------------------------------------------------------------------------
 
 with st.expander("📄 Image Information"):
-    for file_name, img in images.items():
+    for file_name, img_raw in images.items():
         st.subheader(file_name)
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.text(f"Shape: {img.shape}")
-            st.text(f"Dimensions: {img.ndim}D")
+            st.text(f"Shape: {img_raw.shape}")
+            st.text(f"Dimensions: {img_raw.ndim}D")
 
         with col2:
-            st.text(f"Data type: {img.dtype}")
-            st.text(f"Size: {img.size} pixels")
+            st.text(f"Data type: {img_raw.dtype}")
+            st.text(f"Size: {img_raw.size} pixels")
 
         with col3:
-            st.text(f"Min: {img.min():.4f}")
-            st.text(f"Max: {img.max():.4f}")
-            st.text(f"Mean: {img.mean():.4f}")
+            st.text(f"Min: {img_raw.min():.4f}")
+            st.text(f"Max: {img_raw.max():.4f}")
+            st.text(f"Mean: {img_raw.mean():.4f}")
 
         st.divider()
