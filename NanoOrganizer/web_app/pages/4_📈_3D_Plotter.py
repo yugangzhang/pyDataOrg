@@ -19,6 +19,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.folder_browser import folder_browser
 from components.floating_button import floating_sidebar_toggle
 
+# User-mode restriction (set by nanoorganizer_user)
+_user_mode = st.session_state.get("user_mode", False)
+_start_dir = st.session_state.get("user_start_dir", None)
+
 st.title("📈 Interactive 3D Plotter (Plotly)")
 st.markdown("XYZ + Color dimension - Fully interactive and rotatable!")
 
@@ -132,7 +136,9 @@ with st.sidebar:
             key="3d_plotter_browser",
             show_files=True,
             file_pattern=pattern,
-            multi_select=False
+            multi_select=False,
+            initial_path=_start_dir if _user_mode else None,
+            restrict_to_start_dir=_user_mode,
         )
 
         # Load button

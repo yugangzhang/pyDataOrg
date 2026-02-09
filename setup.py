@@ -41,6 +41,8 @@ setup(
         'console_scripts': [
             # MAIN APP - All tools in one (port 8501) - RECOMMENDED!
             'nanoorganizer=NanoOrganizer.web_app.app_cli:main',
+            # Restricted user mode - folder browser locked to CWD
+            'nanoorganizer_user=NanoOrganizer.web_app.app_cli:main_user',
 
             # Legacy individual tools (still available)
             'nanoorganizer-hub=NanoOrganizer.web.hub_cli:main',

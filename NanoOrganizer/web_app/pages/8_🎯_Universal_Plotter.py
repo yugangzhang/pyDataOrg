@@ -26,6 +26,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.folder_browser import folder_browser
 from components.floating_button import floating_sidebar_toggle
 
+# User-mode restriction (set by nanoorganizer_user)
+_user_mode = st.session_state.get("user_mode", False)
+_start_dir = st.session_state.get("user_start_dir", None)
+
 # ---------------------------------------------------------------------------
 # Constants (matching individual pages)
 # ---------------------------------------------------------------------------
@@ -94,6 +98,62 @@ PLOT_TYPES_3D = ['Surface', 'Scatter 3D', 'Contour 3D', 'Wireframe', 'Mesh']
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
+
+def make_subplot_colorbar(fig, row, col_i, n_rows, n_cols, title):
+    """Build a colorbar dict positioned next to a specific XY subplot."""
+    try:
+        ref = fig.get_subplot(row, col_i)
+        if ref is None:
+            return dict(title=title)
+        xaxis_obj = ref.xaxis
+        yaxis_obj = ref.yaxis
+        xaxis_key = xaxis_obj.plotly_name
+        yaxis_key = yaxis_obj.plotly_name
+        x_domain = list(getattr(fig.layout, xaxis_key).domain)
+        y_domain = list(getattr(fig.layout, yaxis_key).domain)
+        return dict(
+            title=title,
+            x=x_domain[1] + 0.01,
+            xanchor='left',
+            y=(y_domain[0] + y_domain[1]) / 2,
+            yanchor='middle',
+            len=max(0.15, y_domain[1] - y_domain[0]),
+            thickness=15,
+        )
+    except Exception:
+        return dict(title=title)
+
+
+def fix_3d_colorbar(fig, title):
+    """Update the last added 3D trace's colorbar to sit next to its scene.
+
+    Must be called right after fig.add_trace() for a 3D trace.
+    Reads the scene ref from fig.data[-1], gets the scene domain,
+    and patches the colorbar position.
+    """
+    try:
+        last = fig.data[-1]
+        scene_ref = getattr(last, 'scene', None) or 'scene'
+        scene_obj = getattr(fig.layout, scene_ref)
+        x_domain = list(scene_obj.domain.x)
+        y_domain = list(scene_obj.domain.y)
+        cbar = dict(
+            title=title,
+            x=x_domain[1] + 0.01,
+            xanchor='left',
+            y=(y_domain[0] + y_domain[1]) / 2,
+            yanchor='middle',
+            len=max(0.15, y_domain[1] - y_domain[0]),
+            thickness=15,
+        )
+        # Patch colorbar onto the trace (or its marker)
+        if hasattr(last, 'colorbar'):
+            last.colorbar = cbar
+        elif hasattr(last, 'marker') and last.marker is not None:
+            last.marker.colorbar = cbar
+    except Exception:
+        pass
 
 
 def load_data_file(file_path):
@@ -335,6 +395,8 @@ with st.sidebar:
             show_files=True,
             file_pattern=pattern,
             multi_select=True,
+            initial_path=_start_dir if _user_mode else None,
+            restrict_to_start_dir=_user_mode,
         )
 
         if selected_files and st.button("📥 Load Selected Files"):
@@ -1065,6 +1127,8 @@ if any_enabled:
                     hover_parts.append('Intensity: %{customdata[0]:.4g}')
                 hover = '<br>'.join(hover_parts) + '<extra></extra>'
 
+                _cb_title = "log10(I)" if use_log else "Intensity"
+                _cbar = make_subplot_colorbar(fig, row, col_i, n_rows, n_cols, _cb_title)
                 fig.add_trace(
                     go.Heatmap(
                         z=display_data,
@@ -1072,7 +1136,7 @@ if any_enabled:
                         colorscale=colorscale,
                         customdata=custom_3d,
                         hovertemplate=hover,
-                        colorbar=dict(title="log10(I)" if use_log else "Intensity"),
+                        colorbar=_cbar,
                         showlegend=False,
                     ),
                     row=row, col=col_i,
@@ -1123,6 +1187,8 @@ if any_enabled:
                     hover_parts.append('log10: %{z:.3f}')
                 hover = '<br>'.join(hover_parts) + '<extra></extra>'
 
+                _cb_title = "log10(I)" if use_log else z_col
+                _cbar = make_subplot_colorbar(fig, row, col_i, n_rows, n_cols, _cb_title)
                 fig.add_trace(
                     go.Heatmap(
                         z=display_data, x=x_vals, y=y_vals,
@@ -1130,7 +1196,7 @@ if any_enabled:
                         colorscale=colorscale,
                         customdata=custom_3d,
                         hovertemplate=hover,
-                        colorbar=dict(title="log10(I)" if use_log else z_col),
+                        colorbar=_cbar,
                         showlegend=False,
                     ),
                     row=row, col=col_i,
@@ -1167,6 +1233,8 @@ if any_enabled:
             z = df[z_col].values.astype(float)
             c = df[color_col].values.astype(float) if color_col else z
 
+            _cb_title = color_col if color_col else z_col
+
             if pt3d == "Surface":
                 X, Y, Z = create_meshgrid_from_data(x, y, z)
                 if color_col:
@@ -1180,7 +1248,6 @@ if any_enabled:
                         surfacecolor=C,
                         colorscale=cscale,
                         opacity=opacity,
-                        colorbar=dict(title=color_col if color_col else z_col),
                         showlegend=False,
                         hovertemplate=(
                             f'<b>{x_col}</b>: %{{x:.4g}}<br>'
@@ -1190,6 +1257,7 @@ if any_enabled:
                     ),
                     row=row, col=col_i,
                 )
+                fix_3d_colorbar(fig, _cb_title)
 
             elif pt3d == "Scatter 3D":
                 fig.add_trace(
@@ -1199,7 +1267,6 @@ if any_enabled:
                         marker=dict(
                             size=3, color=c, colorscale=cscale,
                             opacity=opacity,
-                            colorbar=dict(title=color_col if color_col else z_col),
                         ),
                         showlegend=False,
                         hovertemplate=(
@@ -1210,6 +1277,7 @@ if any_enabled:
                     ),
                     row=row, col=col_i,
                 )
+                fix_3d_colorbar(fig, _cb_title)
 
             elif pt3d == "Contour 3D":
                 fig.add_trace(
@@ -1219,11 +1287,11 @@ if any_enabled:
                         colorscale=cscale,
                         opacity=opacity,
                         caps=dict(x_show=False, y_show=False),
-                        colorbar=dict(title=color_col if color_col else z_col),
                         showlegend=False,
                     ),
                     row=row, col=col_i,
                 )
+                fix_3d_colorbar(fig, _cb_title)
 
             elif pt3d == "Wireframe":
                 X, Y, Z = create_meshgrid_from_data(x, y, z, grid_size=50)
@@ -1256,11 +1324,11 @@ if any_enabled:
                         intensity=c if color_col else Z.flatten(),
                         colorscale=cscale,
                         opacity=opacity,
-                        colorbar=dict(title=color_col if color_col else z_col),
                         showlegend=False,
                     ),
                     row=row, col=col_i,
                 )
+                fix_3d_colorbar(fig, _cb_title)
 
             # Scene axis labels
             fig.update_scenes(
