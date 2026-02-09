@@ -16,16 +16,22 @@ def floating_sidebar_toggle():
     Uses st.components.v1.html() instead of st.markdown() because
     st.markdown sanitizes onclick handlers, while components.html()
     runs JS in a same-origin iframe with parent document access.
+
+    Strategy: try multiple selector approaches to find and click
+    Streamlit's internal expand/collapse buttons, then fall back
+    to direct CSS manipulation if no buttons are found.
     """
     components.html("""
     <script>
     (function() {
+        var parentDoc = window.parent.document;
+
         // Remove any previously injected button (avoids duplicates on rerun)
-        var existing = window.parent.document.getElementById('nano-sidebar-toggle');
+        var existing = parentDoc.getElementById('nano-sidebar-toggle');
         if (existing) existing.remove();
 
         // Create the floating button in the PARENT document (outside iframe)
-        var btn = window.parent.document.createElement('div');
+        var btn = parentDoc.createElement('div');
         btn.id = 'nano-sidebar-toggle';
         btn.innerHTML = '&#9776;';  // hamburger icon
         btn.title = 'Toggle sidebar';
@@ -58,33 +64,139 @@ def floating_sidebar_toggle():
             btn.style.background = '#ff4b4b';
         };
 
-        btn.onclick = function() {
-            // Streamlit's sidebar toggle button (collapsed state)
-            var openBtn = window.parent.document.querySelector(
-                '[data-testid="collapsedControl"]'
-            );
-            if (openBtn) {
-                openBtn.click();
-                return;
+        // Helper: try a list of CSS selectors, click the first match found
+        function clickFirst(selectors) {
+            for (var i = 0; i < selectors.length; i++) {
+                try {
+                    var el = parentDoc.querySelector(selectors[i]);
+                    if (el) {
+                        el.click();
+                        return true;
+                    }
+                } catch(e) {}
             }
-            // Sidebar close button (expanded state) - the X button in sidebar header
-            var closeBtn = window.parent.document.querySelector(
-                '[data-testid="stSidebar"] button[kind="header"]'
-            );
-            if (closeBtn) {
-                closeBtn.click();
-                return;
-            }
-            // Fallback: try any button in the sidebar header area
-            var headerBtn = window.parent.document.querySelector(
-                '[data-testid="stSidebar"] header button'
-            );
-            if (headerBtn) {
-                headerBtn.click();
+            return false;
+        }
+
+        // Helper: check if sidebar is currently open
+        function isSidebarOpen() {
+            var sidebar = parentDoc.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar) return false;
+            // Check multiple signals: offsetWidth, aria-expanded, display
+            if (sidebar.getAttribute('aria-expanded') === 'false') return false;
+            if (sidebar.getAttribute('aria-expanded') === 'true') return true;
+            return sidebar.offsetWidth > 50;
+        }
+
+        btn.onclick = function(evt) {
+            evt.stopPropagation();
+            evt.preventDefault();
+
+            var sidebarOpen = isSidebarOpen();
+
+            if (sidebarOpen) {
+                // ============= CLOSE the sidebar =============
+                var closed = clickFirst([
+                    // data-testid based selectors (Streamlit 1.28+)
+                    '[data-testid="stSidebar"] [data-testid="baseButton-header"]',
+                    '[data-testid="stSidebar"] [data-testid="baseButton-headerNoPadding"]',
+                    // aria-label based
+                    '[data-testid="stSidebar"] button[aria-label*="Close"]',
+                    '[data-testid="stSidebar"] button[aria-label*="close"]',
+                    '[data-testid="stSidebar"] button[aria-label*="Collapse"]',
+                    '[data-testid="stSidebar"] button[aria-label*="collapse"]',
+                    // Streamlit kind attribute (React prop rendered to DOM)
+                    '[data-testid="stSidebar"] button[kind="header"]',
+                    '[data-testid="stSidebar"] button[kind="headerNoPadding"]',
+                ]);
+
+                if (closed) return;
+
+                // Heuristic: first small button with SVG inside sidebar
+                var sidebar = parentDoc.querySelector('[data-testid="stSidebar"]');
+                if (sidebar) {
+                    var btns = sidebar.querySelectorAll('button');
+                    for (var k = 0; k < btns.length; k++) {
+                        if (btns[k].querySelector('svg') && btns[k].offsetWidth < 60) {
+                            btns[k].click();
+                            return;
+                        }
+                    }
+                }
+
+                // CSS fallback: hide sidebar directly
+                if (sidebar) {
+                    sidebar.setAttribute('aria-expanded', 'false');
+                    sidebar.style.width = '0px';
+                    sidebar.style.minWidth = '0px';
+                    sidebar.style.overflow = 'hidden';
+                    // Show the collapsed control so the expand button appears
+                    var ctrl = parentDoc.querySelector('[data-testid="collapsedControl"]')
+                            || parentDoc.querySelector('[data-testid="stSidebarCollapsedControl"]');
+                    if (ctrl) ctrl.style.display = '';
+                }
+
+            } else {
+                // ============= OPEN the sidebar =============
+                // Try the collapsed control container (click button inside, or container)
+                var expandContainerSelectors = [
+                    '[data-testid="collapsedControl"]',
+                    '[data-testid="stSidebarCollapsedControl"]',
+                ];
+                for (var i = 0; i < expandContainerSelectors.length; i++) {
+                    try {
+                        var container = parentDoc.querySelector(expandContainerSelectors[i]);
+                        if (container) {
+                            var innerBtn = container.querySelector('button');
+                            if (innerBtn) {
+                                innerBtn.click();
+                                return;
+                            }
+                            container.click();
+                            return;
+                        }
+                    } catch(e) {}
+                }
+
+                // Try standalone expand button selectors
+                var opened = clickFirst([
+                    'button[aria-label*="Open sidebar"]',
+                    'button[aria-label*="open sidebar"]',
+                    'button[aria-label*="Expand"]',
+                    'button[aria-label*="expand"]',
+                ]);
+
+                if (opened) return;
+
+                // Heuristic: find small button NOT inside sidebar, near top-left
+                var sidebar = parentDoc.querySelector('[data-testid="stSidebar"]');
+                var allBtns = parentDoc.querySelectorAll('button');
+                for (var m = 0; m < allBtns.length; m++) {
+                    var b = allBtns[m];
+                    var rect = b.getBoundingClientRect();
+                    var inSidebar = sidebar && sidebar.contains(b);
+                    if (!inSidebar && rect.top < 80 && rect.left < 80
+                        && rect.width < 60 && rect.width > 0) {
+                        b.click();
+                        return;
+                    }
+                }
+
+                // CSS fallback: show sidebar directly
+                if (sidebar) {
+                    sidebar.setAttribute('aria-expanded', 'true');
+                    sidebar.style.width = '';
+                    sidebar.style.minWidth = '';
+                    sidebar.style.overflow = '';
+                    // Hide the collapsed control
+                    var ctrl = parentDoc.querySelector('[data-testid="collapsedControl"]')
+                            || parentDoc.querySelector('[data-testid="stSidebarCollapsedControl"]');
+                    if (ctrl) ctrl.style.display = 'none';
+                }
             }
         };
 
-        window.parent.document.body.appendChild(btn);
+        parentDoc.body.appendChild(btn);
     })();
     </script>
     """, height=0)
