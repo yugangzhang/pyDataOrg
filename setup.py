@@ -43,6 +43,8 @@ setup(
             'nanoorganizer=NanoOrganizer.web_app.app_cli:main',
             # Restricted user mode - folder browser locked to CWD
             'nanoorganizer_user=NanoOrganizer.web_app.app_cli:main_user',
+            # Secure mode with custom port + password
+            'viz=NanoOrganizer.web_app.app_cli:main_secure',
 
             # Legacy individual tools (still available)
             'nanoorganizer-hub=NanoOrganizer.web.hub_cli:main',

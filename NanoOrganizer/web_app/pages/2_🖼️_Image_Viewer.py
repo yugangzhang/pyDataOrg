@@ -30,8 +30,14 @@ from plotly.subplots import make_subplots  # noqa: E402
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.folder_browser import folder_browser  # noqa: E402
 from components.floating_button import floating_sidebar_toggle  # noqa: E402
+from components.security import (  # noqa: E402
+    initialize_security_context,
+    require_authentication,
+)
 
 # User-mode restriction (set by nanoorganizer_user)
+initialize_security_context()
+require_authentication()
 _user_mode = st.session_state.get("user_mode", False)
 _start_dir = st.session_state.get("user_start_dir", None)
 

@@ -9,9 +9,13 @@ Or use console command:
     nanoorganizer
 """
 
-import os
 import streamlit as st
 from pathlib import Path
+from NanoOrganizer.web_app.components.security import (
+    format_allowed_roots,
+    initialize_security_context,
+    require_authentication,
+)
 
 st.set_page_config(
     page_title="NanoOrganizer",
@@ -20,14 +24,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ---------------------------------------------------------------------------
-# User-mode detection (set by `nanoorganizer_user` command)
-# ---------------------------------------------------------------------------
-if os.environ.get("NANOORGANIZER_USER_MODE") == "1":
-    st.session_state["user_mode"] = True
-    st.session_state["user_start_dir"] = os.environ.get(
-        "NANOORGANIZER_START_DIR", str(Path.cwd())
-    )
+initialize_security_context()
+require_authentication()
 
 # ---------------------------------------------------------------------------
 # Home Page
@@ -37,10 +35,16 @@ st.title("🔬 NanoOrganizer")
 st.markdown("### Complete Web Suite for Nanoparticle Synthesis Data")
 
 if st.session_state.get("user_mode"):
-    st.info(
-        f"🔒 **Restricted Mode** — browsing locked to: "
-        f"`{st.session_state['user_start_dir']}`"
-    )
+    if st.session_state.get("secure_mode"):
+        st.info(
+            f"🔒 **Secure Mode** — allowed folders: `{format_allowed_roots()}` "
+            f"(password required)"
+        )
+    else:
+        st.info(
+            f"🔒 **Restricted Mode** — browsing locked to: "
+            f"`{st.session_state['user_start_dir']}`"
+        )
 
 st.divider()
 

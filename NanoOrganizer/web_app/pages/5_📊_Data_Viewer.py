@@ -23,14 +23,25 @@ import numpy as np                # noqa: E402
 from pathlib import Path          # noqa: E402
 import io                          # noqa: E402
 import sys                         # noqa: E402
+import copy                        # noqa: E402
+import pprint                      # noqa: E402
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.floating_button import floating_sidebar_toggle  # noqa: E402
+from components.security import (  # noqa: E402
+    assert_path_allowed,
+    initialize_security_context,
+    is_path_allowed,
+    require_authentication,
+)
 
 from NanoOrganizer import DataOrganizer                       # noqa: E402
 from NanoOrganizer.viz import PLOTTER_REGISTRY                # noqa: E402
 from NanoOrganizer.core.run import DEFAULT_LOADERS            # noqa: E402
+
+initialize_security_context()
+require_authentication()
 
 # ---------------------------------------------------------------------------
 # SELECTORS – single source of truth for dynamic parameter controls.
@@ -66,6 +77,7 @@ LINESTYLES = ['-', '--', '-.', ':']
 # Colormaps for heatmaps and images
 COLORMAPS = ['viridis', 'plasma', 'inferno', 'magma', 'cividis',
              'turbo', 'jet', 'hot', 'cool', 'gray', 'bone']
+SCALE_OPTIONS = ["linear", "log"]
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -115,6 +127,196 @@ def _save_fig_to_bytes(fig, format='png', dpi=300):
     return buf
 
 
+def _to_bool(value, default=False):
+    """Convert arbitrary values to bool with fallback."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def _to_float(value, default, min_value=None, max_value=None):
+    """Convert arbitrary values to float with optional clamp."""
+    fallback = 0.0 if default is None else default
+    try:
+        parsed = float(value)
+    except Exception:
+        try:
+            parsed = float(fallback)
+        except Exception:
+            parsed = 0.0
+    if min_value is not None:
+        parsed = max(parsed, min_value)
+    if max_value is not None:
+        parsed = min(parsed, max_value)
+    return parsed
+
+
+def _to_int(value, default, min_value=None, max_value=None):
+    """Convert arbitrary values to int with optional clamp."""
+    fallback = 0 if default is None else default
+    try:
+        parsed = int(value)
+    except Exception:
+        try:
+            parsed = int(fallback)
+        except Exception:
+            parsed = 0
+    if min_value is not None:
+        parsed = max(parsed, min_value)
+    if max_value is not None:
+        parsed = min(parsed, max_value)
+    return parsed
+
+
+def _build_data_viewer_plot_spec(data_dir, selected_keys, selected_dtype, selected_plot_type,
+                                 x_scale, y_scale, cmap, show_markers, line_alpha,
+                                 image_idx, selector_value):
+    """Build serializable Data Viewer config from current UI state."""
+    return {
+        "version": 1,
+        "data_dir": str(data_dir),
+        "selected_runs": [str(k) for k in selected_keys],
+        "data_type": str(selected_dtype),
+        "plot_type": str(selected_plot_type),
+        "x_scale": str(x_scale),
+        "y_scale": str(y_scale),
+        "cmap": cmap if cmap in COLORMAPS else None,
+        "show_markers": bool(show_markers),
+        "line_alpha": float(line_alpha),
+        "image_idx": int(image_idx),
+        "selector_value": selector_value,
+    }
+
+
+def _generate_data_viewer_editor_python(plot_spec):
+    """Generate editable Python code for Data Viewer config."""
+    spec_text = pprint.pformat(plot_spec, sort_dicts=False, width=100, compact=False)
+    return (
+        "# NanoOrganizer Data Viewer editor (experimental)\n"
+        "# Edit plot_spec and click 'Run Edited Python'.\n"
+        "# The app uses `result` (if defined) otherwise `plot_spec`.\n\n"
+        f"plot_spec = {spec_text}\n\n"
+        "# Example tweaks:\n"
+        "# plot_spec['x_scale'] = 'log'\n"
+        "# plot_spec['show_markers'] = True\n\n"
+        "result = plot_spec\n"
+    )
+
+
+def _sanitize_data_viewer_plot_spec(candidate, fallback_spec, run_keys,
+                                    available_dtypes, plot_types, selector_values):
+    """Sanitize edited Data Viewer spec and return (spec, warnings)."""
+    warnings = []
+    if not isinstance(candidate, dict):
+        warnings.append("Edited code did not return a dict; keeping previous settings.")
+        return copy.deepcopy(fallback_spec), warnings
+
+    normalized = copy.deepcopy(fallback_spec)
+    proposed_data_dir = str(candidate.get("data_dir", normalized["data_dir"]))
+    if is_path_allowed(proposed_data_dir, allow_nonexistent=True):
+        normalized["data_dir"] = proposed_data_dir
+    elif "data_dir" in candidate:
+        warnings.append("Ignored data_dir outside allowed folders.")
+
+    selected_runs = candidate.get("selected_runs", normalized.get("selected_runs", []))
+    if isinstance(selected_runs, str):
+        selected_runs = [selected_runs]
+    if not isinstance(selected_runs, (list, tuple, set)):
+        selected_runs = []
+    run_valid = []
+    for run_key in selected_runs:
+        run_key = str(run_key)
+        if run_key in run_keys and run_key not in run_valid:
+            run_valid.append(run_key)
+    if not run_valid and run_keys:
+        run_valid = [run_keys[0]]
+        warnings.append("No valid runs selected in script; defaulted to first run.")
+    normalized["selected_runs"] = run_valid
+
+    dtype = candidate.get("data_type", normalized.get("data_type"))
+    if dtype in available_dtypes:
+        normalized["data_type"] = dtype
+    elif "data_type" in candidate:
+        warnings.append(f"Ignored unsupported data_type '{dtype}'.")
+
+    plot_type = candidate.get("plot_type", normalized.get("plot_type"))
+    if plot_type in plot_types:
+        normalized["plot_type"] = plot_type
+    elif "plot_type" in candidate:
+        warnings.append(f"Ignored unsupported plot_type '{plot_type}'.")
+
+    x_scale = candidate.get("x_scale", normalized.get("x_scale", SCALE_OPTIONS[0]))
+    y_scale = candidate.get("y_scale", normalized.get("y_scale", SCALE_OPTIONS[0]))
+    normalized["x_scale"] = x_scale if x_scale in SCALE_OPTIONS else SCALE_OPTIONS[0]
+    normalized["y_scale"] = y_scale if y_scale in SCALE_OPTIONS else SCALE_OPTIONS[0]
+
+    cmap = candidate.get("cmap", normalized.get("cmap"))
+    normalized["cmap"] = cmap if cmap in COLORMAPS else None
+
+    normalized["show_markers"] = _to_bool(candidate.get("show_markers", normalized.get("show_markers", False)), False)
+    normalized["line_alpha"] = _to_float(candidate.get("line_alpha", normalized.get("line_alpha", 0.8)), 0.8, 0.1, 1.0)
+    normalized["image_idx"] = _to_int(candidate.get("image_idx", normalized.get("image_idx", 0)), 0, 0, 10**6)
+
+    selector_value = candidate.get("selector_value", normalized.get("selector_value"))
+    if selector_values:
+        if selector_value in selector_values:
+            normalized["selector_value"] = selector_value
+        else:
+            normalized["selector_value"] = selector_values[0]
+            if "selector_value" in candidate:
+                warnings.append("selector_value was not in allowed values; defaulted to first option.")
+    else:
+        normalized["selector_value"] = selector_value
+
+    return normalized, warnings
+
+
+def _apply_data_viewer_plot_spec_to_state(plot_spec):
+    """Apply sanitized Data Viewer config to session state."""
+    proposed_data_dir = str(plot_spec.get("data_dir", st.session_state.get("dv_data_dir", "")))
+    if is_path_allowed(proposed_data_dir, allow_nonexistent=True):
+        st.session_state["dv_data_dir"] = proposed_data_dir
+    st.session_state["dv_selected_runs"] = list(plot_spec.get("selected_runs", st.session_state.get("dv_selected_runs", [])))
+    st.session_state["dv_selected_dtype"] = plot_spec.get("data_type", st.session_state.get("dv_selected_dtype"))
+    st.session_state["dv_selected_plot_type"] = plot_spec.get("plot_type", st.session_state.get("dv_selected_plot_type"))
+    st.session_state["dv_x_scale"] = plot_spec.get("x_scale", st.session_state.get("dv_x_scale", SCALE_OPTIONS[0]))
+    st.session_state["dv_y_scale"] = plot_spec.get("y_scale", st.session_state.get("dv_y_scale", SCALE_OPTIONS[0]))
+    st.session_state["dv_cmap"] = plot_spec.get("cmap", st.session_state.get("dv_cmap"))
+    st.session_state["dv_show_markers"] = _to_bool(plot_spec.get("show_markers", st.session_state.get("dv_show_markers", False)), False)
+    st.session_state["dv_line_alpha"] = _to_float(plot_spec.get("line_alpha", st.session_state.get("dv_line_alpha", 0.8)), 0.8, 0.1, 1.0)
+    st.session_state["dv_image_idx"] = _to_int(plot_spec.get("image_idx", st.session_state.get("dv_image_idx", 0)), 0, 0, 10**6)
+    st.session_state["dv_selector_value"] = plot_spec.get("selector_value", st.session_state.get("dv_selector_value"))
+
+
+def _execute_data_viewer_editor(code_text, base_plot_spec, run_keys, available_dtypes,
+                                plot_types, selector_values):
+    """Execute editor code and sanitize returned Data Viewer spec."""
+    execution_locals = {
+        "plot_spec": copy.deepcopy(base_plot_spec),
+        "result": None,
+        "run_keys": list(run_keys),
+        "available_data_types": list(available_dtypes),
+        "available_plot_types": list(plot_types),
+        "selector_values": list(selector_values),
+        "copy": copy,
+    }
+    exec(code_text, {"__builtins__": __builtins__}, execution_locals)
+    candidate = execution_locals.get("result")
+    if candidate is None:
+        candidate = execution_locals.get("plot_spec")
+    return _sanitize_data_viewer_plot_spec(
+        candidate, base_plot_spec, run_keys, available_dtypes, plot_types, selector_values
+    )
+
+
 # ---------------------------------------------------------------------------
 # main app
 # ---------------------------------------------------------------------------
@@ -124,15 +326,41 @@ st.title("NanoOrganizer — Data Browser")
 # Floating sidebar toggle button (bottom-left)
 floating_sidebar_toggle()
 
+default_path = _auto_detect_demo()
+if not is_path_allowed(default_path, allow_nonexistent=True):
+    default_path = st.session_state.get("user_start_dir", str(Path.cwd()))
+st.session_state.setdefault("dv_data_dir", default_path)
+st.session_state.setdefault("dv_selected_runs", [])
+st.session_state.setdefault("dv_selected_dtype", None)
+st.session_state.setdefault("dv_selected_plot_type", None)
+st.session_state.setdefault("dv_x_scale", SCALE_OPTIONS[0])
+st.session_state.setdefault("dv_y_scale", SCALE_OPTIONS[0])
+st.session_state.setdefault("dv_cmap", COLORMAPS[0])
+st.session_state.setdefault("dv_show_markers", False)
+st.session_state.setdefault("dv_line_alpha", 0.8)
+st.session_state.setdefault("dv_image_idx", 0)
+st.session_state.setdefault("dv_selector_value", None)
+st.session_state.setdefault("dv_editor_code", "")
+st.session_state.setdefault("dv_editor_status", "")
+st.session_state.setdefault("dv_editor_warnings", [])
+
 # ---- sidebar: data directory & load ----------------------------------------
 with st.sidebar:
     st.header("📁 Data Source")
-    default_path = _auto_detect_demo()
-    data_dir = st.text_input("Data directory", value=default_path)
+
+    if "dv_pending_plot_spec" in st.session_state:
+        pending_spec = st.session_state.pop("dv_pending_plot_spec")
+        _apply_data_viewer_plot_spec_to_state(pending_spec)
+
+    data_dir = st.text_input("Data directory", key="dv_data_dir")
+    if data_dir and not is_path_allowed(data_dir, allow_nonexistent=True):
+        st.error("Data directory is outside your allowed folders.")
 
     if "org" not in st.session_state or st.button("🔄 Load/Reload"):
         try:
-            st.session_state["org"] = DataOrganizer.load(data_dir)
+            safe_data_dir = assert_path_allowed(data_dir, path_label="Data directory")
+            st.session_state["dv_data_dir"] = str(safe_data_dir)
+            st.session_state["org"] = DataOrganizer.load(str(safe_data_dir))
             st.session_state.pop("_prev_dir", None)
             st.success("✅ Data loaded!")
         except Exception as exc:
@@ -152,10 +380,17 @@ with st.sidebar:
         st.stop()
 
     # Multi-select for comparing multiple runs
+    selected_run_defaults = st.session_state.get("dv_selected_runs", [])
+    selected_run_defaults = [rk for rk in selected_run_defaults if rk in run_keys]
+    if not selected_run_defaults:
+        selected_run_defaults = [run_keys[0]] if run_keys else []
+    st.session_state["dv_selected_runs"] = selected_run_defaults
+
     selected_keys = st.multiselect(
         "Select Run(s)",
         run_keys,
-        default=[run_keys[0]] if run_keys else [],
+        default=selected_run_defaults,
+        key="dv_selected_runs",
         help="Select multiple runs to overlay/compare"
     )
 
@@ -191,7 +426,9 @@ with st.sidebar:
         st.warning("No linked data in this run.")
         st.stop()
 
-    selected_dtype = st.selectbox("Data type", available)
+    if st.session_state.get("dv_selected_dtype") not in available:
+        st.session_state["dv_selected_dtype"] = available[0]
+    selected_dtype = st.selectbox("Data type", available, key="dv_selected_dtype")
 
     # ---- plot-type selector -------------------------------------------------
     plotter_cls = PLOTTER_REGISTRY.get(selected_dtype)
@@ -201,7 +438,9 @@ with st.sidebar:
 
     plotter = plotter_cls()
     plot_types = plotter.available_plot_types
-    selected_plot_type = st.selectbox("Plot type", plot_types)
+    if st.session_state.get("dv_selected_plot_type") not in plot_types:
+        st.session_state["dv_selected_plot_type"] = plot_types[0]
+    selected_plot_type = st.selectbox("Plot type", plot_types, key="dv_selected_plot_type")
 
     # ---- Plot Controls ------------------------------------------------------
     st.header("⚙️ Plot Controls")
@@ -210,30 +449,38 @@ with st.sidebar:
     if not _is_image_type(selected_dtype):
         col1, col2 = st.columns(2)
         with col1:
-            x_scale = st.radio("X Scale", ["linear", "log"], horizontal=True)
+            if st.session_state.get("dv_x_scale") not in SCALE_OPTIONS:
+                st.session_state["dv_x_scale"] = SCALE_OPTIONS[0]
+            x_scale = st.radio("X Scale", SCALE_OPTIONS, horizontal=True, key="dv_x_scale")
         with col2:
-            y_scale = st.radio("Y Scale", ["linear", "log"], horizontal=True)
+            if st.session_state.get("dv_y_scale") not in SCALE_OPTIONS:
+                st.session_state["dv_y_scale"] = SCALE_OPTIONS[0]
+            y_scale = st.radio("Y Scale", SCALE_OPTIONS, horizontal=True, key="dv_y_scale")
 
     # Colormap for heatmaps/2D plots
     if _is_heatmap_plot(selected_plot_type) or _is_image_type(selected_dtype):
-        cmap = st.selectbox("Colormap", COLORMAPS, index=0)
+        if st.session_state.get("dv_cmap") not in COLORMAPS:
+            st.session_state["dv_cmap"] = COLORMAPS[0]
+        cmap = st.selectbox("Colormap", COLORMAPS, key="dv_cmap")
     else:
         cmap = None
 
     # Line style controls for overlay plots (when multiple runs selected)
     if len(selected_keys) > 1 and not _is_image_type(selected_dtype):
         with st.expander("🎨 Line Styles", expanded=False):
-            show_markers = st.checkbox("Show markers", value=False)
-            line_alpha = st.slider("Line opacity", 0.1, 1.0, 0.8, 0.1)
+            show_markers = st.checkbox("Show markers", key="dv_show_markers")
+            line_alpha = st.slider("Line opacity", 0.1, 1.0, 0.8, 0.1, key="dv_line_alpha")
     else:
-        show_markers = False
-        line_alpha = 1.0
+        show_markers = st.session_state.get("dv_show_markers", False)
+        line_alpha = st.session_state.get("dv_line_alpha", 1.0)
 
 # ---------------------------------------------------------------------------
 # main area
 # ---------------------------------------------------------------------------
 
 st.header(f"📈 Visualization: {selected_dtype.upper()} - {selected_plot_type}")
+
+selector_values = []
 
 if _is_image_type(selected_dtype):
     # ----- IMAGE BRANCH --------------------------------------------------------
@@ -243,7 +490,10 @@ if _is_image_type(selected_dtype):
 
     # Get image indices
     n_files = len(loaders[0].link.file_paths)
-    image_idx = st.sidebar.selectbox("Image #", list(range(n_files)))
+    image_choices = list(range(n_files))
+    if st.session_state.get("dv_image_idx") not in image_choices and image_choices:
+        st.session_state["dv_image_idx"] = image_choices[0]
+    image_idx = st.sidebar.selectbox("Image #", image_choices, key="dv_image_idx")
 
     # Side-by-side comparison
     if len(selected_keys) > 1:
@@ -308,13 +558,17 @@ else:
 
     # Dynamic selector control (use first dataset's values)
     kwargs = {}
+    selector_values = []
     selector_key = (selected_dtype, selected_plot_type)
     if selector_key in SELECTORS:
         kwarg_name, label, data_key = SELECTORS[selector_key]
         first_data = run_data_pairs[0][1]
         values = first_data[data_key]
         values_list = [round(float(v), 4) for v in values]
-        chosen = st.sidebar.selectbox(label, values_list)
+        selector_values = values_list
+        if st.session_state.get("dv_selector_value") not in values_list and values_list:
+            st.session_state["dv_selector_value"] = values_list[0]
+        chosen = st.sidebar.selectbox(label, values_list, key="dv_selector_value")
         kwargs[kwarg_name] = chosen
 
     # Create the plot
@@ -405,6 +659,82 @@ else:
                     st.dataframe(df.head(10))
                     st.text(f"Shape: {val.shape}")
                     break
+
+# ---------------------------------------------------------------------------
+# Python Editor (Two-way GUI <-> Code)
+# ---------------------------------------------------------------------------
+
+current_dv_plot_spec = _build_data_viewer_plot_spec(
+    data_dir=data_dir,
+    selected_keys=selected_keys,
+    selected_dtype=selected_dtype,
+    selected_plot_type=selected_plot_type,
+    x_scale=st.session_state.get("dv_x_scale", SCALE_OPTIONS[0]),
+    y_scale=st.session_state.get("dv_y_scale", SCALE_OPTIONS[0]),
+    cmap=st.session_state.get("dv_cmap"),
+    show_markers=st.session_state.get("dv_show_markers", False),
+    line_alpha=st.session_state.get("dv_line_alpha", 0.8),
+    image_idx=st.session_state.get("dv_image_idx", 0),
+    selector_value=st.session_state.get("dv_selector_value"),
+)
+st.session_state["dv_current_plot_spec"] = current_dv_plot_spec
+
+if not st.session_state.get("dv_editor_code"):
+    st.session_state["dv_editor_code"] = _generate_data_viewer_editor_python(current_dv_plot_spec)
+
+st.divider()
+st.header("🧠 Python Plot Editor (Experimental)")
+st.caption("Two-way control: GUI -> Python script -> GUI.")
+st.caption("Code runs in the app process. Only run trusted code.")
+
+pending_editor_code = st.session_state.pop("dv_editor_code_pending", None)
+if pending_editor_code is not None:
+    st.session_state["dv_editor_code"] = pending_editor_code
+
+editor_code = st.text_area(
+    "Editable Python script",
+    key="dv_editor_code",
+    height=280,
+    help="Edit plot_spec and click 'Run Edited Python' to sync Data Viewer controls."
+)
+
+ed_col1, ed_col2 = st.columns(2)
+with ed_col1:
+    if st.button("🧾 Show Python from Current GUI", key="dv_editor_generate"):
+        st.session_state["dv_editor_code_pending"] = _generate_data_viewer_editor_python(current_dv_plot_spec)
+        st.session_state["dv_editor_status"] = "Editor refreshed from current GUI state."
+        st.session_state["dv_editor_warnings"] = []
+        st.rerun()
+
+with ed_col2:
+    if st.button("▶️ Run Edited Python", key="dv_editor_run", type="primary"):
+        try:
+            normalized_spec, warnings = _execute_data_viewer_editor(
+                editor_code,
+                current_dv_plot_spec,
+                run_keys,
+                available,
+                plot_types,
+                selector_values,
+            )
+            if normalized_spec.get("data_dir") != data_dir:
+                warnings.append("Data directory changed in script. Click 'Load/Reload' to refresh data.")
+            st.session_state["dv_pending_plot_spec"] = normalized_spec
+            st.session_state["dv_editor_status"] = "Script applied. GUI synced from edited plot_spec."
+            st.session_state["dv_editor_warnings"] = warnings
+            st.rerun()
+        except Exception as exc:
+            st.session_state["dv_editor_status"] = f"Script execution failed: {exc}"
+            st.session_state["dv_editor_warnings"] = []
+
+if st.session_state.get("dv_editor_status"):
+    status_text = st.session_state["dv_editor_status"]
+    if status_text.lower().startswith("script execution failed"):
+        st.error(status_text)
+    else:
+        st.success(status_text)
+for warning_msg in st.session_state.get("dv_editor_warnings", []):
+    st.warning(warning_msg)
 
 # ----- Full Metadata expander (always visible) --------------------------------
 with st.expander("📋 Full Metadata (First Run)"):

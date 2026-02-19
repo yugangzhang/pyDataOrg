@@ -21,12 +21,22 @@ import sys  # noqa: E402
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.floating_button import floating_sidebar_toggle  # noqa: E402
+from components.security import (  # noqa: E402
+    assert_path_allowed,
+    filter_allowed_paths,
+    initialize_security_context,
+    is_path_allowed,
+    require_authentication,
+)
 
 from NanoOrganizer import (  # noqa: E402
     DataOrganizer, RunMetadata, ReactionParams, ChemicalSpec,
     save_time_series_to_csv
 )
 from NanoOrganizer.core.run import DEFAULT_LOADERS  # noqa: E402
+
+initialize_security_context()
+require_authentication()
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -35,10 +45,13 @@ from NanoOrganizer.core.run import DEFAULT_LOADERS  # noqa: E402
 
 def browse_files(base_dir, pattern="*.*"):
     """Browse directory and find files matching pattern."""
-    base_path = Path(base_dir)
+    try:
+        base_path = assert_path_allowed(base_dir, path_label="Base directory")
+    except Exception:
+        return []
     if not base_path.exists():
         return []
-    files = list(base_path.rglob(pattern))
+    files = [f for f in base_path.rglob(pattern) if is_path_allowed(f)]
     return [str(f) for f in sorted(files)]
 
 
@@ -134,13 +147,20 @@ with st.sidebar:
             value=str(Path.cwd() / "MyNanoProject"),
             help="Directory where project will be created"
         )
+        if project_dir and not is_path_allowed(project_dir, allow_nonexistent=True):
+            st.error("Project directory is outside your allowed folders.")
 
         if st.button("🆕 Create Project"):
             try:
-                org = DataOrganizer(project_dir)
+                safe_project_dir = assert_path_allowed(
+                    project_dir,
+                    allow_nonexistent=True,
+                    path_label="Project directory",
+                )
+                org = DataOrganizer(str(safe_project_dir))
                 st.session_state['current_organizer'] = org
-                st.session_state['project_dir'] = project_dir
-                st.success(f"✅ Created project at {project_dir}")
+                st.session_state['project_dir'] = str(safe_project_dir)
+                st.success(f"✅ Created project at {safe_project_dir}")
             except Exception as e:
                 st.error(f"Error creating project: {e}")
 
@@ -150,12 +170,18 @@ with st.sidebar:
             value=str(Path.cwd() / "Demo"),
             help="Directory containing .metadata/ folder"
         )
+        if project_dir and not is_path_allowed(project_dir, allow_nonexistent=True):
+            st.error("Project directory is outside your allowed folders.")
 
         if st.button("📂 Load Project"):
             try:
-                org = DataOrganizer.load(project_dir)
+                safe_project_dir = assert_path_allowed(
+                    project_dir,
+                    path_label="Project directory",
+                )
+                org = DataOrganizer.load(str(safe_project_dir))
                 st.session_state['current_organizer'] = org
-                st.session_state['project_dir'] = project_dir
+                st.session_state['project_dir'] = str(safe_project_dir)
                 st.success(f"✅ Loaded {len(org.list_runs())} run(s)")
             except Exception as e:
                 st.error(f"Error loading project: {e}")
@@ -420,6 +446,8 @@ with tab2:
             value=str(Path(st.session_state.get('project_dir', Path.cwd()))),
             help="Directory to search for files"
         )
+        if base_dir and not is_path_allowed(base_dir, allow_nonexistent=True):
+            st.error("Base directory is outside your allowed folders.")
 
         pattern = st.text_input(
             "File pattern",
@@ -428,11 +456,16 @@ with tab2:
         )
 
         if st.button("🔍 Search Files"):
-            found_files = browse_files(base_dir, pattern)
+            found_files = browse_files(base_dir, pattern) if is_path_allowed(
+                base_dir, allow_nonexistent=True
+            ) else []
             st.session_state[f'found_files_{selected_dtype}'] = found_files
 
         if f'found_files_{selected_dtype}' in st.session_state:
-            found_files = st.session_state[f'found_files_{selected_dtype}']
+            found_files = [
+                f for f in st.session_state[f'found_files_{selected_dtype}']
+                if is_path_allowed(f)
+            ]
             if found_files:
                 st.success(f"Found {len(found_files)} files")
                 selected_files = st.multiselect(
@@ -452,7 +485,12 @@ with tab2:
             help="Enter file paths, one per line"
         )
         if paths_text:
-            selected_files = [p.strip() for p in paths_text.split('\n') if p.strip()]
+            manual_paths = [p.strip() for p in paths_text.split('\n') if p.strip()]
+            selected_files, rejected_paths = filter_allowed_paths(manual_paths)
+            if rejected_paths:
+                st.warning(
+                    f"Skipped {len(rejected_paths)} path(s) outside allowed folders."
+                )
 
     # Additional metadata based on data type
     st.subheader("Additional Metadata")
@@ -503,6 +541,15 @@ with tab2:
 
         if st.button(f"🔗 Link {selected_dtype.upper()} Data", type="primary"):
             try:
+                selected_files, rejected_paths = filter_allowed_paths(selected_files)
+                if rejected_paths:
+                    st.warning(
+                        f"Skipped {len(rejected_paths)} disallowed path(s)."
+                    )
+                if not selected_files:
+                    st.error("No allowed files selected to link.")
+                    st.stop()
+
                 loader = getattr(run, selected_dtype)
 
                 # Prepare kwargs

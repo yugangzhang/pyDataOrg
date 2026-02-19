@@ -13,6 +13,15 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.floating_button import floating_sidebar_toggle
+from components.security import (
+    assert_path_allowed,
+    initialize_security_context,
+    is_path_allowed,
+    require_authentication,
+)
+
+initialize_security_context()
+require_authentication()
 
 st.title("🧪 Test Data Generator")
 st.markdown("Create comprehensive simulated data for testing all tools")
@@ -32,6 +41,8 @@ with st.sidebar:
         value=str(Path.cwd() / "TestData"),
         help="Where to save generated data"
     )
+    if output_dir and not is_path_allowed(output_dir, allow_nonexistent=True):
+        st.error("Output directory is outside your allowed folders.")
 
     st.subheader("Data Types")
     generate_csv = st.checkbox("CSV time-series", value=True)
@@ -225,7 +236,15 @@ def generate_3d_data(output_dir, n_files):
 st.divider()
 
 if st.button("🚀 Generate All Test Data", type="primary"):
-    output_path = Path(output_dir)
+    try:
+        output_path = assert_path_allowed(
+            output_dir,
+            allow_nonexistent=True,
+            path_label="Output directory",
+        )
+    except Exception as exc:
+        st.error(str(exc))
+        st.stop()
 
     with st.spinner("Generating test data..."):
         summary = {}

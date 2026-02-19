@@ -7,8 +7,13 @@ Provides a visual folder navigation interface without text input.
 
 import streamlit as st
 from pathlib import Path
-import os
-import re
+from .security import (
+    format_allowed_roots,
+    get_allowed_roots,
+    initialize_security_context,
+    is_path_allowed as security_is_path_allowed,
+    is_restricted_mode,
+)
 
 
 def filter_file_list(file_list, and_list=[], or_list=[], no_list=[]):
@@ -97,10 +102,16 @@ def folder_browser(
         List of selected file paths (empty if only navigating)
     """
 
+    initialize_security_context()
+    secure_restriction = is_restricted_mode()
+    secure_roots = get_allowed_roots() if secure_restriction else []
+
     # Initialize session state
     if f'{key}_current_path' not in st.session_state:
         if initial_path:
             st.session_state[f'{key}_current_path'] = str(Path(initial_path).resolve())
+        elif secure_roots:
+            st.session_state[f'{key}_current_path'] = str(secure_roots[0])
         else:
             st.session_state[f'{key}_current_path'] = str(Path.cwd())
 
@@ -116,6 +127,8 @@ def folder_browser(
 
     # Helper function to check if path is allowed
     def is_path_allowed(path):
+        if secure_restriction:
+            return security_is_path_allowed(path)
         if not restrict_to_start_dir:
             return True
         try:
@@ -125,18 +138,51 @@ def folder_browser(
         except ValueError:
             return False
 
+    if not is_path_allowed(current_path):
+        if secure_roots:
+            st.session_state[f'{key}_current_path'] = str(secure_roots[0])
+        else:
+            st.session_state[f'{key}_current_path'] = str(base_path)
+        current_path = Path(st.session_state[f'{key}_current_path'])
+
+    # Drop stale selections that are now outside allowed roots.
+    st.session_state[f'{key}_selected_files'] = [
+        path for path in st.session_state[f'{key}_selected_files']
+        if is_path_allowed(path)
+    ]
+
     # -------------------------------------------------------------------------
     # Quick shortcuts
     # -------------------------------------------------------------------------
     st.markdown("**📍 Quick Shortcuts:**")
 
-    if restrict_to_start_dir:
+    if secure_restriction:
+        st.info(f"🔒 Restricted mode: Allowed folders -> {format_allowed_roots()}")
+        col1, col2, col3 = st.columns(3)
+    elif restrict_to_start_dir:
         st.info("🔒 Restricted mode: Can only browse current folder and subfolders")
         col1, col2, col3 = st.columns(3)
     else:
         col1, col2, col3, col4 = st.columns(4)
 
-    if not restrict_to_start_dir:
+    if secure_restriction:
+        with col1:
+            if secure_roots and st.button("💼 Start", key=f"{key}_start_root"):
+                st.session_state[f'{key}_current_path'] = str(secure_roots[0])
+                st.rerun()
+        with col2:
+            alternate_root = None
+            home_dir = Path.home().resolve()
+            for root in secure_roots:
+                if root == home_dir:
+                    alternate_root = root
+                    break
+            if alternate_root is None and len(secure_roots) > 1:
+                alternate_root = secure_roots[1]
+            if alternate_root and st.button("🏠 Home", key=f"{key}_home_root"):
+                st.session_state[f'{key}_current_path'] = str(alternate_root)
+                st.rerun()
+    elif not restrict_to_start_dir:
         with col1:
             if st.button("🏠 Home", key=f"{key}_home"):
                 st.session_state[f'{key}_current_path'] = str(Path.home())
@@ -147,19 +193,20 @@ def folder_browser(
                 st.session_state[f'{key}_current_path'] = str(Path.cwd())
                 st.rerun()
 
-    with col3 if restrict_to_start_dir else col3:
-        if st.button("🧪 TestData", key=f"{key}_testdata"):
-            test_path = Path.cwd() / "TestData"
-            if test_path.exists():
-                if is_path_allowed(test_path):
-                    st.session_state[f'{key}_current_path'] = str(test_path)
-                    st.rerun()
+    if not secure_restriction:
+        with col3:
+            if st.button("🧪 TestData", key=f"{key}_testdata"):
+                test_path = Path.cwd() / "TestData"
+                if test_path.exists():
+                    if is_path_allowed(test_path):
+                        st.session_state[f'{key}_current_path'] = str(test_path)
+                        st.rerun()
+                    else:
+                        st.warning("TestData folder outside allowed directory")
                 else:
-                    st.warning("TestData folder outside allowed directory")
-            else:
-                st.warning("TestData folder not found")
+                    st.warning("TestData folder not found")
 
-    with (col2 if restrict_to_start_dir else col4):
+    with (col3 if secure_restriction else (col2 if restrict_to_start_dir else col4)):
         if st.button("⬆️ Parent", key=f"{key}_parent"):
             parent = current_path.parent
             if parent != current_path:  # Not at root
@@ -167,7 +214,7 @@ def folder_browser(
                     st.session_state[f'{key}_current_path'] = str(parent)
                     st.rerun()
                 else:
-                    st.warning("🔒 Cannot navigate above starting directory")
+                    st.warning("🔒 Cannot navigate above allowed folders")
 
     st.divider()
 
@@ -238,8 +285,11 @@ def folder_browser(
                 if st.button(f"{display_name}", key=f"{key}_breadcrumb_{i}"):
                     # Navigate to this level
                     new_path = Path(*parts[:i+1])
-                    st.session_state[f'{key}_current_path'] = str(new_path)
-                    st.rerun()
+                    if is_path_allowed(new_path):
+                        st.session_state[f'{key}_current_path'] = str(new_path)
+                        st.rerun()
+                    else:
+                        st.warning("🔒 That folder is outside the allowed area")
 
         # Show full path as text (copyable)
         st.code(str(current_path), language="bash")
@@ -252,11 +302,17 @@ def folder_browser(
 
     try:
         # Get subdirectories
-        subdirs = sorted([d for d in current_path.iterdir() if d.is_dir() and not d.name.startswith('.')])
+        subdirs = sorted([
+            d for d in current_path.iterdir()
+            if d.is_dir() and not d.name.startswith('.') and is_path_allowed(d)
+        ])
 
         # Get files matching pattern
         if show_files:
-            files = sorted(current_path.glob(file_pattern))
+            files = sorted([
+                f for f in current_path.glob(file_pattern)
+                if f.is_file() and is_path_allowed(f)
+            ])
 
             # Apply advanced filters
             if and_list or or_list or no_list:
@@ -350,33 +406,72 @@ def folder_browser_dialog(key="folder_browser_dialog"):
     selected_path : str or None
         Selected folder path
     """
+    initialize_security_context()
+    secure_restriction = is_restricted_mode()
+    secure_roots = get_allowed_roots() if secure_restriction else []
+
     if f'{key}_current_path' not in st.session_state:
-        st.session_state[f'{key}_current_path'] = str(Path.cwd())
+        st.session_state[f'{key}_current_path'] = str(
+            secure_roots[0] if secure_roots else Path.cwd()
+        )
 
     current_path = Path(st.session_state[f'{key}_current_path'])
+
+    def is_path_allowed(path):
+        if secure_restriction:
+            return security_is_path_allowed(path)
+        return True
+
+    if not is_path_allowed(current_path):
+        if secure_roots:
+            st.session_state[f'{key}_current_path'] = str(secure_roots[0])
+        else:
+            st.session_state[f'{key}_current_path'] = str(Path.cwd())
+        current_path = Path(st.session_state[f'{key}_current_path'])
 
     st.markdown("**📂 Navigate to folder:**")
 
     # Quick shortcuts
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        if st.button("🏠 Home", key=f"{key}_home"):
-            st.session_state[f'{key}_current_path'] = str(Path.home())
-            st.rerun()
-    with col2:
-        if st.button("💼 CWD", key=f"{key}_cwd"):
-            st.session_state[f'{key}_current_path'] = str(Path.cwd())
-            st.rerun()
-    with col3:
+    if secure_restriction:
+        st.info(f"🔒 Restricted mode: Allowed folders -> {format_allowed_roots()}")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if secure_roots and st.button("💼 Start", key=f"{key}_start_root"):
+                st.session_state[f'{key}_current_path'] = str(secure_roots[0])
+                st.rerun()
+        with col2:
+            alternate_root = None
+            home_dir = Path.home().resolve()
+            for root in secure_roots:
+                if root == home_dir:
+                    alternate_root = root
+                    break
+            if alternate_root is None and len(secure_roots) > 1:
+                alternate_root = secure_roots[1]
+            if alternate_root and st.button("🏠 Home", key=f"{key}_home_root"):
+                st.session_state[f'{key}_current_path'] = str(alternate_root)
+                st.rerun()
+    else:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            if st.button("🏠 Home", key=f"{key}_home"):
+                st.session_state[f'{key}_current_path'] = str(Path.home())
+                st.rerun()
+        with col2:
+            if st.button("💼 CWD", key=f"{key}_cwd"):
+                st.session_state[f'{key}_current_path'] = str(Path.cwd())
+                st.rerun()
+
+    with (col1 if secure_restriction else col3):
         if st.button("🧪 TestData", key=f"{key}_testdata"):
             test_path = Path.cwd() / "TestData"
-            if test_path.exists():
+            if test_path.exists() and is_path_allowed(test_path):
                 st.session_state[f'{key}_current_path'] = str(test_path)
                 st.rerun()
-    with col4:
+    with (col3 if secure_restriction else col4):
         if st.button("⬆️ Parent", key=f"{key}_parent"):
             parent = current_path.parent
-            if parent != current_path:
+            if parent != current_path and is_path_allowed(parent):
                 st.session_state[f'{key}_current_path'] = str(parent)
                 st.rerun()
 
@@ -385,7 +480,10 @@ def folder_browser_dialog(key="folder_browser_dialog"):
 
     # Show subdirectories as buttons
     try:
-        subdirs = sorted([d for d in current_path.iterdir() if d.is_dir() and not d.name.startswith('.')])
+        subdirs = sorted([
+            d for d in current_path.iterdir()
+            if d.is_dir() and not d.name.startswith('.') and is_path_allowed(d)
+        ])
 
         if subdirs:
             st.markdown("**📁 Subfolders:**")
