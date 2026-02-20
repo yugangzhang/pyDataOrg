@@ -2,14 +2,27 @@
 Nanoorganizer – modular data organizer for nanoparticle synthesis.
 """
 
+import re
+from pathlib import Path
 from setuptools import setup, find_packages
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+
+def read_version():
+    """Read version from NanoOrganizer/version.py without importing package."""
+    version_path = Path(__file__).resolve().parent / "NanoOrganizer" / "version.py"
+    text = version_path.read_text(encoding="utf-8")
+    match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    if not match:
+        raise RuntimeError("Unable to find __version__ in NanoOrganizer/version.py")
+    return match.group(1)
+
+
 setup(
     name="Nanoorganizer",
-    version="1.0.0",
+    version=read_version(),
     author='Brookhaven National Laboratory_YugangZhang@CFN',
     author_email="yuzhang@bnl.gov",
     description="A clean, modular, extensible framework for nano-synthesis data organizer",

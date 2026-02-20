@@ -86,6 +86,18 @@ Push private advanced branch (`viz-adv`):
 git push -u origin viz-adv
 ```
 
+## Version And Tagging
+
+Release governance lives in:
+
+- `docs/RELEASE_POLICY.md`
+
+Quick checks:
+
+```bash
+python scripts/release/check_release_state.py --track base --require-clean
+```
+
 ## License
 
 MIT

@@ -43,7 +43,7 @@ Quick start
 >>> run.uvvis.plot(plot_type="heatmap")
 """
 
-__version__ = "1.0.0"
+from NanoOrganizer.version import __version__
 __author__  = "NanoOrganizer Team"
 
 # ---------------------------------------------------------------------------
