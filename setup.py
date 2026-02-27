@@ -52,22 +52,8 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            # MAIN APP - All tools in one (port 8501) - RECOMMENDED!
-            'nanoorganizer=NanoOrganizer.web_app.app_cli:main',
-            # Restricted user mode - folder browser locked to CWD
-            'nanoorganizer_user=NanoOrganizer.web_app.app_cli:main_user',
             # Secure mode with custom port + password
             'viz=NanoOrganizer.web_app.app_cli:main_secure',
-
-            # Legacy individual tools (still available)
-            'nanoorganizer-hub=NanoOrganizer.web.hub_cli:main',
-            'nanoorganizer-viz=NanoOrganizer.web.cli:main',
-            'nanoorganizer-csv=NanoOrganizer.web.csv_plotter_cli:main',
-            'nanoorganizer-csv-enhanced=NanoOrganizer.web.csv_enhanced_cli:main',
-            'nanoorganizer-manage=NanoOrganizer.web.data_manager_cli:main',
-            'nanoorganizer-3d=NanoOrganizer.web.plotter_3d_cli:main',
-            'nanoorganizer-img=NanoOrganizer.web.image_viewer_cli:main',
-            'nanoorganizer-multi=NanoOrganizer.web.multi_axes_cli:main',
         ],
     },
     extras_require={
