@@ -3,9 +3,7 @@
 
 Commands
 --------
-nanoorganizer       Full access mode (port 5647)
-nanoorganizer_user  Restricted user mode — locks folder browser to CWD
-viz                Secure mode: viz [port] [password]
+viz                 Secure mode: viz [port] [password]
 """
 
 import argparse

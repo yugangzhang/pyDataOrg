@@ -57,20 +57,11 @@ The following are intentionally excluded from `viz-base`:
 
 Use `viz-adv` branch/package for those capabilities.
 
-## Legacy Commands
+## CLI Surface
 
-These commands are still available:
+Only one launcher command is exposed in this track:
 
-- `nanoorganizer`
-- `nanoorganizer_user`
-- `nanoorganizer-viz`
-- `nanoorganizer-csv`
-- `nanoorganizer-csv-enhanced`
-- `nanoorganizer-manage`
-- `nanoorganizer-3d`
-- `nanoorganizer-img`
-- `nanoorganizer-multi`
-- `nanoorganizer-hub`
+- `viz`
 
 ## Push Workflow
 
