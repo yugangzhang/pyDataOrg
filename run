@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# Launch the NanoOrganizer web GUI (secure mode: port + password).
+#
+# Usage:
+#   ./run [PORT] [PASSWORD]
+#
+# Examples:
+#   ./run 5646 asdf          # port 5646, password "asdf"
+#   ./run 5646               # port 5646, prompts for password
+#   ./run                    # default port, prompts for password
+#
+# Notes:
+#   - Secure mode locks the file browser to the launch dir + your home, plus
+#     any beamline data roots listed in NANOORGANIZER_EXTRA_ROOTS below.
+#   - Open the printed URL in a browser and enter the password.
+#   - Stop with Ctrl-C.
+
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_DIR"
+
+# Beamline data lives behind a symlink that resolves outside $HOME; whitelist
+# its real target so secure mode lets the SAXS explorer read it. Add more
+# paths here (os.pathsep = ':' separated) as needed.
+: "${NANOORGANIZER_EXTRA_ROOTS:=/facility/storage/proposals:/facility/users/${USER}/proposal_link}"
+export NANOORGANIZER_EXTRA_ROOTS
+
+# Make the local package importable without a pip install.
+export PYTHONPATH="$REPO_DIR:${PYTHONPATH:-}"
+
+exec python3 -c 'from NanoOrganizer.web_app.app_cli import main_secure; main_secure()' "$@"

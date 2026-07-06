@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_PORT = 5647
+DEFAULT_PORT = 8800
 
 
 def _hash_password(password: str) -> str:
@@ -35,6 +35,9 @@ def _launch_streamlit(port: int, env: Optional[dict] = None) -> int:
             "true",
             "--server.port",
             str(port),
+            "--server.address",
+            "127.0.0.1",   
+
         ],
         env=env,
     )
@@ -103,8 +106,15 @@ def main_secure():
     start_dir = Path.cwd().resolve()
     home_dir = Path.home().resolve()
 
+    # Extra roots (e.g. beamline data mounts) can be injected via the
+    # NANOORGANIZER_EXTRA_ROOTS env var — os.pathsep-separated paths. Each is
+    # resolved (symlinks followed) so it matches how is_path_allowed() checks.
+    extra_raw = os.environ.get("NANOORGANIZER_EXTRA_ROOTS", "")
+    extra_roots = [Path(p).expanduser().resolve()
+                   for p in extra_raw.split(os.pathsep) if p.strip()]
+
     roots = []
-    for root in (start_dir, home_dir):
+    for root in (start_dir, home_dir, *extra_roots):
         if root not in roots:
             roots.append(root)
 
