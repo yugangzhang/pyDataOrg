@@ -58,30 +58,29 @@ with col1:
     st.markdown("""
     ## Welcome! 👋
 
-    You now have **7 powerful tools** all running on **one port (8501)**!
-    No need to manage multiple terminals or ports.
+    All tools run on **one port**. Use the sidebar 👈 to switch between pages.
 
-    **How to use:**
-    1. 👈 Use the sidebar to navigate between tools
-    2. Each tool is a separate page
-    3. All running on the same Streamlit instance
-    4. Switch between tools instantly
+    ### Beamline data explorers (CMS SAXS/MAXS auto-reduction output):
 
-    ### Available Tools:
+    📈 **SAXS 1D Explorer** — overlay circular-average I(q) curves; filter by
+    filename / keyword / acquisition time; full styling (xlim/ylim, per-curve
+    color, marker, line style, width, size, opacity), waterfall stacking, and
+    CSV export.
 
-    📊 **Data Viewer** - Explore NanoOrganizer projects with multi-dataset overlay
+    🗺️ **SAXS 2D + 1D** — q–φ heatmap beside its circular average, auto-paired
+    by filename; step through frames by time, overlay multiple 1D curves.
 
-    🎨 **CSV Plotter** - Quick plotting with full per-curve styling (NPZ support)
+    ### General-purpose tools:
 
-    🔧 **Data Manager** - Create projects and organize metadata
+    🎨 **CSV Plotter** — quick plotting with full per-curve styling (CSV/NPZ)
 
-    📈 **3D Plotter** - Interactive 3D visualization with Plotly
+    🖼️ **Image Viewer** — view 2D images, stacks, and detector data
 
-    🖼️ **Image Viewer** - View 2D images, stacks, and detector data
+    📐 **Multi-Axes** — publication-ready multi-panel figures
 
-    📐 **Multi-Axes** - Create publication-ready multi-panel figures
+    📊 **3D Plotter** — interactive 3D visualization with Plotly
 
-    🧪 **Test Data Generator** - Generate comprehensive simulated data
+    🔧 **Data Manager** — create projects and organize metadata
     """)
 
 with col2:
