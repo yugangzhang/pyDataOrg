@@ -24,6 +24,12 @@ def _hash_password(password: str) -> str:
 
 def _launch_streamlit(port: int, env: Optional[dict] = None) -> int:
     app_path = Path(__file__).resolve().parent / "Home.py"
+    # Bind all interfaces by default so the app is reachable via the machine's
+    # hostname/IP from other computers (e.g. http://workstation:PORT). Binding
+    # to 127.0.0.1 would only accept connections from the local machine.
+    # Override with NANOORGANIZER_HOST=127.0.0.1 to restrict to localhost.
+    source_env = env if env is not None else os.environ
+    address = source_env.get("NANOORGANIZER_HOST", "0.0.0.0")
     return subprocess.call(
         [
             sys.executable,
@@ -36,8 +42,7 @@ def _launch_streamlit(port: int, env: Optional[dict] = None) -> int:
             "--server.port",
             str(port),
             "--server.address",
-            "127.0.0.1",   
-
+            address,
         ],
         env=env,
     )
