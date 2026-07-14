@@ -23,18 +23,35 @@ from NanoOrganizer import (  # noqa: E402
 )
 from NanoOrganizer.core.run import DEFAULT_LOADERS  # noqa: E402
 
+# Access-control helpers: restrict file browsing / project paths to the
+# logged-in user's allowed folders (no-op when standalone / unrestricted).
+try:
+    from NanoOrganizer.web_app.components.security import (  # noqa: E402
+        allowed_rglob as _allowed_rglob,
+        is_path_allowed as _is_path_allowed,
+        is_restricted_mode as _is_restricted_mode,
+    )
+except Exception:  # pragma: no cover - standalone fallback
+    def _allowed_rglob(base_dir, pattern="*.*"):
+        b = Path(base_dir).expanduser()
+        if not b.exists():
+            return []
+        return [str(f) for f in sorted(b.rglob(pattern)) if f.is_file()]
+
+    def _is_path_allowed(path, allow_nonexistent=False):
+        return True
+
+    def _is_restricted_mode():
+        return False
+
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
 
 def browse_files(base_dir, pattern="*.*"):
-    """Browse directory and find files matching pattern."""
-    base_path = Path(base_dir)
-    if not base_path.exists():
-        return []
-    files = list(base_path.rglob(pattern))
-    return [str(f) for f in sorted(files)]
+    """Browse directory for files, honouring per-user access control."""
+    return _allowed_rglob(base_dir, pattern)
 
 
 def get_data_type_info():
@@ -130,13 +147,18 @@ with st.sidebar:
         )
 
         if st.button("🆕 Create Project"):
-            try:
-                org = DataOrganizer(project_dir)
-                st.session_state['current_organizer'] = org
-                st.session_state['project_dir'] = project_dir
-                st.success(f"✅ Created project at {project_dir}")
-            except Exception as e:
-                st.error(f"Error creating project: {e}")
+            if _is_restricted_mode() and not _is_path_allowed(
+                project_dir, allow_nonexistent=True
+            ):
+                st.error("🔒 That folder is outside your allowed folders.")
+            else:
+                try:
+                    org = DataOrganizer(project_dir)
+                    st.session_state['current_organizer'] = org
+                    st.session_state['project_dir'] = project_dir
+                    st.success(f"✅ Created project at {project_dir}")
+                except Exception as e:
+                    st.error(f"Error creating project: {e}")
 
     else:  # Load existing
         project_dir = st.text_input(
@@ -146,13 +168,18 @@ with st.sidebar:
         )
 
         if st.button("📂 Load Project"):
-            try:
-                org = DataOrganizer.load(project_dir)
-                st.session_state['current_organizer'] = org
-                st.session_state['project_dir'] = project_dir
-                st.success(f"✅ Loaded {len(org.list_runs())} run(s)")
-            except Exception as e:
-                st.error(f"Error loading project: {e}")
+            if _is_restricted_mode() and not _is_path_allowed(
+                project_dir, allow_nonexistent=True
+            ):
+                st.error("🔒 That folder is outside your allowed folders.")
+            else:
+                try:
+                    org = DataOrganizer.load(project_dir)
+                    st.session_state['current_organizer'] = org
+                    st.session_state['project_dir'] = project_dir
+                    st.success(f"✅ Loaded {len(org.list_runs())} run(s)")
+                except Exception as e:
+                    st.error(f"Error loading project: {e}")
 
     # Show current project status
     org = st.session_state.get('current_organizer')

@@ -70,9 +70,13 @@ with col1:
     🗺️ **SAXS 2D + 1D** — q–φ heatmap beside its circular average, auto-paired
     by filename; step through frames by time, overlay multiple 1D curves.
 
-    🧭 **GIWAXS Explorer** — four panels per frame (stitched raw · q-image ·
-    q–φ map · circular average) with interactive qr/qz and q/φ line-cuts defined
-    by cut center(s) and band width.
+    🧭 **GIWAXS Explorer** (grazing incidence, `maxs/`) — four panels per frame
+    (stitched raw · q-image · q–φ map · circular average) with interactive
+    qr/qz and q/φ line-cuts defined by cut center(s) and band width.
+
+    🔬 **TSAXS Explorer** (transmission, `saxs/` `waxs/`) — raw · q-image ·
+    q–φ map · I(q), with q/φ line-cuts. Same engine as GIWAXS, adapted to the
+    transmission layout (raw image in the sibling `raw/` folder).
 
     ### General-purpose tools:
 

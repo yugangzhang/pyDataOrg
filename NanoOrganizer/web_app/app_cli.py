@@ -4,11 +4,13 @@
 Commands
 --------
 viz                 Secure mode: viz [port] [password]
+viz-adduser         Add/update a user in the multi-user JSON store
 """
 
 import argparse
 import getpass
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -102,11 +104,16 @@ def main_secure():
     except ValueError as exc:
         parser.error(str(exc))
 
+    # In multi-user mode (NANOORGANIZER_USERS_FILE set) the shared password is
+    # unused — each user logs in with their own credentials — so don't prompt.
+    multi_user = bool(os.environ.get("NANOORGANIZER_USERS_FILE", "").strip())
+
     password = args.password
-    if password is None:
-        password = getpass.getpass("Set access password: ")
-    if not password:
-        parser.error("Password cannot be empty.")
+    if not multi_user:
+        if password is None:
+            password = getpass.getpass("Set access password: ")
+        if not password:
+            parser.error("Password cannot be empty.")
 
     start_dir = Path.cwd().resolve()
     home_dir = Path.home().resolve()
@@ -128,9 +135,76 @@ def main_secure():
     env["NANOORGANIZER_USER_MODE"] = "1"
     env["NANOORGANIZER_START_DIR"] = str(start_dir)
     env["NANOORGANIZER_ALLOWED_ROOTS"] = os.pathsep.join(str(root) for root in roots)
-    env["NANOORGANIZER_PASSWORD_HASH"] = _hash_password(password)
+    if not multi_user:
+        env["NANOORGANIZER_PASSWORD_HASH"] = _hash_password(password)
 
     sys.exit(_launch_streamlit(port, env=env))
+
+
+def main_adduser():
+    """Add or update a user in the multi-user JSON store.
+
+    Usage::
+
+        viz-adduser USERS_FILE USERNAME [--admin] [--root PATH ...]
+
+    Prompts for a password (never echoed) and writes its SHA-256 hash. The file
+    is created if missing. Point the app at it with
+    NANOORGANIZER_USERS_FILE=USERS_FILE.
+    """
+    parser = argparse.ArgumentParser(
+        prog="viz-adduser",
+        description="Add or update a user in the NanoOrganizer multi-user store.",
+    )
+    parser.add_argument("users_file", help="Path to the JSON user store.")
+    parser.add_argument("username", help="Username to add or update.")
+    parser.add_argument("--admin", action="store_true",
+                        help="Grant full filesystem access (ignores --root).")
+    parser.add_argument("--root", action="append", default=[], metavar="PATH",
+                        help="Allowed folder for this user (repeatable).")
+    args = parser.parse_args()
+
+    users_path = Path(args.users_file).expanduser()
+    users = {}
+    if users_path.exists():
+        try:
+            with open(users_path, "r", encoding="utf-8") as fh:
+                users = json.load(fh)
+            if not isinstance(users, dict):
+                parser.error(f"{users_path} does not contain a JSON object.")
+        except ValueError as exc:
+            parser.error(f"Could not parse {users_path}: {exc}")
+
+    password = getpass.getpass(f"Set password for '{args.username}': ")
+    if not password:
+        parser.error("Password cannot be empty.")
+    confirm = getpass.getpass("Confirm password: ")
+    if password != confirm:
+        parser.error("Passwords do not match.")
+
+    key = args.username.strip().lower()
+    entry = {"password": _hash_password(password)}
+    if args.admin:
+        entry["admin"] = True
+    else:
+        roots = [str(Path(r).expanduser()) for r in args.root]
+        if roots:
+            entry["roots"] = roots
+    users[key] = entry
+
+    users_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(users_path, "w", encoding="utf-8") as fh:
+        json.dump(users, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    try:
+        os.chmod(users_path, 0o600)
+    except OSError:
+        pass
+
+    scope = "admin (full access)" if args.admin else (
+        f"roots={entry.get('roots', [])}" if not args.admin else "")
+    print(f"✓ User '{key}' saved to {users_path} ({scope}).")
+    print(f"  Launch the app with NANOORGANIZER_USERS_FILE={users_path}")
 
 
 if __name__ == "__main__":

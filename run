@@ -22,9 +22,11 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
 # Beamline data lives behind a symlink that resolves outside $HOME; whitelist
-# its real target so secure mode lets the SAXS explorer read it. Add more
-# paths here (os.pathsep = ':' separated) as needed.
-: "${NANOORGANIZER_EXTRA_ROOTS:=/facility/storage/proposals:/facility/users/${USER}/proposal_link}"
+# its real target so secure mode lets the SAXS/GIWAXS explorers read it.
+# /mnt/data/FacilityData is the sshfs mount of the the facility remote data
+# (beamline_b_remote proposals live under it). Add more paths here (os.pathsep = ':'
+# separated) as needed.
+: "${NANOORGANIZER_EXTRA_ROOTS:=/facility/storage/proposals:/facility/users/${USER}/proposal_link:/mnt/data/FacilityData}"
 export NANOORGANIZER_EXTRA_ROOTS
 
 # Make the local package importable without a pip install.

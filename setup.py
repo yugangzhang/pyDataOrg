@@ -54,6 +54,8 @@ setup(
         'console_scripts': [
             # Secure mode with custom port + password
             'viz=NanoOrganizer.web_app.app_cli:main_secure',
+            # Add/update a user in the multi-user JSON store
+            'viz-adduser=NanoOrganizer.web_app.app_cli:main_adduser',
         ],
     },
     extras_require={

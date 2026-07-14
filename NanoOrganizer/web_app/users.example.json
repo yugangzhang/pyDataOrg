@@ -1,0 +1,12 @@
+{
+  "yuzhang": {
+    "password": "REPLACE_WITH_SHA256_HASH",
+    "admin": true
+  },
+  "alice": {
+    "password": "REPLACE_WITH_SHA256_HASH",
+    "roots": [
+      "/mnt/data/FacilityData/remote/beamline_b_remote/2026-2/pass-000000"
+    ]
+  }
+}

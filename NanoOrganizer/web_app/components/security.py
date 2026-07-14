@@ -3,9 +3,10 @@
 
 import hashlib
 import hmac
+import json
 import os
 from pathlib import Path
-from typing import Iterable, List, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import streamlit as st
 
@@ -15,6 +16,10 @@ ENV_USER_MODE = "NANOORGANIZER_USER_MODE"
 ENV_START_DIR = "NANOORGANIZER_START_DIR"
 ENV_ALLOWED_ROOTS = "NANOORGANIZER_ALLOWED_ROOTS"
 ENV_PASSWORD_HASH = "NANOORGANIZER_PASSWORD_HASH"
+# Path to a JSON user store enabling multi-user login (username + password,
+# per-user allowed folders). When set, it takes precedence over the single
+# shared password (ENV_PASSWORD_HASH). See load_users() for the schema.
+ENV_USERS_FILE = "NANOORGANIZER_USERS_FILE"
 
 
 def _env_flag(name: str) -> bool:
@@ -44,6 +49,51 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+def load_users() -> Dict[str, dict]:
+    """Load the multi-user store from ``NANOORGANIZER_USERS_FILE`` (JSON).
+
+    Schema (usernames are matched case-insensitively)::
+
+        {
+          "yuzhang": {"password": "<sha256-hex>", "admin": true},
+          "alice":   {"password": "<sha256-hex>",
+                      "roots": ["/mnt/data/FacilityData/.../alice_proposal"]}
+        }
+
+    * ``password`` — SHA-256 hex digest (use ``viz-adduser`` to generate).
+    * ``admin``    — optional; admins may browse the entire filesystem.
+    * ``roots``    — optional list of folders the user may browse. Admins ignore
+                     this. Non-admins with no roots get no filesystem access.
+
+    Returns an empty dict if the env var is unset or the file is unreadable /
+    malformed, so the caller falls back to single-password mode.
+    """
+    path = os.environ.get(ENV_USERS_FILE, "").strip()
+    if not path:
+        return {}
+    try:
+        with open(Path(path).expanduser(), "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    users: Dict[str, dict] = {}
+    for name, cfg in raw.items():
+        if isinstance(cfg, dict):
+            users[str(name).strip().lower()] = cfg
+    return users
+
+
+def _user_roots(cfg: dict) -> List[Path]:
+    """Resolve the allowed roots for a single user config entry."""
+    if cfg.get("admin"):
+        # Admins browse everything: home plus the filesystem root cover every
+        # absolute path, so is_path_allowed() returns True for any real path.
+        return _normalize_roots([Path.home(), Path("/")])
+    return _normalize_roots(cfg.get("roots", []) or [])
+
+
 def initialize_security_context() -> None:
     """Initialize security-related session keys from environment variables."""
     secure_mode = _env_flag(ENV_SECURE_MODE)
@@ -53,18 +103,29 @@ def initialize_security_context() -> None:
         os.environ.get(ENV_START_DIR, str(Path.cwd()))
     ).expanduser().resolve(strict=False)
 
+    users = load_users()
+    multi_user = bool(secure_mode and users)
+
     if secure_mode:
-        raw_roots = os.environ.get(ENV_ALLOWED_ROOTS, "")
-        env_roots = [p for p in raw_roots.split(os.pathsep) if p.strip()]
-        allowed_roots = _normalize_roots(env_roots or [start_dir])
         # Keep legacy pages in restricted behavior while secure mode is active.
         user_mode = True
+        if multi_user:
+            # Per-user roots: derived from the logged-in user's config. Until a
+            # user logs in (nano_user unset), no filesystem access is granted.
+            current = st.session_state.get("nano_user", "")
+            cfg = users.get(str(current).strip().lower()) if current else None
+            allowed_roots = _user_roots(cfg) if cfg else []
+        else:
+            raw_roots = os.environ.get(ENV_ALLOWED_ROOTS, "")
+            env_roots = [p for p in raw_roots.split(os.pathsep) if p.strip()]
+            allowed_roots = _normalize_roots(env_roots or [start_dir])
     elif user_mode:
         allowed_roots = [start_dir]
     else:
         allowed_roots = []
 
     st.session_state["secure_mode"] = secure_mode
+    st.session_state["multi_user"] = multi_user
     st.session_state["user_mode"] = user_mode
     st.session_state["user_start_dir"] = str(start_dir)
     st.session_state["allowed_roots"] = [str(p) for p in allowed_roots]
@@ -141,6 +202,28 @@ def assert_path_allowed(
     return resolved
 
 
+def allowed_rglob(base_dir: Union[str, Path], pattern: str = "*.*") -> List[str]:
+    """Recursively find files under ``base_dir`` matching ``pattern``,
+    dropping anything outside the caller's allowed roots.
+
+    Used by the standalone ``web/`` tools' "Browse server" option so their file
+    discovery honours the same per-user restrictions as the folder browser. In
+    unrestricted mode this behaves like a plain rglob.
+    """
+    base = Path(base_dir).expanduser()
+    if not base.exists() or not base.is_dir():
+        return []
+    if is_restricted_mode() and not is_path_allowed(base, allow_nonexistent=True):
+        return []
+    try:
+        files = sorted(str(f) for f in base.rglob(pattern) if f.is_file())
+    except (OSError, ValueError):
+        return []
+    if is_restricted_mode():
+        files = [f for f in files if is_path_allowed(f)]
+    return files
+
+
 def filter_allowed_paths(paths: Iterable[Union[str, Path]]) -> Tuple[List[str], List[str]]:
     """Split paths into allowed and rejected lists."""
     allowed: List[str] = []
@@ -156,11 +239,35 @@ def filter_allowed_paths(paths: Iterable[Union[str, Path]]) -> Tuple[List[str], 
     return allowed, rejected
 
 
+def current_user() -> Optional[str]:
+    """Return the logged-in username (multi-user mode), else None."""
+    return st.session_state.get("nano_user") or None
+
+
+def is_admin() -> bool:
+    """True if the logged-in user is an admin (multi-user mode)."""
+    user = current_user()
+    if not user:
+        return False
+    cfg = load_users().get(str(user).strip().lower())
+    return bool(cfg and cfg.get("admin"))
+
+
 def require_authentication() -> None:
-    """Gate UI until the configured secure-mode password is entered."""
+    """Gate UI until the user authenticates.
+
+    Two modes:
+    * multi-user  — ``NANOORGANIZER_USERS_FILE`` set: username + password login,
+      per-user allowed folders.
+    * single-pass — the legacy shared ``NANOORGANIZER_PASSWORD_HASH``.
+    """
     initialize_security_context()
 
     if not st.session_state.get("secure_mode"):
+        return
+
+    if st.session_state.get("multi_user"):
+        _require_user_login()
         return
 
     expected_hash = os.environ.get(ENV_PASSWORD_HASH, "").strip().lower()
@@ -195,3 +302,48 @@ def require_authentication() -> None:
         st.error(st.session_state["nano_auth_error"])
 
     st.stop()
+
+
+def _require_user_login() -> None:
+    """Username + password gate for multi-user mode."""
+    users = load_users()
+
+    # Already authenticated this session and still a valid user? Let through.
+    logged = st.session_state.get("nano_user")
+    if logged and str(logged).strip().lower() in users:
+        return
+
+    st.warning("🔒 Sign in")
+
+    with st.form("nanoorganizer_login_form", clear_on_submit=False):
+        username = st.text_input("Username", key="nano_login_user")
+        password = st.text_input("Password", type="password", key="nano_login_pass")
+        submitted = st.form_submit_button("Sign in", type="primary")
+
+    if submitted:
+        key = str(username or "").strip().lower()
+        cfg = users.get(key)
+        expected = str(cfg.get("password", "")).strip().lower() if cfg else ""
+        provided = hash_password(password or "")
+        # Always run compare_digest (even when the user is unknown) so response
+        # time does not reveal whether a username exists.
+        ok = bool(expected) and hmac.compare_digest(provided, expected)
+        if ok:
+            st.session_state["nano_user"] = key
+            st.session_state["nano_login_error"] = ""
+            st.session_state.pop("nano_login_pass", None)
+            # Recompute allowed roots for the freshly logged-in user.
+            initialize_security_context()
+            st.rerun()
+        st.session_state["nano_login_error"] = "Invalid username or password."
+
+    if st.session_state.get("nano_login_error"):
+        st.error(st.session_state["nano_login_error"])
+
+    st.stop()
+
+
+def logout() -> None:
+    """Clear the current multi-user session."""
+    for k in ("nano_user", "allowed_roots"):
+        st.session_state.pop(k, None)

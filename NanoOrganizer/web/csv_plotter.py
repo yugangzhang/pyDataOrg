@@ -14,6 +14,19 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 import streamlit as st  # noqa: E402
+
+# Access-control helper: restrict "Browse server" results to the logged-in
+# user's allowed folders (no-op when running standalone / unrestricted).
+try:
+    from NanoOrganizer.web_app.components.security import allowed_rglob as _allowed_rglob
+except Exception:  # pragma: no cover - standalone fallback
+    def _allowed_rglob(base_dir, pattern="*.*"):
+        from pathlib import Path as _P
+        b = _P(base_dir).expanduser()
+        if not b.exists():
+            return []
+        return [str(f) for f in sorted(b.rglob(pattern)) if f.is_file()]
+
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -60,14 +73,8 @@ def _save_fig_to_bytes(fig, format='png', dpi=300):
 
 
 def browse_directory(base_dir, pattern="*.csv"):
-    """Browse directory and find CSV files."""
-    base_path = Path(base_dir)
-    if not base_path.exists():
-        return []
-
-    # Find all CSV files recursively
-    csv_files = list(base_path.rglob(pattern))
-    return [str(f) for f in sorted(csv_files)]
+    """Browse directory for files, honouring per-user access control."""
+    return _allowed_rglob(base_dir, pattern)
 
 
 # ---------------------------------------------------------------------------

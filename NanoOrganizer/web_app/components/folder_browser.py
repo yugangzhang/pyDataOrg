@@ -8,12 +8,24 @@ Provides a visual folder navigation interface without text input.
 import streamlit as st
 from pathlib import Path
 from .security import (
+    current_user,
     format_allowed_roots,
     get_allowed_roots,
     initialize_security_context,
+    is_admin,
     is_path_allowed as security_is_path_allowed,
     is_restricted_mode,
 )
+
+
+def _access_caption() -> str:
+    """Short description of the current user's browse scope (secure mode)."""
+    user = current_user()
+    if user and is_admin():
+        return f"Signed in as {user} (admin) — full filesystem access."
+    if user:
+        return f"Signed in as {user}. Allowed folders -> {format_allowed_roots()}"
+    return f"Restricted mode: Allowed folders -> {format_allowed_roots()}"
 
 
 def filter_file_list(file_list, and_list=[], or_list=[], no_list=[]):
@@ -68,6 +80,37 @@ def filter_file_list(file_list, and_list=[], or_list=[], no_list=[]):
             filtered.append(file)
 
     return filtered
+
+
+def _root_jump(key, secure_roots):
+    """Secure-mode selector to jump straight to any allowed root.
+
+    Extra roots (e.g. beamline mounts whitelisted via NANOORGANIZER_EXTRA_ROOTS,
+    such as /mnt/data/FacilityData) live in separate directory trees, so the
+    Start / Home / Parent buttons alone cannot reach them. This selectbox lets
+    the user hop directly to any allowed root and then browse downward.
+    """
+    if len(secure_roots) <= 1:
+        return
+    root_strs = [str(r) for r in secure_roots]
+    cur = st.session_state.get(f'{key}_current_path', root_strs[0])
+    # Preselect the root that currently contains us, if any.
+    idx = 0
+    for i, root in enumerate(root_strs):
+        try:
+            Path(cur).relative_to(root)
+            idx = i
+            break
+        except ValueError:
+            continue
+    picked = st.selectbox(
+        "🗂️ Jump to allowed folder", root_strs, index=idx,
+        key=f"{key}_root_jump_sel",
+        help="Includes beamline data roots whitelisted for secure mode.",
+    )
+    if st.button("↪️ Go to this folder", key=f"{key}_root_jump_go"):
+        st.session_state[f'{key}_current_path'] = picked
+        st.rerun()
 
 
 def folder_browser(
@@ -157,7 +200,7 @@ def folder_browser(
     st.markdown("**📍 Quick Shortcuts:**")
 
     if secure_restriction:
-        st.info(f"🔒 Restricted mode: Allowed folders -> {format_allowed_roots()}")
+        st.info(f"🔒 {_access_caption()}")
         col1, col2, col3 = st.columns(3)
     elif restrict_to_start_dir:
         st.info("🔒 Restricted mode: Can only browse current folder and subfolders")
@@ -182,6 +225,7 @@ def folder_browser(
             if alternate_root and st.button("🏠 Home", key=f"{key}_home_root"):
                 st.session_state[f'{key}_current_path'] = str(alternate_root)
                 st.rerun()
+        _root_jump(key, secure_roots)
     elif not restrict_to_start_dir:
         with col1:
             if st.button("🏠 Home", key=f"{key}_home"):
@@ -433,7 +477,7 @@ def folder_browser_dialog(key="folder_browser_dialog"):
 
     # Quick shortcuts
     if secure_restriction:
-        st.info(f"🔒 Restricted mode: Allowed folders -> {format_allowed_roots()}")
+        st.info(f"🔒 {_access_caption()}")
         col1, col2, col3 = st.columns(3)
         with col1:
             if secure_roots and st.button("💼 Start", key=f"{key}_start_root"):
@@ -475,6 +519,9 @@ def folder_browser_dialog(key="folder_browser_dialog"):
                 st.session_state[f'{key}_current_path'] = str(parent)
                 st.rerun()
 
+    if secure_restriction:
+        _root_jump(key, secure_roots)
+
     # Current path
     st.code(str(current_path), language="bash")
 
@@ -500,3 +547,46 @@ def folder_browser_dialog(key="folder_browser_dialog"):
         st.error(f"❌ Error: {e}")
 
     return str(current_path)
+
+
+def folder_picker(key, label="Folder", default="", help=None):
+    """Unified folder chooser used across all tabs.
+
+    Renders a text box pre-populated with the current selection plus a
+    "📂 Browse" expander (the interactive navigator). The chosen folder is
+    remembered in ``st.session_state[f"{key}_path"]`` and returned.
+
+    Respects security: navigation and validation go through the same
+    allowed-roots checks as everything else, so in multi-user mode a user only
+    sees their own folders (admins see everything).
+
+    Parameters
+    ----------
+    key : str      Unique key prefix for this picker's widgets/state.
+    label : str    Label for the text box.
+    default : str  Initial folder if nothing chosen yet.
+    help : str     Optional help text for the text box.
+
+    Returns
+    -------
+    str  The currently selected folder path (may be "").
+    """
+    initialize_security_context()
+    state_key = f"{key}_path"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = str(default or "")
+
+    with st.expander("📂 Browse for folder", expanded=False):
+        browsed = folder_browser_dialog(key=f"{key}_dialog")
+        if st.button("✅ Use this folder", key=f"{key}_use"):
+            st.session_state[state_key] = browsed
+            st.rerun()
+
+    path = st.text_input(label, key=state_key, help=help)
+
+    if path and is_restricted_mode() and not security_is_path_allowed(
+        path, allow_nonexistent=True
+    ):
+        st.error(f"🔒 Folder outside your allowed folders: {format_allowed_roots()}")
+        return ""
+    return path

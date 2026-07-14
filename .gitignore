@@ -1,3 +1,10 @@
+# Multi-user auth store — contains password hashes, never commit real ones.
+users.json
+users*.json
+*.users.json
+# ...but keep the checked-in template.
+!users.example.json
+
 #Some folders
 /build/lib/*
 /build/*

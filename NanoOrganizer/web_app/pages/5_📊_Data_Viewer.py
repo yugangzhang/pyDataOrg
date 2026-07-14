@@ -35,6 +35,11 @@ from components.security import (  # noqa: E402
     is_path_allowed,
     require_authentication,
 )
+try:
+    from components.folder_browser import folder_browser_dialog  # noqa: E402
+    _HAVE_BROWSER = True
+except Exception:  # pragma: no cover
+    _HAVE_BROWSER = False
 
 from NanoOrganizer import DataOrganizer                       # noqa: E402
 from NanoOrganizer.viz import PLOTTER_REGISTRY                # noqa: E402
@@ -351,6 +356,13 @@ with st.sidebar:
     if "dv_pending_plot_spec" in st.session_state:
         pending_spec = st.session_state.pop("dv_pending_plot_spec")
         _apply_data_viewer_plot_spec_to_state(pending_spec)
+
+    if _HAVE_BROWSER:
+        with st.expander("📂 Browse for folder", expanded=False):
+            browsed = folder_browser_dialog(key="dv_browser")
+            if st.button("✅ Use this folder", key="dv_use_browsed"):
+                st.session_state["dv_data_dir"] = browsed
+                st.rerun()
 
     data_dir = st.text_input("Data directory", key="dv_data_dir")
     if data_dir and not is_path_allowed(data_dir, allow_nonexistent=True):

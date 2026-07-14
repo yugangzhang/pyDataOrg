@@ -18,6 +18,18 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: E402, F401
 
 import streamlit as st  # noqa: E402
 import numpy as np  # noqa: E402
+
+# Access-control helper: restrict "Browse server" results to the logged-in
+# user's allowed folders (no-op when running standalone / unrestricted).
+try:
+    from NanoOrganizer.web_app.components.security import allowed_rglob as _allowed_rglob
+except Exception:  # pragma: no cover - standalone fallback
+    def _allowed_rglob(base_dir, pattern="*.*"):
+        from pathlib import Path as _P
+        b = _P(base_dir).expanduser()
+        if not b.exists():
+            return []
+        return [str(f) for f in sorted(b.rglob(pattern)) if f.is_file()]
 import pandas as pd  # noqa: E402
 from pathlib import Path  # noqa: E402
 import io  # noqa: E402
@@ -116,8 +128,7 @@ with st.sidebar:
         csv_pattern = st.text_input("File pattern", value="*.csv")
 
         if st.button("🔍 Search"):
-            files = list(Path(server_dir).rglob(csv_pattern))
-            st.session_state['found_3d_files'] = [str(f) for f in sorted(files)]
+            st.session_state['found_3d_files'] = _allowed_rglob(server_dir, csv_pattern)
 
         if 'found_3d_files' in st.session_state:
             selected_file = st.selectbox("Select file", st.session_state['found_3d_files'])
