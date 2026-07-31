@@ -106,6 +106,14 @@ def initialize_security_context() -> None:
     users = load_users()
     multi_user = bool(secure_mode and users)
 
+    # Single shared password (no user store): every session is the same operator
+    # on the same uid, so a path whitelist buys little while getting in the way
+    # of pasting a data folder. Browsing is then limited only by what the OS
+    # grants the server process. Multi-user mode keeps per-user roots — that
+    # separation is the whole point of it — and so does plain user mode
+    # (``viz-user``), which exists to lock the browser to its launch dir.
+    browse_unrestricted = bool(secure_mode and not multi_user)
+
     if secure_mode:
         # Keep legacy pages in restricted behavior while secure mode is active.
         user_mode = True
@@ -127,13 +135,20 @@ def initialize_security_context() -> None:
     st.session_state["secure_mode"] = secure_mode
     st.session_state["multi_user"] = multi_user
     st.session_state["user_mode"] = user_mode
+    st.session_state["browse_unrestricted"] = browse_unrestricted
     st.session_state["user_start_dir"] = str(start_dir)
     st.session_state["allowed_roots"] = [str(p) for p in allowed_roots]
 
 
 def is_restricted_mode() -> bool:
-    """True when path restrictions should be enforced."""
+    """True when path restrictions should be enforced.
+
+    Note this is about *paths*, not authentication: single-password secure mode
+    still demands the password, it just does not fence the browser afterwards.
+    """
     initialize_security_context()
+    if st.session_state.get("browse_unrestricted"):
+        return False
     return bool(st.session_state.get("secure_mode") or st.session_state.get("user_mode"))
 
 

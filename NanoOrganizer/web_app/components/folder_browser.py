@@ -113,6 +113,35 @@ def _root_jump(key, secure_roots):
         st.rerun()
 
 
+def _path_jump(key, is_allowed):
+    """Paste-a-path box: type/paste any folder and jump straight to it.
+
+    Clicking down from a root is tedious for the deep beamline trees, so this
+    accepts a full path. It still goes through ``is_allowed`` (a no-op in
+    single-password secure mode, enforced per user in multi-user mode).
+    """
+    col_in, col_go = st.columns([4, 1])
+    pasted = col_in.text_input(
+        "📋 Paste a folder path", key=f"{key}_jump_text",
+        placeholder="/mnt/data/FacilityData/remote/...",
+        label_visibility="collapsed",
+    )
+    col_go.button("Go", key=f"{key}_jump_go", use_container_width=True)
+
+    if not pasted.strip():
+        return
+    target = Path(pasted.strip().strip('"').strip("'")).expanduser()
+    if target.is_file():
+        target = target.parent
+    if not target.is_dir():
+        st.error(f"❌ Not a folder: {target}")
+    elif not is_allowed(target):
+        st.error("🔒 That folder is outside your allowed folders")
+    elif str(target) != st.session_state.get(f'{key}_current_path'):
+        st.session_state[f'{key}_current_path'] = str(target)
+        st.rerun()
+
+
 def folder_browser(
     key="folder_browser",
     initial_path=None,
@@ -199,6 +228,10 @@ def folder_browser(
     # -------------------------------------------------------------------------
     st.markdown("**📍 Quick Shortcuts:**")
 
+    if st.session_state.get("browse_unrestricted"):
+        st.caption("🔓 Password-protected session — any folder this account "
+                   "can read is available; paste a path below to jump to it.")
+
     if secure_restriction:
         st.info(f"🔒 {_access_caption()}")
         col1, col2, col3 = st.columns(3)
@@ -259,6 +292,8 @@ def folder_browser(
                     st.rerun()
                 else:
                     st.warning("🔒 Cannot navigate above allowed folders")
+
+    _path_jump(key, is_path_allowed)
 
     st.divider()
 
@@ -521,6 +556,8 @@ def folder_browser_dialog(key="folder_browser_dialog"):
 
     if secure_restriction:
         _root_jump(key, secure_roots)
+
+    _path_jump(key, is_path_allowed)
 
     # Current path
     st.code(str(current_path), language="bash")

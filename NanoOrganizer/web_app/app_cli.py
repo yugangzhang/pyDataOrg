@@ -19,6 +19,16 @@ from typing import Optional
 
 DEFAULT_PORT = 8800
 
+# Beamline data mounts that secure mode whitelists automatically, so `viz`
+# reaches them without the caller exporting NANOORGANIZER_EXTRA_ROOTS (the
+# ./run wrapper does that, a bare `viz` does not). Non-existent entries are
+# skipped, and NANOORGANIZER_EXTRA_ROOTS still adds more on top.
+DEFAULT_DATA_ROOTS = (
+    "/mnt/data/FacilityData",              # sshfs mount of the the facility data
+    "/facility/storage/proposals",    # on-site CMS storage
+    "/facility/data",                          # on-site beamline proposals
+)
+
 
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
@@ -124,6 +134,12 @@ def main_secure():
     extra_raw = os.environ.get("NANOORGANIZER_EXTRA_ROOTS", "")
     extra_roots = [Path(p).expanduser().resolve()
                    for p in extra_raw.split(os.pathsep) if p.strip()]
+
+    # Built-in data mounts, added only when they exist on this machine.
+    for candidate in DEFAULT_DATA_ROOTS:
+        path = Path(candidate).expanduser()
+        if path.is_dir():
+            extra_roots.append(path.resolve())
 
     roots = []
     for root in (start_dir, home_dir, *extra_roots):
