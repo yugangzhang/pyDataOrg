@@ -27,6 +27,8 @@ DEFAULT_DATA_ROOTS = (
     "/mnt/data/FacilityData",              # sshfs mount of the the facility data
     "/facility/storage/proposals",    # on-site CMS storage
     "/facility/data",                          # on-site beamline proposals
+    "/facility/data1",                         # on-site beamline proposals (data1)
+    "/facility/users",                         # on-site home/proposal symlinks
 )
 
 
