@@ -17,6 +17,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from NanoOrganizer.core.access_config import (
+    load_access_config,
+    discover_config_path,
+)
+from NanoOrganizer.core.beamline_paths import BEAMLINES
+
 DEFAULT_PORT = 8800
 
 # Beamline data mounts that secure mode whitelists automatically, so `viz`
@@ -116,9 +122,13 @@ def main_secure():
     except ValueError as exc:
         parser.error(str(exc))
 
-    # In multi-user mode (NANOORGANIZER_USERS_FILE set) the shared password is
+    access = load_access_config()
+    # In multi-user mode (INI/JSON users configured) the shared password is
     # unused — each user logs in with their own credentials — so don't prompt.
-    multi_user = bool(os.environ.get("NANOORGANIZER_USERS_FILE", "").strip())
+    multi_user = bool(
+        os.environ.get("NANOORGANIZER_USERS_FILE", "").strip()
+        or access.users
+    )
 
     password = args.password
     if not multi_user:
@@ -127,7 +137,7 @@ def main_secure():
         if not password:
             parser.error("Password cannot be empty.")
 
-    start_dir = Path.cwd().resolve()
+    start_dir = Path(access.start_dir or Path.cwd()).expanduser().resolve()
     home_dir = Path.home().resolve()
 
     # Extra roots (e.g. beamline data mounts) can be injected via the
@@ -143,6 +153,16 @@ def main_secure():
         if path.is_dir():
             extra_roots.append(path.resolve())
 
+    # A private pyViz.conf may point at a site-specific mount that cannot be
+    # known by the public package.  Include configured roots for both sites so
+    # legacy single-password mode can reach whichever location is selected.
+    for site in ("onsite", "offsite"):
+        for beamline in BEAMLINES:
+            for configured_root in access.roots_for_site(site, beamline):
+                path = Path(configured_root).expanduser()
+                if path.is_dir():
+                    extra_roots.append(path.resolve())
+
     roots = []
     for root in (start_dir, home_dir, *extra_roots):
         if root not in roots:
@@ -153,6 +173,9 @@ def main_secure():
     env["NANOORGANIZER_USER_MODE"] = "1"
     env["NANOORGANIZER_START_DIR"] = str(start_dir)
     env["NANOORGANIZER_ALLOWED_ROOTS"] = os.pathsep.join(str(root) for root in roots)
+    config_path = discover_config_path()
+    if config_path is not None:
+        env["NANOORGANIZER_CONFIG"] = str(config_path)
     if not multi_user:
         env["NANOORGANIZER_PASSWORD_HASH"] = _hash_password(password)
 

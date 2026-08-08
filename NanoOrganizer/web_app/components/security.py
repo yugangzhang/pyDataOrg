@@ -10,6 +10,11 @@ from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import streamlit as st
 
+from NanoOrganizer.core.access_config import (
+    config_users as load_config_users,
+    load_access_config,
+)
+
 
 ENV_SECURE_MODE = "NANOORGANIZER_SECURE_MODE"
 ENV_USER_MODE = "NANOORGANIZER_USER_MODE"
@@ -50,7 +55,12 @@ def hash_password(password: str) -> str:
 
 
 def load_users() -> Dict[str, dict]:
-    """Load the multi-user store from ``NANOORGANIZER_USERS_FILE`` (JSON).
+    """Load users from the local config and optional JSON user store.
+
+    The INI config (``~/.config/pyViz.conf`` by default) is the preferred
+    deployment format.  ``NANOORGANIZER_USERS_FILE`` remains supported as a
+    migration/automation format; entries from that explicit JSON file override
+    entries with the same username from the INI file.
 
     Schema (usernames are matched case-insensitively)::
 
@@ -65,45 +75,58 @@ def load_users() -> Dict[str, dict]:
     * ``roots``    — optional list of folders the user may browse. Admins ignore
                      this. Non-admins with no roots get no filesystem access.
 
-    Returns an empty dict if the env var is unset or the file is unreadable /
-    malformed, so the caller falls back to single-password mode.
+    Returns an empty dict when neither source contains users.
     """
+    users: Dict[str, dict] = load_config_users()
+
     path = os.environ.get(ENV_USERS_FILE, "").strip()
-    if not path:
-        return {}
-    try:
-        with open(Path(path).expanduser(), "r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    users: Dict[str, dict] = {}
-    for name, cfg in raw.items():
-        if isinstance(cfg, dict):
-            users[str(name).strip().lower()] = cfg
+    if path:
+        try:
+            with open(Path(path).expanduser(), "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+        except (OSError, ValueError):
+            raw = {}
+        if isinstance(raw, dict):
+            for name, cfg in raw.items():
+                if isinstance(cfg, dict):
+                    users[str(name).strip().lower()] = cfg
     return users
 
 
 def _user_roots(cfg: dict) -> List[Path]:
     """Resolve the allowed roots for a single user config entry."""
-    if cfg.get("admin"):
-        # Admins browse everything: home plus the filesystem root cover every
-        # absolute path, so is_path_allowed() returns True for any real path.
-        return _normalize_roots([Path.home(), Path("/")])
-    return _normalize_roots(cfg.get("roots", []) or [])
+    if cfg.get("admin") and cfg.get("all_paths", True):
+        # The root itself is intentional: admins may browse all paths that the
+        # server process can read, including beamline mounts outside $HOME.
+        return _normalize_roots([Path("/")])
+
+    roots = list(cfg.get("roots", []) or [])
+    site = st.session_state.get("data_site", "auto")
+    site_roots = cfg.get("site_roots", {}) or {}
+    # A user's account scope is stable while the GUI location toggle changes.
+    # Include each explicitly granted site scope so switching from the
+    # off-beamline mount to the beamline mount does not accidentally invalidate
+    # the same account.  ``site`` is retained for compatibility with configs
+    # that only provide one site-specific key.
+    if site in site_roots:
+        roots.extend(site_roots.get(site, []) or [])
+    for other_site, other_roots in site_roots.items():
+        if other_site != site:
+            roots.extend(other_roots or [])
+    return _normalize_roots(roots)
 
 
 def initialize_security_context() -> None:
     """Initialize security-related session keys from environment variables."""
-    secure_mode = _env_flag(ENV_SECURE_MODE)
-    user_mode = _env_flag(ENV_USER_MODE)
+    access = load_access_config()
+    users = load_users()
+    secure_mode = _env_flag(ENV_SECURE_MODE) or access.requires_authentication
+    user_mode = _env_flag(ENV_USER_MODE) or access.access_mode in {"admin", "user"}
 
     start_dir = Path(
-        os.environ.get(ENV_START_DIR, str(Path.cwd()))
+        os.environ.get(ENV_START_DIR, access.start_dir or str(Path.cwd()))
     ).expanduser().resolve(strict=False)
 
-    users = load_users()
     multi_user = bool(secure_mode and users)
 
     # Single shared password (no user store): every session is the same operator
@@ -113,6 +136,9 @@ def initialize_security_context() -> None:
     # separation is the whole point of it — and so does plain user mode
     # (``viz-user``), which exists to lock the browser to its launch dir.
     browse_unrestricted = bool(secure_mode and not multi_user)
+
+    data_site = access.site
+    data_beamline = access.beamline
 
     if secure_mode:
         # Keep legacy pages in restricted behavior while secure mode is active.
@@ -126,9 +152,15 @@ def initialize_security_context() -> None:
         else:
             raw_roots = os.environ.get(ENV_ALLOWED_ROOTS, "")
             env_roots = [p for p in raw_roots.split(os.pathsep) if p.strip()]
-            allowed_roots = _normalize_roots(env_roots or [start_dir])
+            configured_roots = list(access.roots_for_site(data_site, data_beamline))
+            allowed_roots = _normalize_roots(
+                env_roots or configured_roots or [start_dir]
+            )
     elif user_mode:
-        allowed_roots = [start_dir]
+        raw_roots = os.environ.get(ENV_ALLOWED_ROOTS, "")
+        env_roots = [p for p in raw_roots.split(os.pathsep) if p.strip()]
+        configured_roots = list(access.roots_for_site(data_site, data_beamline))
+        allowed_roots = _normalize_roots(env_roots or configured_roots or [start_dir])
     else:
         allowed_roots = []
 
@@ -138,6 +170,10 @@ def initialize_security_context() -> None:
     st.session_state["browse_unrestricted"] = browse_unrestricted
     st.session_state["user_start_dir"] = str(start_dir)
     st.session_state["allowed_roots"] = [str(p) for p in allowed_roots]
+    st.session_state["access_mode"] = access.access_mode
+    st.session_state["data_site"] = data_site
+    st.session_state["beamline"] = data_beamline
+    st.session_state["config_path"] = str(access.path) if access.path else ""
 
 
 def is_restricted_mode() -> bool:

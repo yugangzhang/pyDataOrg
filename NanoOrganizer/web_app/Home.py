@@ -12,10 +12,13 @@ Or use console command:
 import streamlit as st
 from pathlib import Path
 from NanoOrganizer.web_app.components.security import (
+    current_user,
     format_allowed_roots,
     initialize_security_context,
+    is_admin,
     require_authentication,
 )
+from NanoOrganizer.core.beamline_paths import site_label
 
 st.set_page_config(
     page_title="NanoOrganizer",
@@ -36,6 +39,14 @@ st.markdown("### Complete Web Suite for Nanoparticle Synthesis Data")
 
 if st.session_state.get("user_mode"):
     if st.session_state.get("secure_mode"):
+        identity = current_user()
+        if identity:
+            role = "admin" if is_admin() else "user"
+            st.caption(
+                f"Signed in as **{identity}** ({role}) · "
+                f"data location: **{site_label(st.session_state.get('data_site', 'auto'))}** · "
+                f"beamline: **{st.session_state.get('beamline', 'smi').upper()}**"
+            )
         st.info(
             f"🔒 **Secure Mode** — allowed folders: `{format_allowed_roots()}` "
             f"(password required)"
@@ -70,9 +81,9 @@ with col1:
     🗺️ **SAXS 2D + 1D** — q–φ heatmap beside its circular average, auto-paired
     by filename; step through frames by time, overlay multiple 1D curves.
 
-    🧭 **GIWAXS Explorer** (grazing incidence, `maxs/`) — four panels per frame
-    (stitched raw · q-image · q–φ map · circular average) with interactive
-    qr/qz and q/φ line-cuts defined by cut center(s) and band width.
+    🧭 **GISAXS / GIWAXS Explorer** (grazing incidence, `maxs/` or `giwaxs/`)
+    — paste a data/product path, inspect product counts, choose panels (raw,
+    QC, q-image, q–φ, circular average), and use interactive line-cuts.
 
     🔬 **TSAXS Explorer** (transmission, `saxs/` `waxs/`) — raw · q-image ·
     q–φ map · I(q), with q/φ line-cuts. Same engine as GIWAXS, adapted to the

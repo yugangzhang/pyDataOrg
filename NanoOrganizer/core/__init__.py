@@ -9,6 +9,10 @@ from NanoOrganizer.core.beamline_paths import (
     dataset_path, detect_site, proposal_path, resolve_site, site_label,
     site_root, swap_site,
 )
+from NanoOrganizer.core.access_config import (
+    AccessConfig, UserAccess, configured_beamline, configured_site,
+    discover_config_path, load_access_config,
+)
 
 __all__ = [
     'ChemicalSpec', 'ReactionParams', 'RunMetadata',
@@ -18,4 +22,6 @@ __all__ = [
     'Run',
     'dataset_path', 'detect_site', 'proposal_path', 'resolve_site',
     'site_label', 'site_root', 'swap_site',
+    'AccessConfig', 'UserAccess', 'configured_beamline', 'configured_site',
+    'discover_config_path', 'load_access_config',
 ]

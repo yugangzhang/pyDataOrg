@@ -46,6 +46,49 @@ def test_main_secure_rejects_invalid_port(monkeypatch):
     assert exc.value.code == 2
 
 
+def test_main_secure_uses_ini_users_without_shared_password(
+    monkeypatch, tmp_path: Path
+):
+    captured = {}
+
+    def fake_launch(port, env=None):
+        captured["port"] = port
+        captured["env"] = env
+        return 0
+
+    config_dir = tmp_path / ".config"
+    config_dir.mkdir()
+    (config_dir / "pyViz.conf").write_text(
+        """[application]
+access_mode = admin
+start_dir = {start}
+
+[admin]
+username = yuzhang
+password_hash = {password}
+all_paths = true
+""".format(
+            start=tmp_path / "configured-start",
+            password=hashlib.sha256(b"admin-pass").hexdigest(),
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(app_cli, "_launch_streamlit", fake_launch)
+    monkeypatch.setattr(sys, "argv", ["viz", "6012"])
+
+    with pytest.raises(SystemExit) as exc:
+        app_cli.main_secure()
+
+    assert exc.value.code == 0
+    env = captured["env"]
+    assert env["NANOORGANIZER_CONFIG"] == str(config_dir / "pyViz.conf")
+    assert env["NANOORGANIZER_START_DIR"] == str(
+        (tmp_path / "configured-start").resolve()
+    )
+    assert "NANOORGANIZER_PASSWORD_HASH" not in env
+
+
 def test_main_user_sets_restricted_env(monkeypatch, tmp_path: Path):
     captured = {}
 

@@ -2,6 +2,10 @@
 users.json
 users*.json
 *.users.json
+
+# Local access configuration contains machine paths and password hashes.
+.config/pyViz.conf
+.config/pyviz.conf
 # ...but keep the checked-in template.
 !users.example.json
 
@@ -109,5 +113,4 @@ target/
 
 #data/
 results/
-
 
