@@ -64,7 +64,7 @@ access_mode = admin
 start_dir = {start}
 
 [admin]
-username = yuzhang
+username = operator
 password_hash = {password}
 all_paths = true
 """.format(

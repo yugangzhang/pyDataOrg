@@ -65,9 +65,9 @@ def load_users() -> Dict[str, dict]:
     Schema (usernames are matched case-insensitively)::
 
         {
-          "yuzhang": {"password": "<sha256-hex>", "admin": true},
+          "admin_user": {"password": "<sha256-hex>", "admin": true},
           "alice":   {"password": "<sha256-hex>",
-                      "roots": ["/mnt/data/FacilityData/.../alice_proposal"]}
+                      "roots": ["/data/projects/alice"]}
         }
 
     * ``password`` — SHA-256 hex digest (use ``viz-adduser`` to generate).
@@ -96,24 +96,11 @@ def load_users() -> Dict[str, dict]:
 def _user_roots(cfg: dict) -> List[Path]:
     """Resolve the allowed roots for a single user config entry."""
     if cfg.get("admin") and cfg.get("all_paths", True):
-        # The root itself is intentional: admins may browse all paths that the
-        # server process can read, including beamline mounts outside $HOME.
+        # The root itself is intentional: an admin account exists to reach data
+        # mounts outside $HOME. The operating system stays the real boundary.
         return _normalize_roots([Path("/")])
 
-    roots = list(cfg.get("roots", []) or [])
-    site = st.session_state.get("data_site", "auto")
-    site_roots = cfg.get("site_roots", {}) or {}
-    # A user's account scope is stable while the GUI location toggle changes.
-    # Include each explicitly granted site scope so switching from the
-    # off-beamline mount to the beamline mount does not accidentally invalidate
-    # the same account.  ``site`` is retained for compatibility with configs
-    # that only provide one site-specific key.
-    if site in site_roots:
-        roots.extend(site_roots.get(site, []) or [])
-    for other_site, other_roots in site_roots.items():
-        if other_site != site:
-            roots.extend(other_roots or [])
-    return _normalize_roots(roots)
+    return _normalize_roots(list(cfg.get("roots", []) or []))
 
 
 def initialize_security_context() -> None:
@@ -137,9 +124,6 @@ def initialize_security_context() -> None:
     # (``viz-user``), which exists to lock the browser to its launch dir.
     browse_unrestricted = bool(secure_mode and not multi_user)
 
-    data_site = access.site
-    data_beamline = access.beamline
-
     if secure_mode:
         # Keep legacy pages in restricted behavior while secure mode is active.
         user_mode = True
@@ -152,15 +136,14 @@ def initialize_security_context() -> None:
         else:
             raw_roots = os.environ.get(ENV_ALLOWED_ROOTS, "")
             env_roots = [p for p in raw_roots.split(os.pathsep) if p.strip()]
-            configured_roots = list(access.roots_for_site(data_site, data_beamline))
             allowed_roots = _normalize_roots(
-                env_roots or configured_roots or [start_dir]
+                env_roots or list(access.extra_roots) or [start_dir]
             )
     elif user_mode:
         raw_roots = os.environ.get(ENV_ALLOWED_ROOTS, "")
         env_roots = [p for p in raw_roots.split(os.pathsep) if p.strip()]
-        configured_roots = list(access.roots_for_site(data_site, data_beamline))
-        allowed_roots = _normalize_roots(env_roots or configured_roots or [start_dir])
+        allowed_roots = _normalize_roots(
+            env_roots or list(access.extra_roots) or [start_dir])
     else:
         allowed_roots = []
 
@@ -171,8 +154,6 @@ def initialize_security_context() -> None:
     st.session_state["user_start_dir"] = str(start_dir)
     st.session_state["allowed_roots"] = [str(p) for p in allowed_roots]
     st.session_state["access_mode"] = access.access_mode
-    st.session_state["data_site"] = data_site
-    st.session_state["beamline"] = data_beamline
     st.session_state["config_path"] = str(access.path) if access.path else ""
 
 

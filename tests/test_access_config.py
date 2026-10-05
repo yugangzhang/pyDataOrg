@@ -1,13 +1,16 @@
+"""Tests for the multi-user access configuration and the path allow-list."""
+
 import hashlib
 from pathlib import Path
 
 import streamlit as st
 
-from NanoOrganizer.core.access_config import load_access_config
-from NanoOrganizer.core.beamline_paths import candidate_roots, swap_site
+from NanoOrganizer.core.access_config import (
+    config_users, configured_extra_roots, configured_start_dir,
+    load_access_config,
+)
 from NanoOrganizer.web_app.components.security import (
-    initialize_security_context,
-    is_path_allowed,
+    initialize_security_context, is_path_allowed,
 )
 
 
@@ -15,129 +18,146 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def test_ini_config_parses_admin_users_and_site_paths(tmp_path, monkeypatch):
-    config_path = tmp_path / "pyViz.conf"
-    config_path.write_text(
-        """
+def _write(tmp_path, body: str) -> Path:
+    path = tmp_path / "pyViz.conf"
+    path.write_text(body)
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Parsing
+# ---------------------------------------------------------------------------
+
+def test_missing_config_is_not_an_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("NANOORGANIZER_CONFIG", raising=False)
+    monkeypatch.delenv("NANOORGANIZER_MODE", raising=False)
+    monkeypatch.delenv("NANOORGANIZER_START_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    config = load_access_config()
+    assert config.access_mode == "local"
+    assert config.users == {}
+    assert config.requires_authentication is False
+
+
+def test_users_and_roles_parse(tmp_path):
+    path = _write(tmp_path, f"""
 [application]
 access_mode = user
-site = off_beamline
-beamline = smi
-start_dir = {root}/beamline_a_remote/2026-2/pass-000000/projects/microbeam_Kim/Results
-
-[paths]
-off_beamline = {root}/{{beamline}}_remote
-on_beamline = /beamline/{{beamline}}/proposals
-
-[admin]
-username = yuzhang
-password_hash = {admin_hash}
-all_paths = true
+start_dir = {tmp_path}/projects
 
 [users]
-compact = {root}/compact, {root}/shared
+alice = admin
+bob = user
 
-[user.alice]
-password_hash = {alice_hash}
-paths = {root}/alice
-off_beamline_paths = {root}/alice-off
-beamline_paths = /beamline/alice
-""".format(
-            root=tmp_path,
-            admin_hash=_sha256("admin-pass"),
-            alice_hash=_sha256("alice-pass"),
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_access_config(config_path)
+[user:bob]
+password_hash = {_sha256("hunter2")}
+roots =
+    {tmp_path}/projects/bob
+    {tmp_path}/scratch
+""")
+    config = load_access_config(path)
 
     assert config.access_mode == "user"
-    assert config.site == "offsite"
-    assert config.beamline == "smi"
-    assert config.start_dir.endswith("microbeam_Kim/Results")
-    assert config.users["yuzhang"].admin is True
-    assert config.users["yuzhang"].all_paths is True
-    assert config.users["alice"].password_hash == _sha256("alice-pass")
-    assert config.users["alice"].roots_for("offsite")[-1].endswith("alice-off")
-    assert config.users["compact"].roots == (
-        str(tmp_path / "compact"), str(tmp_path / "shared")
-    )
+    assert config.requires_authentication is True
+    assert set(config.users) == {"alice", "bob"}
+
+    alice = config.user("alice")
+    assert alice.is_admin and alice.allowed_roots() == ("/",)
+
+    bob = config.user("bob")
+    assert not bob.is_admin
+    assert bob.password_hash == _sha256("hunter2")
+    assert len(bob.allowed_roots()) == 2
 
 
-def test_configured_off_beamline_root_and_site_swap(tmp_path, monkeypatch):
-    off_root = tmp_path / "off" / "beamline_a_remote"
-    on_root = tmp_path / "on" / "smi" / "proposals"
-    suffix = Path("2026-2/pass-000000/projects/microbeam_Kim/Results")
-    (off_root / suffix).mkdir(parents=True)
-    (on_root / suffix).mkdir(parents=True)
-    config_path = tmp_path / "pyViz.conf"
-    config_path.write_text(
-        """[paths]
-off_beamline = {off}/{{beamline}}_remote
-on_beamline = {on}/{{beamline}}/proposals
-""".format(off=tmp_path / "off", on=tmp_path / "on"),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("NANOORGANIZER_CONFIG", str(config_path))
+def test_username_placeholder_expands(tmp_path):
+    path = _write(tmp_path, """
+[users]
+carol = user
 
-    roots = candidate_roots("offsite", "smi")
-    assert roots[0] == off_root
-    assert roots[0].is_dir()
-
-    off_path = off_root / suffix
-    assert swap_site(off_path, "onsite") == on_root / suffix
+[user:carol]
+roots = /data/{username}/projects
+""")
+    assert load_access_config(path).roots_for("carol") == \
+        ("/data/carol/projects",)
 
 
-def test_user_mode_allows_only_configured_user_roots(tmp_path, monkeypatch):
-    allowed = tmp_path / "alice"
-    outside = tmp_path / "private"
-    allowed.mkdir()
+def test_roots_accept_several_separators(tmp_path):
+    path = _write(tmp_path, """
+[users]
+dave = user
+
+[user:dave]
+roots = /a;/b
+""")
+    assert load_access_config(path).roots_for("dave") == ("/a", "/b")
+
+
+def test_admin_with_explicit_roots_is_not_given_everything(tmp_path):
+    """Listing roots for an admin means they meant to scope it."""
+    path = _write(tmp_path, """
+[users]
+erin = admin
+
+[user:erin]
+roots = /data/erin
+""")
+    assert load_access_config(path).roots_for("erin") == ("/data/erin",)
+
+
+def test_extra_roots_are_read(tmp_path):
+    path = _write(tmp_path, f"""
+[paths]
+extra_roots =
+    {tmp_path}/mount_a
+    {tmp_path}/mount_b
+""")
+    assert len(configured_extra_roots(path)) == 2
+    assert configured_start_dir(path, default="fallback") == "fallback"
+
+
+def test_config_users_exports_the_web_app_shape(tmp_path):
+    path = _write(tmp_path, f"""
+[users]
+frank = user
+
+[user:frank]
+password_hash = {_sha256("pw")}
+roots = /data/frank
+""")
+    users = config_users(path)
+    assert users["frank"]["password_hash"] == _sha256("pw")
+    assert users["frank"]["admin"] is False
+    assert users["frank"]["roots"] == ["/data/frank"]
+
+
+def test_environment_overrides_the_file(tmp_path, monkeypatch):
+    path = _write(tmp_path, "[application]\naccess_mode = local\n")
+    monkeypatch.setenv("NANOORGANIZER_MODE", "admin")
+    assert load_access_config(path).access_mode == "admin"
+
+
+# ---------------------------------------------------------------------------
+# The allow-list the GUI enforces
+# ---------------------------------------------------------------------------
+
+def test_allowed_roots_fence_the_browser(tmp_path, monkeypatch):
+    inside = tmp_path / "allowed" / "sub"
+    inside.mkdir(parents=True)
+    outside = tmp_path / "elsewhere"
     outside.mkdir()
-    config_path = tmp_path / "pyViz.conf"
-    config_path.write_text(
-        """[application]
-access_mode = user
 
-[user.alice]
-password_hash = {password}
-paths = {allowed}
-""".format(password=_sha256("alice-pass"), allowed=allowed),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("NANOORGANIZER_CONFIG", str(config_path))
     st.session_state.clear()
+    monkeypatch.setenv("NANOORGANIZER_USER_MODE", "1")
+    monkeypatch.setenv("NANOORGANIZER_ALLOWED_ROOTS", str(tmp_path / "allowed"))
+    monkeypatch.setenv("NANOORGANIZER_START_DIR", str(tmp_path / "allowed"))
+    monkeypatch.delenv("NANOORGANIZER_CONFIG", raising=False)
+    monkeypatch.delenv("NANOORGANIZER_USERS_FILE", raising=False)
 
     initialize_security_context()
-    assert st.session_state["multi_user"] is True
-    assert is_path_allowed(allowed) is False  # no user before login
 
-    st.session_state["nano_user"] = "alice"
-    initialize_security_context()
-    assert is_path_allowed(allowed) is True
-    assert is_path_allowed(allowed / "nested", allow_nonexistent=True) is True
-    assert is_path_allowed(outside) is False
-
-
-def test_admin_user_gets_full_filesystem_scope(tmp_path, monkeypatch):
-    config_path = tmp_path / "pyViz.conf"
-    config_path.write_text(
-        """[application]
-access_mode = admin
-
-[admin]
-username = yuzhang
-password_hash = {password}
-all_paths = true
-""".format(password=_sha256("admin-pass")),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("NANOORGANIZER_CONFIG", str(config_path))
+    assert is_path_allowed(inside)
+    assert not is_path_allowed(outside)
     st.session_state.clear()
-    st.session_state["nano_user"] = "yuzhang"
-
-    initialize_security_context()
-
-    assert st.session_state["access_mode"] == "admin"
-    assert Path("/") in [Path(root) for root in st.session_state["allowed_roots"]]
-    assert is_path_allowed(tmp_path) is True

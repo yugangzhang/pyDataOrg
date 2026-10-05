@@ -21,21 +21,13 @@ from NanoOrganizer.core.access_config import (
     load_access_config,
     discover_config_path,
 )
-from NanoOrganizer.core.beamline_paths import BEAMLINES
 
 DEFAULT_PORT = 8800
 
-# Beamline data mounts that secure mode whitelists automatically, so `viz`
-# reaches them without the caller exporting NANOORGANIZER_EXTRA_ROOTS (the
-# ./run wrapper does that, a bare `viz` does not). Non-existent entries are
-# skipped, and NANOORGANIZER_EXTRA_ROOTS still adds more on top.
-DEFAULT_DATA_ROOTS = (
-    "/mnt/data/FacilityData",              # sshfs mount of the the facility data
-    "/facility/storage/proposals",    # on-site CMS storage
-    "/facility/data",                          # on-site beamline proposals
-    "/facility/data1",                         # on-site beamline proposals (data1)
-    "/facility/users",                         # on-site home/proposal symlinks
-)
+# Extra directories secure mode should whitelist are site-specific, so the
+# package hardcodes none. Name them either in NANOORGANIZER_EXTRA_ROOTS
+# (os.pathsep-separated) or under [paths] extra_roots in pyViz.conf.
+DEFAULT_DATA_ROOTS: tuple = ()
 
 
 def _hash_password(password: str) -> str:
@@ -45,7 +37,7 @@ def _hash_password(password: str) -> str:
 def _launch_streamlit(port: int, env: Optional[dict] = None) -> int:
     app_path = Path(__file__).resolve().parent / "Home.py"
     # Bind all interfaces by default so the app is reachable via the machine's
-    # hostname/IP from other computers (e.g. http://workstation:PORT). Binding
+    # hostname/IP from other computers (e.g. http://your-server:PORT). Binding
     # to 127.0.0.1 would only accept connections from the local machine.
     # Override with NANOORGANIZER_HOST=127.0.0.1 to restrict to localhost.
     source_env = env if env is not None else os.environ
@@ -140,7 +132,7 @@ def main_secure():
     start_dir = Path(access.start_dir or Path.cwd()).expanduser().resolve()
     home_dir = Path.home().resolve()
 
-    # Extra roots (e.g. beamline data mounts) can be injected via the
+    # Extra roots (e.g. a shared data mount) can be injected via the
     # NANOORGANIZER_EXTRA_ROOTS env var — os.pathsep-separated paths. Each is
     # resolved (symlinks followed) so it matches how is_path_allowed() checks.
     extra_raw = os.environ.get("NANOORGANIZER_EXTRA_ROOTS", "")
@@ -153,15 +145,12 @@ def main_secure():
         if path.is_dir():
             extra_roots.append(path.resolve())
 
-    # A private pyViz.conf may point at a site-specific mount that cannot be
-    # known by the public package.  Include configured roots for both sites so
-    # legacy single-password mode can reach whichever location is selected.
-    for site in ("onsite", "offsite"):
-        for beamline in BEAMLINES:
-            for configured_root in access.roots_for_site(site, beamline):
-                path = Path(configured_root).expanduser()
-                if path.is_dir():
-                    extra_roots.append(path.resolve())
+    # A private pyViz.conf may name a mount the public package cannot know
+    # about; include those so single-password mode can reach them.
+    for configured_root in access.extra_roots:
+        path = Path(configured_root).expanduser()
+        if path.is_dir():
+            extra_roots.append(path.resolve())
 
     roots = []
     for root in (start_dir, home_dir, *extra_roots):

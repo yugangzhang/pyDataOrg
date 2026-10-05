@@ -114,3 +114,7 @@ target/
 #data/
 results/
 
+
+# Generated demo project and notebook exports
+DemoProject/
+notebook/*.csv

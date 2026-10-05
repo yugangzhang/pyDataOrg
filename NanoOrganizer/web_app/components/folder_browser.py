@@ -85,8 +85,7 @@ def filter_file_list(file_list, and_list=[], or_list=[], no_list=[]):
 def _root_jump(key, secure_roots):
     """Secure-mode selector to jump straight to any allowed root.
 
-    Extra roots (e.g. beamline mounts whitelisted via NANOORGANIZER_EXTRA_ROOTS,
-    such as /mnt/data/FacilityData) live in separate directory trees, so the
+    Extra roots (data mounts whitelisted via NANOORGANIZER_EXTRA_ROOTS) live in separate directory trees, so the
     Start / Home / Parent buttons alone cannot reach them. This selectbox lets
     the user hop directly to any allowed root and then browse downward.
     """
@@ -106,7 +105,7 @@ def _root_jump(key, secure_roots):
     picked = st.selectbox(
         "🗂️ Jump to allowed folder", root_strs, index=idx,
         key=f"{key}_root_jump_sel",
-        help="Includes beamline data roots whitelisted for secure mode.",
+        help="Includes data roots whitelisted for secure mode.",
     )
     if st.button("↪️ Go to this folder", key=f"{key}_root_jump_go"):
         st.session_state[f'{key}_current_path'] = picked
@@ -116,14 +115,14 @@ def _root_jump(key, secure_roots):
 def _path_jump(key, is_allowed):
     """Paste-a-path box: type/paste any folder and jump straight to it.
 
-    Clicking down from a root is tedious for the deep beamline trees, so this
+    Clicking down from a root is tedious for deep trees, so this
     accepts a full path. It still goes through ``is_allowed`` (a no-op in
     single-password secure mode, enforced per user in multi-user mode).
     """
     col_in, col_go = st.columns([4, 1])
     pasted = col_in.text_input(
         "📋 Paste a folder path", key=f"{key}_jump_text",
-        placeholder="/mnt/data/FacilityData/remote/...",
+        placeholder="/mnt/data/project/...",
         label_visibility="collapsed",
     )
     col_go.button("Go", key=f"{key}_jump_go", use_container_width=True)

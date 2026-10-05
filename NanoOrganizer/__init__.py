@@ -56,6 +56,25 @@ from NanoOrganizer.core.run        import Run
 from NanoOrganizer.core.utils      import save_time_series_to_csv
 
 # ---------------------------------------------------------------------------
+# Sample-centric model
+#
+# A sample is the thing that persists: synthesised once, reacted perhaps
+# several times, characterised repeatedly.  Project/Sample/Stage/Measurement
+# key on that, while DataOrganizer/Run above remain for existing projects.
+# ---------------------------------------------------------------------------
+from NanoOrganizer.core.project  import Project, ProjectConfig
+from NanoOrganizer.core.schema   import (
+    Sample, Stage, Measurement, DerivedValue, flatten_dict,
+)
+from NanoOrganizer.core.pathmap  import PathResolver, PathAlias, suggest_aliases
+from NanoOrganizer.core          import modality
+
+# Workbench binds a project, a selection and the analyses together — the entry
+# point the notebooks and the GUI both use.  Imported last: it reaches back
+# into this package, so everything it needs must already be defined.
+from NanoOrganizer.workbench     import Workbench, open_project
+
+# ---------------------------------------------------------------------------
 # Loaders
 # ---------------------------------------------------------------------------
 from NanoOrganizer.loaders import (
@@ -110,6 +129,13 @@ __all__ = [
     'RunMetadata', 'ReactionParams', 'ChemicalSpec',
     'DataLink',
     'save_time_series_to_csv',
+
+    # Sample-centric model
+    'Workbench', 'open_project',
+    'Project', 'ProjectConfig',
+    'Sample', 'Stage', 'Measurement', 'DerivedValue', 'flatten_dict',
+    'PathResolver', 'PathAlias', 'suggest_aliases',
+    'modality',
 
     # Loaders
     'UVVisLoader', 'SAXSLoader', 'WAXSLoader',
