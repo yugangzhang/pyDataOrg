@@ -65,6 +65,13 @@ available at once:
 | 2D SAXS | image | the detector frame the 1D curve came from | — |
 | XPCS | correlation | g₂ of the aggregates in a viscous medium | diffusion → size |
 
+![Eight panels from the demo project: a UV-Vis growth series, a WAXS stack whose fcc peaks shift with composition, EDS spectra, Faradaic efficiency against potential, a TEM micrograph, an SEM micrograph, a tomography slab projection, and XPCS correlation functions](images/demo_gallery.png)
+
+Eight of the fifteen, covering all four visualisation groups. The scale bars on
+the micrographs are drawn from each image's own calibration — the generator
+writes it into the TEM banner the way a microscope would, and
+`particle_sizing` reads it back from there rather than being told.
+
 ### Things that are in it on purpose
 
 **Two routes in.** Most measurements are declared in `MetaData/*.py`; TEM, SEM,
@@ -83,6 +90,18 @@ whose table is uniformly tidy teaches the wrong lesson.
 object weighted by the sixth power of diameter, SEM the agglomerates. EDS
 measures the bulk, XPS the surface. All five are right; the gaps between them
 are the information.
+
+![Three panels: gold fraction recovered from EDS and from WAXS plotted against the generator's value on a parity line; the fitted plasmon band tracking its true position; and TEM, DLS and SEM diameters separated by an order of magnitude on a log axis](images/demo_agreement.png)
+
+The first two panels are the check that the project is self-consistent: two
+instruments that never met land on the same composition. The third is the
+disagreement, and it spans an order of magnitude.
+
+![Three panels: EDS bulk composition against XPS surface composition showing gold segregation; a stacked bar chart of Faradaic efficiency per product across the composition series; and CO partial current against the DFT CO binding energy, peaking at an intermediate composition](images/demo_volcano.png)
+
+The right-hand panel is what the whole project exists to produce: a Sabatier
+volcano whose descriptor — the CO binding energy — came from a different
+stage of the campaign than the current that it predicts.
 
 **A measurement with no story.** Oxygen evolution was run on every sample and
 the trend across the series is ~60 mV. It is in the project to be looked at and
@@ -144,6 +163,16 @@ is what exercises `FrameSeries` and the frame-name grammars.
 `image_size`, `tomo_size`, `seed`, `with_images`, `with_tomography` and
 `include_failed_run`. The tomogram is the one large file, so it is the first
 thing to turn down.
+
+The figures on this page and in the README are rebuilt by
+
+```bash
+python scripts/make_readme_figures.py [project_root]
+```
+
+which goes through the same `Workbench`, loaders and house style a notebook
+would. Nothing in them is special-cased for the documentation, so a figure that
+stops reproducing means the pipeline changed.
 
 To change the science rather than the size, edit
 `NanoOrganizer/demo/materials.py`: every property is one function of *x*, and

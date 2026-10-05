@@ -1,0 +1,21 @@
+🔑 CuAu05
+├── · sample_id  str = CuAu05
+├── 🔑 characterization_batch  5 keys
+│   ├── · run_id  str = char_05
+│   ├── · batch_tag  str = library_2
+│   ├── · campaign  str = CuAu-CO2RR
+│   ├── · status  str = done
+│   └── … +1 more  raise the per-layer limit to see them
+├── 🔑 UVVis  7 keys
+│   ├── · modality  str = uvvis
+│   ├── · instrument  str = DemoSpec HR4000
+│   ├── · note  str = in-situ growth series; the last frame is the product
+│   ├── · n_frames  int = 14
+│   └── … +3 more  raise the per-layer limit to see them
+├── 🔑 EDS  7 keys
+│   ├── · modality  str = eds
+│   ├── · instrument  str = DemoSEM + 100 mm2 SDD
+│   ├── · beam_energy_keV  float = 20
+│   ├── · quantification  str = Cliff-Lorimer
+│   └── … +3 more  raise the per-layer limit to see them
+└── … +8 more  raise the per-layer limit to see them

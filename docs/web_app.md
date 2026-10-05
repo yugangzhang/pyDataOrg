@@ -64,6 +64,11 @@ cursor, rotate a volume). Volumes default to interactive, because a projection
 answers *what is in there* and only rotation answers *what shape is it*;
 everything else defaults to static.
 
+![A rotatable rendering of the demo tomogram: a roughly spherical aggregate about 150 nm across, its interior threaded with pores, on calibrated nanometre axes](images/demo_tomogram.png)
+
+*The demo tomogram in `volume` mode. The axes are in nanometres because the
+measurement carries its voxel size; the title records the striding.*
+
 The controls themselves live in `web_app/components/plot_controls.py` and
 return a frozen settings object, so all four tabs share one vocabulary and a
 control added there appears everywhere it applies:
