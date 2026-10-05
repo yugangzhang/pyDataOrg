@@ -9,17 +9,21 @@ The app used to be a flat list of single-technique pages. It is now a
 Visualize page from the modality registry — so adding a technique changes no
 page.
 
-## The five pages
+## The pages
 
 | | |
 |---|---|
 | **📁 Project** | Open a folder, map recorded paths onto this machine, read the metadata dicts, attach data folders, save — or generate an example project to explore |
+| **🌳 Structure** | Drill into a folder, a metadata file or an archive, one layer at a time |
 | **🔎 Explore & Filter** | Filter the sample table; this sets the **selection** every later page uses |
 | **📈 Visualize** | Draw any measurement, grouped by what the data *is* |
 | **🧪 Analyze** | Run an analysis on one sample or the whole selection; results become new, filterable columns |
 | **📊 Compare** | Plot a measured quantity against a synthesis parameter |
 
 The loop is the point: **filter → analyse → new columns → filter again.**
+
+Structure sits outside that loop: it is what you open *before* a project
+exists, when the question is still "what is in this directory".
 
 ## One selection, shared
 
@@ -51,6 +55,54 @@ are selectors inside a tab; they change axis captions and defaults, not the code
 path. Microscopy modalities additionally get a *Check the particle
 segmentation* panel, because a size distribution should never be trusted
 without looking at the outlines.
+
+## Two rendering engines
+
+Every drawing tab offers **Static** (matplotlib — the figure you would put in
+a paper) and **Interactive** (Plotly — zoom a shoulder, read a pixel under the
+cursor, rotate a volume). Volumes default to interactive, because a projection
+answers *what is in there* and only rotation answers *what shape is it*;
+everything else defaults to static.
+
+The controls themselves live in `web_app/components/plot_controls.py` and
+return a frozen settings object, so all four tabs share one vocabulary and a
+control added there appears everywhere it applies:
+
+| group | controls |
+|---|---|
+| curves | colour, marker, line style, width, marker size, opacity, log x/y, manual limits, grid, legend and its position, title and axis labels, figure size |
+| images | colormap, log intensity, contrast percentile or manual range, equal aspect, origin, colour bar, draw as a 3D surface |
+| volumes | isosurface / translucent volume / point cloud / orthogonal slices, threshold, opacity, shells, detail budget, slice positions — or the flat slice and slab projections |
+
+Two traps worth knowing. Plotly's `Greys` runs white→black and its `RdBu` runs
+red→blue — both the opposite way from the matplotlib colormaps of the same
+name, so the mapping in `COLORMAPS` reverses them; without that, switching a
+TEM micrograph to interactive turns the particles from dark to bright. And
+Plotly has no `Bone` scale at all: asking for one raises. `tests/test_interactive.py`
+checks every offered name against both.
+
+Volumes are strided down before rendering and the figure title says by how
+much. That is not politeness — a browser does not slow down gracefully on a
+128³ translucent volume, it locks the tab.
+
+## Structure reads layout, not data
+
+Folders, JSON, HDF5, `.npz` and Python metadata modules all open the same way:
+a node, its children, click one, repeat. A breadcrumb keeps every ancestor one
+click away, so descending into the wrong branch costs nothing.
+
+Shapes and dtypes come from file headers, so a 4 GB tomogram is described
+without being opened, and nothing on the page loads a dataset or plots. An
+address is a path optionally followed by `::` and a path inside the file —
+`run.h5::entry/instrument` — which is what lets "descend into a folder" and
+"descend into a file" be the same operation.
+
+The traversal is `NanoOrganizer.structure`, so the same walk works from a
+notebook: `print(structure.tree(path, depth=3))`.
+
+Reading a `.py` metadata module **executes it**. The page says so before it
+happens, and the allowed-roots rule applies here exactly as it does to the
+folder picker — a structure browser must not become a way around it.
 
 ## Analyze builds its own controls
 

@@ -381,30 +381,53 @@ def plot_compare(frame, x: str, y: str, color_by: str = "", ax=None,
 
 def plot_curves(curves: Sequence[Tuple[str, np.ndarray, np.ndarray]], ax=None,
                 xlabel: str = "", ylabel: str = "", title: str = "",
-                logx: bool = False, logy: bool = False):
+                logx: bool = False, logy: bool = False,
+                color: Optional[str] = None,
+                linewidth: float = 1.8, linestyle: str = "-",
+                marker: str = "", markersize: float = 6.0,
+                alpha: float = 1.0,
+                xlim: Optional[Tuple[float, float]] = None,
+                ylim: Optional[Tuple[float, float]] = None,
+                grid: bool = True, legend: bool = True,
+                legend_loc: str = "best",
+                figsize: Optional[Tuple[float, float]] = None):
     """Overlay named 1D curves — the generic comparison plot.
 
     *curves* is a sequence of ``(label, x, y)``. Hues are assigned in slot
     order; past eight series the rest are drawn neutral and the caller is told,
     because a ninth generated hue would collide with one of the first eight.
+
+    The styling arguments all default to the house style, so the common call
+    stays one line. Pass *color* to draw every curve in one colour — right
+    when the curves are a series rather than separate things, and the legend
+    is doing no work.
     """
-    ax = _axes(ax)
+    ax = _axes(ax, figsize=figsize or (7.0, 4.5))
     labels = [c[0] for c in curves]
     colors, folded = category_colors(labels, scatter=False)
 
     for label, x, y in curves:
-        ax.plot(x, y, linewidth=1.8, color=colors[label],
+        ax.plot(x, y, linewidth=linewidth, linestyle=linestyle,
+                marker=marker or "", markersize=markersize, alpha=alpha,
+                color=color or colors[label],
                 label="Other" if label in folded else label)
 
     if logx:
         ax.set_xscale("log")
     if logy:
         ax.set_yscale("log")
+    if xlim:
+        ax.set_xlim(*xlim)
+    if ylim:
+        ax.set_ylim(*ylim)
+
     style(ax, xlabel, ylabel, title)
-    if len(curves) >= 2:
+    ax.grid(grid, color=GRID, linewidth=0.8, alpha=0.9)
+    if legend and len(curves) >= 2:
         handles, names = ax.get_legend_handles_labels()
         unique = dict(zip(names, handles))
-        _legend(ax, handles=list(unique.values()), labels=list(unique.keys()))
+        _legend(ax, handles=list(unique.values()), labels=list(unique.keys()),
+                loc=legend_loc)
     return ax
 
 

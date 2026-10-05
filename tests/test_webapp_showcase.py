@@ -112,3 +112,98 @@ def test_project_page_offers_to_generate_one_when_empty():
     labels = [b.label for b in app.button]
     assert "Generate and open" in labels
     assert any("example" in str(i.value).lower() for i in app.info)
+
+
+# ---------------------------------------------------------------------------
+# Plot controls and the interactive engine
+# ---------------------------------------------------------------------------
+
+INTERACTIVE_KEYS = ("nano_curve_cmp", "nano_curve_one_style",
+                    "nano_image_style", "nano_vol", "nano_corr_curve")
+
+
+def test_volumes_are_interactive_by_default(workbench):
+    """A projection answers 'what is in there'; only rotation answers
+    'what shape is it'."""
+    app = page("visualize.py", workbench)
+    app.run()
+    assert not app.exception, _why(app)
+    assert len(app.get("plotly_chart")) >= 1
+
+
+def test_every_group_can_be_drawn_interactively(workbench):
+    from NanoOrganizer.web_app.components.plot_controls import INTERACTIVE
+
+    state = {f"{key}_engine": INTERACTIVE for key in INTERACTIVE_KEYS}
+    app = page("visualize.py", workbench, **state)
+    app.run()
+    assert not app.exception, _why(app)
+    # curves, image, volume and correlation tabs all render at once.
+    assert len(app.get("plotly_chart")) >= 4
+
+
+@pytest.mark.parametrize("mode", ["isosurface", "volume", "points", "slices"])
+def test_each_volume_render_mode_works_through_the_page(workbench, mode):
+    app = page("visualize.py", workbench, nano_vol_mode=mode)
+    app.run()
+    assert not app.exception, f"{mode}: {_why(app)}"
+
+
+def test_static_engine_draws_no_plotly_at_all(workbench):
+    """The engine switch has to actually switch. (`st.pyplot` surfaces as an
+    UnknownElement in AppTest, so the absence of Plotly is what to assert.)"""
+    from NanoOrganizer.web_app.components.plot_controls import STATIC
+
+    state = {f"{key}_engine": STATIC for key in INTERACTIVE_KEYS}
+    app = page("visualize.py", workbench, **state)
+    app.run()
+    assert not app.exception, _why(app)
+    assert len(app.get("plotly_chart")) == 0
+
+
+def test_axis_limits_and_log_scales_are_offered(workbench):
+    app = page("visualize.py", workbench, nano_curve_cmp_logy=True)
+    app.run()
+    assert not app.exception, _why(app)
+    assert app.session_state["nano_curve_cmp_logy"] is True
+
+
+# ---------------------------------------------------------------------------
+# Structure
+# ---------------------------------------------------------------------------
+
+def test_structure_page_opens_empty(workbench):
+    app = page("structure.py", workbench)
+    app.run()
+    assert not app.exception, _why(app)
+    assert any("Choose a folder" in str(i.value) for i in app.info)
+
+
+def test_structure_lists_the_project_root(workbench, showcase_root):
+    app = page("structure.py", workbench,
+               nano_structure_address=str(showcase_root))
+    app.run()
+    assert not app.exception, _why(app)
+
+    labels = [b.label for b in app.button]
+    assert any("MetaData" in label for label in labels)
+    assert any("Electrochemistry" in label for label in labels)
+
+
+def test_structure_drills_into_a_metadata_module(workbench, showcase_root):
+    module = showcase_root / "MetaData" / "Characterization_dict.py"
+    app = page("structure.py", workbench, nano_structure_address=str(module))
+    app.run()
+    assert not app.exception, _why(app)
+
+    # Reading a .py metadata module executes it; the page must say so.
+    assert any("runs the code" in str(w.value) for w in app.warning)
+    assert any("Characterization_dict" in b.label for b in app.button)
+
+
+def test_structure_reports_a_bad_path_without_crashing(workbench):
+    app = page("structure.py", workbench,
+               nano_structure_address="/no/such/place/at/all")
+    app.run()
+    assert not app.exception, _why(app)
+    assert any("does not exist" in str(e.value) for e in app.error)

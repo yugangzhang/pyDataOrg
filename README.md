@@ -112,9 +112,53 @@ register(Modality(key="pl", label="Photoluminescence", domain="wavelength",
 streamlit run NanoOrganizer/web_app/Home.py      # or: viz
 ```
 
-Five pages sharing one selection — **Project → Explore & Filter → Visualize →
-Analyze → Compare** — plus general-purpose plotting tools. The GUI drives the
-same `Workbench` object the notebooks use, so the two cannot drift apart.
+Pages sharing one selection — **Project → Structure → Explore & Filter →
+Visualize → Analyze → Compare** — plus general-purpose plotting tools. The GUI
+drives the same `Workbench` object the notebooks use, so the two cannot drift
+apart.
+
+Every drawing tab offers two engines: **static** matplotlib figures to export,
+and **interactive** Plotly ones to handle — zoom a shoulder, read a pixel
+under the cursor, and turn a tomogram around. Both are in the package, so a
+notebook gets them too:
+
+```python
+from NanoOrganizer.viz import interactive as iv
+
+iv.volume_figure(volume, mode="isosurface", level=130,
+                 voxel_size=2.0, unit="nm").show()
+```
+
+`mode` is `isosurface`, `volume`, `points` or `slices`. Large volumes are
+strided down before rendering and the title says by how much.
+
+## Understanding a dataset's layout
+
+Before organising a dataset you have to know its shape. `NanoOrganizer.structure`
+walks anything — a directory, a JSON record, an HDF5 group, an `.npz`, a Python
+metadata module — one layer at a time, reading **structure, not data**: shapes
+come from file headers, so a 4 GB tomogram is described without being opened.
+
+```python
+from NanoOrganizer import structure
+print(structure.tree("~/NanoOrganizerDemo", depth=2))
+```
+
+```
+📁 NanoOrganizerDemo  11 folders · 1 file · .txt 1 · 1 hidden
+├── 📁 Electrochemistry  8 folders
+│   ├── 📁 CuAu01  9 files · .dat 9
+│   └── … +7 more  raise the per-layer limit to see them
+├── 📁 MetaData  4 files · .py 4 · 1 hidden
+│   ├── 📄 Characterization_dict.py  37.3 KB
+│   └── 📄 Synthesis_dict.py  11.4 KB
+└── 📁 TomoData  2 folders
+```
+
+An address is a path, optionally followed by `::` and a path *inside* the file
+(`run.h5::entry/instrument`), which is what makes descending into a folder and
+descending into a file the same operation. The **🌳 Structure** page is the
+same thing with buttons.
 
 ## Analyses
 
@@ -175,7 +219,7 @@ than skipping them.
 pytest
 ```
 
-205 tests, including the Streamlit pages driven through `AppTest` against both
+262 tests, including the Streamlit pages driven through `AppTest` against both
 generated projects — the small one, and the fifteen-technique showcase that
 exercises all four visualisation groups at once. No test needs a data mount.
 

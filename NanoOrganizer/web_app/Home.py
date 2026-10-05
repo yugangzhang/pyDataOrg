@@ -60,6 +60,7 @@ sections = {
     "Workflow": [
         view("overview.py", "Overview", "🔬", default=True),
         view("project.py", "Project", "📁"),
+        view("structure.py", "Structure", "🌳"),
         view("explore.py", "Explore & Filter", "🔎"),
         view("visualize.py", "Visualize", "📈"),
         view("analyze.py", "Analyze", "🧪"),
