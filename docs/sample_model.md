@@ -122,9 +122,45 @@ inside a directory, not locating it.
 To support another authoring format, register an adapter in
 `NanoOrganizer/ingest/__init__.py`. Adapters never write to disk.
 
-## Folder convention: data nobody wrote down
+### Ingesting a dict rather than a file
 
-`<Modality>Data/<SampleID>/` attaches automatically:
+A file is the right shape when metadata was *authored* at the instrument and
+must not be edited in place. A notebook has the other case: the dict is being
+written right now, and the loop is edit it, ingest, look, edit again. So
+`ingest` takes the dict itself:
+
+```python
+org.ingest(synthesis=Synthesis_dict)          # the keyword names the stage
+org.ingest(Synthesis_dict, stage="synthesis") # the same thing
+```
+
+The keyword form exists because a dict's variable name is invisible once it
+has been passed in — `ingest(d)` cannot know it was called `Synthesis_dict`,
+and guessing the stage from a file name is not available either.
+
+Both forms end in the same `record_to_sample`, so a record behaves identically
+whichever way it arrived.
+
+**`replace=True` is what makes an editing loop honest.** Merging can only ever
+add, so a key you popped from the dict would sit in the store forever looking
+like data. With `replace`, the mapping is the whole truth for its stage:
+
+| edit | effect |
+|---|---|
+| a new record | the sample is created |
+| a changed value | the stage's parameters are replaced, not merged |
+| a popped record | that sample loses this stage — and goes entirely if that was all it had |
+
+A sample with links of its own survives losing its stage, because linked data
+is not the dict's to delete.
+
+## Folder convention: the tidy case
+
+`<Modality>Data/<SampleID>/` attaches automatically. This is the **exception**,
+not the normal route: almost no campaign is laid out this way, because the
+microscope, the beamline and the spectrometer each write where they write.
+Reach for it when a directory genuinely has this shape, and
+[link](#linking-data-that-is-somewhere-else-and-is-staying-there) otherwise.
 
 ```
 MyProject/
@@ -136,10 +172,12 @@ MyProject/
 
 `project.attach_folders()` walks those directories, matches each against the
 modality registry, keeps only files with an extension that modality claims, and
-picks up a side-car `note.txt` into the measurement's metadata. This is how a
-folder of micrographs dropped in by whoever ran the microscope joins the project
-without anyone hand-editing a record. Folder names are configurable through
-`ProjectConfig.modality_dirs`.
+picks up a side-car `note.txt` into the measurement's metadata. Folder names
+are configurable through `ProjectConfig.modality_dirs`.
+
+`open_project(root, attach=False)` turns it off, which is the right default
+when you intend to link deliberately — an auto-attach that half-works is
+harder to notice than one that did not run.
 
 ## Linking: data that is somewhere else and is staying there
 
@@ -151,17 +189,22 @@ that afternoon, and none of it is going to move.
 `link()` records where data is instead of collecting it:
 
 ```python
-from NanoOrganizer import new_organizer
+from NanoOrganizer import Organizer
 
-wb = new_organizer("~/CuAuStudy")          # root holds the store, not the data
+org = Organizer("~/Repos/OrgDemo/cuau.json")     # the file is the store
 
-wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
-wb.link("CuAu05", "tem",   "/mnt/scope/session17/")
-wb.link("CuAu05", "waxs1d", ["/beamline/2024_3/w1.dat"])
+org.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
+org.link("CuAu05", "tem",   "/mnt/scope/session17/")
+org.link("CuAu05", "waxs1d", ["/beamline/2024_3/w1.dat"])
 ```
 
-`new_organizer(root)` is the empty-project entry point, as `open_project(root)`
-is the existing-project one. Both return a `Workbench`.
+Three entry points, all returning a `Workbench`:
+
+| | |
+|---|---|
+| `Organizer("x.json")` | one named document; its parent is only used to resolve relative paths |
+| `open_project(root)` | an existing project directory — or a `.json`, which routes to `Organizer` |
+| `new_organizer(root)` | an empty project directory, with the usual hidden store |
 
 **Three forms of source, and the difference matters:**
 
@@ -285,6 +328,125 @@ wb.plot("CuAu05", "uvvis", T=90)       # nearest frame at about 90 °C
 `t` and `T` take the **nearest** recorded value, not an exact one, because an
 acquisition clock never lands on a round number.
 
+## Results: analysis output, linked back
+
+An analysis produces three things and they persist in two places, for a
+reason:
+
+| | |
+|---|---|
+| `values` | scalars — written onto the sample as `derived.*`, saved with the store, filterable beside the authored parameters |
+| `curves` | the fitted line, the residuals — written **beside** the store as a `.npz` and linked back as a measurement |
+| `diagnostics` | the window, the R², the point count — travel with the curves |
+
+Arrays stay out of the store because a sample store that accumulates spectra
+stops being something you can open in a text editor, and that readability is
+most of its value.
+
+```python
+org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), link=True)
+org.save()
+
+later = Organizer("~/Repos/OrgDemo/cuau.json")
+later.results()                           # one row per stored result
+later.result("CuAu05", "peak_fit")        # the AnalysisResult back
+later.plot_result("CuAu05", "peak_fit")   # redrawn, not refitted
+```
+
+A stored fit is linked as a measurement of modality **`fit`**, stage
+`analysis`, role = ``{analysis}-{source_modality}`` — the modality is in the
+role for the same reason it is in the derived column names: peak-fitting a
+UV-Vis band and then a diffraction peak are *two* results, and a shared id
+would make the second quietly replace the first. `result()` and
+`plot_result()` take `modality=` to pick between them. It gets its own modality rather than
+reusing the source's so that attaching a fit can never make
+`plot(sample, "uvvis")` ambiguous between the spectrum and the curve drawn
+through it. `plot(sample, "fit")` and `plot_result()` both reach it; the
+ordinary dispatch knows a result bundle is not a plain array and does not try
+to read it as one.
+
+The file is a plain `.npz` — one entry per curve plus a JSON sidecar, readable
+with `numpy.load` alone, because an archive format nobody else can open is not
+an archive.
+
+## Working with it: subsets, lazy frames, one fit at a time
+
+Three things a session needs that a one-call convenience layer cannot give.
+
+### Looking at the organiser
+
+```python
+org.describe()        # samples, stages, techniques, stored fits, readability
+org.overview()        # the same thing as a dict, to branch on
+org.tree(depth=2)     # structure, not data — of the *live* session
+org.catalog()         # the sample x technique matrix; the gaps are the point
+org.ids(query)        # answer a question without committing to it
+```
+
+`tree()` walks the current session rather than the file on disk. The
+distinction is not pedantry: walking the saved file after twenty unsaved links
+would show the earlier state and look entirely correct.
+
+### Subsets
+
+```python
+plate = org.subset(["S01", "S03", "S07"], name="plate_A")
+hot   = org.subset(query="`synthesis.temperature_C` >= 100")
+```
+
+A subset is a **deep copy**, not a view, so analysing it cannot write derived
+values back into the parent by accident — the one thing a shared view would get
+wrong. Aliases come along, so the data still resolves, and **nothing is
+written** until you `save()` it.
+
+For a one-off comparison a subset is overkill; `overlay`, `table` and
+`catalog` all take `sample_ids=[...]` and leave the selection alone.
+
+### Lazy frames
+
+Eager reading is right until it is not. Forty spectra is 100 kB and arguing
+about it costs more than reading it; four hundred micrographs is 12 GB, and a
+notebook that reads them to show you the third one is a notebook you restart.
+
+```python
+frames = org.data("S01", "tem", lazy=True)
+len(frames)                  # resolved up front — no file opened
+array, info = frames[2]      # one file opened
+for array, info in frames:   # one at a time, never all at once
+    ...
+stack, info = frames.load()  # all of them, having asked
+```
+
+It is a **sequence, not a generator**: a generator cannot be indexed, cannot
+report its length, and is empty the second time you use it — all three of
+which a session wants within five minutes. A single file holding a 3D volume
+is memory-mapped, so its frames are planes and indexing one costs one plane.
+
+### One fit, then the batch
+
+```python
+params = dict(x_range=(2.5, 3.6), n_peaks=1, background="linear")
+
+trial, axes = org.fit("S01", "waxs1d", show=True, **params)   # stores nothing
+org.batch("peak_fit", modality="waxs1d", link=True, **params)
+```
+
+Settling the parameters on a sample you can look at, and only then spending
+them on the whole set, is the same work as running the batch first and reading
+its R² column afterwards — in the order that does not hide the mistake.
+
+## Does it scale?
+
+Keying on `sample_id` is not a small-campaign idea. With **10 000 samples**,
+one measurement each, on an ordinary laptop: ingest 0.15 s, link 0.10 s, save
+0.9 s (13 MB), load 0.4 s, `table()` 0.3 s, `filter()` 0.1 s, and
+`availability()` — which actually touches the filesystem — 0.9 s.
+
+Nothing in the model is per-pair or per-combination: a plate-based
+high-throughput campaign uses exactly the same calls as a six-sample one. The
+operations that touch the filesystem (`availability()`, `catalog(counts=True)`)
+are the ones that will feel a slow mount, and they are the ones you can skip.
+
 ## The table is the engine
 
 `project.to_dataframe()` returns one row per sample: authored parameters as
@@ -307,25 +469,46 @@ select from.
 
 ## Worked example
 
+The whole loop, from an empty file to a fit you can read again next year.
+
 ```python
-from NanoOrganizer import Project
+from NanoOrganizer import Organizer
 
-project = Project("/data/MyProject")
-project.add_alias("/instrument/share", ["/mnt/instrument"])
+org = Organizer("~/Repos/OrgDemo/cuau.json", name="Cu-Au CO2RR")
+org.project.add_alias("/instrument/share", ["/mnt/instrument"])
 
-project.ingest("MetaData/Synthesis_dict.py")
-project.ingest("MetaData/Reaction_dict.py")
-project.attach_folders()
-project.save()
+# 1. Metadata somebody already wrote — a live dict, or a *_dict.py.
+org.ingest(synthesis=Synthesis_dict)
+org.ingest("MetaData/Reaction_dict.py")
 
-print(project.summary())
+# 2. Data nobody wrote down, one call per measurement.
+for sample_id in org.project.sample_ids():
+    org.link(sample_id, "tem", f"/mnt/scope/{sample_id}/")
+    org.link(sample_id, "waxs1d", f"/beamline/2026_1/{sample_id}.dat")
 
-# samples whose synthesis used a 6:1 synthesis temperature
-ids = project.filter(**{
-    "synthesis.conditions.temperature_C": 6.0})
+# 3. Anything else worth filtering on.
+org.set_params("CuAu05", stage="synthesis", operator="RH")
 
-# their catalysis UV-Vis series, ready to read
-for m in project.measurements(modality="uvvis", stage="catalysis", sample_ids=ids):
-    files = m.resolve(project.resolver)
-    axis = m.resolve_aux(project.resolver).get("wavelength_file")
+print(org.summary())
+org.catalog()                      # what exists, and what does not
+
+# 4. Filter, draw, fit — and keep the fits.
+org.filter("`synthesis.conditions.temperature_C` >= 90")
+org.plot("CuAu05", "uvvis", t=600)
+org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), link=True)
+org.save()
 ```
+
+Later, on another machine — one alias, and everything resolves:
+
+```python
+org = Organizer("~/Repos/OrgDemo/cuau.json")
+org.project.add_alias("/mnt/scope", ["/Volumes/scope"])
+
+org.table()[["synthesis.conditions.temperature_C",
+             "derived.waxs1d_peak1_center"]]
+org.plot_result("CuAu05", "peak_fit")      # redrawn, not refitted
+```
+
+The lower-level objects stay reachable throughout — `org.project` is a
+`Project`, `org.resolver` a `PathResolver` — so nothing here is a wall.

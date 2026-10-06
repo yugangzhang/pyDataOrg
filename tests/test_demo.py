@@ -119,3 +119,61 @@ def test_it_refuses_to_delete_a_directory_it_did_not_make(tmp_path):
     with pytest.raises(FileExistsError, match="not empty"):
         build_demo_project(root)
     assert (root / "precious.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# Where generated data goes
+# ---------------------------------------------------------------------------
+
+def test_demo_root_is_one_parent_not_the_home_directory():
+    """Generated data must not scatter directories across $HOME."""
+    from pathlib import Path
+
+    from NanoOrganizer.demo import demo_root
+
+    root = demo_root()
+    assert root.parent != Path.home(), (
+        f"{root} would be created directly in the home directory")
+    assert root == Path.home() / "Repos" / "OrgDemo"
+
+
+def test_demo_root_joins_and_is_overridable(monkeypatch, tmp_path):
+    from NanoOrganizer.demo import DEMO_ROOT_ENV, demo_root
+
+    assert demo_root("Lab", "lab.json").name == "lab.json"
+    assert demo_root("Lab").name == "Lab"
+
+    monkeypatch.setenv(DEMO_ROOT_ENV, str(tmp_path / "elsewhere"))
+    assert demo_root("Lab") == tmp_path / "elsewhere" / "Lab"
+
+
+def test_asking_where_data_would_go_creates_nothing(monkeypatch, tmp_path):
+    from NanoOrganizer.demo import DEMO_ROOT_ENV, demo_root
+
+    monkeypatch.setenv(DEMO_ROOT_ENV, str(tmp_path / "untouched"))
+    demo_root("Lab", "lab.json")
+    assert not (tmp_path / "untouched").exists()
+
+
+def test_notebooks_write_only_under_demo_root():
+    """The notebooks are documentation; this keeps them honest."""
+    import json
+    import re
+    from pathlib import Path
+
+    notebooks = sorted((Path(__file__).resolve().parents[1] / "notebook")
+                       .glob("*.ipynb"))
+    assert notebooks, "no notebooks found"
+
+    offenders = []
+    for path in notebooks:
+        document = json.loads(path.read_text())
+        for index, cell in enumerate(document["cells"]):
+            if cell["cell_type"] != "code":
+                continue
+            source = "".join(cell["source"])
+            for hit in re.findall(r"Path\.home\(\)\s*/\s*[\"'][^\"']+", source):
+                offenders.append(f"{path.name} cell {index}: {hit}")
+    assert not offenders, (
+        "notebooks must write under demo_root(), not straight into $HOME: "
+        + "; ".join(offenders))

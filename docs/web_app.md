@@ -38,16 +38,21 @@ drift apart in behaviour, because there is only one implementation.
 
 ## Project: building an organizer, not just opening one
 
-Everything `notebook/06_build_organizer` does has buttons, in the same order.
+Everything `notebook/11_build_organizer` does has buttons, in the same order.
 The page is the only one that writes, so all of it lives here.
 
-**Open or create.** *An existing project* opens a folder — `MetaData/`, data
-folders, a store written earlier, **or one a notebook saved**; they are the
-same object, so an organizer built in a notebook opens here with its links,
-parameters and derived values intact, and one built here opens in a notebook.
-*Nothing yet* creates an empty organizer: the folder only has to hold the
-store, and the data can be anywhere. It refuses a folder that already holds
-one, because silently opening it would be the wrong kind of helpful.
+**Open or create.** The path box takes either shape a project comes in:
+
+* a **folder** — `MetaData/`, data folders, a store in `.nanoorganizer/`;
+* a path ending in **`.json`** — a single-document organizer, the kind
+  `Organizer("lab.json")` writes in a notebook.
+
+They are the same object, so an organizer built in a notebook opens here with
+its links, parameters, derived values and stored fits intact, and one built
+here opens in a notebook. *Nothing yet* creates an empty one — a folder gets
+the usual hidden store, a `.json` name gets a single document. Either way an
+existing store is refused, because silently opening it when the user asked to
+create one would be the wrong kind of helpful.
 
 **Samples and their conditions.** An editable grid, one row per sample, one
 column per parameter of the selected stage — `wb.set_params()` with a
@@ -89,7 +94,7 @@ a better editor than a form when forty rows need the same fix.
 These call `wb.link()`, `wb.link_folder()`, `wb.link_table()`,
 `wb.links_table()` and `wb.set_params()` — see
 [`sample_model.md`](sample_model.md#linking-data-that-is-somewhere-else-and-is-staying-there)
-and `notebook/06_build_organizer`.
+and `notebook/11_build_organizer`.
 
 ## Visualize dispatches on shape, not technique
 

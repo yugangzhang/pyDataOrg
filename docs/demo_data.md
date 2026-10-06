@@ -4,9 +4,9 @@ Two projects ship as generators rather than as files. Nothing is committed,
 nothing is downloaded, and either can be deleted freely.
 
 ```bash
-python -m NanoOrganizer.demo ~/NanoOrganizerDemo     # the showcase
-python -m NanoOrganizer.demo ~/NanoQuick --quick     # the small one
-python -m NanoOrganizer.demo ~/Demo --no-images      # no Pillow needed
+python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase      # the showcase
+python -m NanoOrganizer.demo ~/Repos/OrgDemo/Quick --quick  # the small one
+python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase --no-images
 ```
 
 Both refuse to overwrite a directory that does not carry their own marker

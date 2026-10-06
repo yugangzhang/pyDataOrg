@@ -357,9 +357,34 @@ def ingest(path: Path, project=None, stage: str = "", dicts: Sequence[str] = (),
     return [merged[k] for k in sorted(merged)]
 
 
+def ingest_mapping(records: Dict[str, Any], stage: str = "metadata",
+                   source: str = "", modality_map: Optional[Dict[str, str]] = None,
+                   ) -> List[Sample]:
+    """Read a live ``{sample_id: record}`` dict — no file involved.
+
+    The file-based adapter exists because metadata is usually *authored* at
+    the instrument and must not be edited in place.  A dict held in a notebook
+    is the other case: it is being written right now, and the loop is edit it,
+    ingest, look, edit again.  Both end at :func:`record_to_sample`, so a
+    record behaves the same whichever way it arrived.
+
+    Entries whose value is not a dict are skipped rather than raising, since a
+    metadata module habitually keeps a stray constant beside its records.
+    """
+    out: List[Sample] = []
+    for sample_id, record in records.items():
+        if not isinstance(record, dict):
+            continue
+        out.append(record_to_sample(str(sample_id), record, stage,
+                                    source=source or f"dict::{stage}",
+                                    modality_map=modality_map))
+    return out
+
+
 def detect(path: Path) -> bool:
     """True if this adapter can read *path*."""
     return pydict.looks_like_metadata_module(Path(path))
 
 
-__all__ = ["ingest", "detect", "record_to_sample", "modality_from_name"]
+__all__ = ["ingest", "ingest_mapping", "detect", "record_to_sample",
+           "modality_from_name"]

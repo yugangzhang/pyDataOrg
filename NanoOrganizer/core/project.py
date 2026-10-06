@@ -21,7 +21,9 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Union
+from typing import (
+    Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union,
+)
 
 from NanoOrganizer.core import modality as _modality
 from NanoOrganizer.core.pathmap import PathAlias, PathResolver
@@ -118,19 +120,33 @@ class Project:
     >>> table = project.to_dataframe()                            # doctest: +SKIP
     """
 
-    def __init__(self, root: Union[str, Path], name: str = "", create: bool = True):
+    def __init__(self, root: Union[str, Path], name: str = "",
+                 create: bool = True, store_file: Union[str, Path, None] = None):
         self.root = Path(root).expanduser()
         if not self.root.exists():
             if not create:
                 raise FileNotFoundError(f"Project root does not exist: {self.root}")
             self.root.mkdir(parents=True, exist_ok=True)
 
-        self.config_dir = self.root / CONFIG_DIR
-        self.config_path = self.config_dir / CONFIG_NAME
-        self.store_path = self.config_dir / STORE_NAME
+        # A *store file* keeps config and samples in one named document the
+        # user chose, instead of two inside a hidden directory. That is the
+        # right shape when the project is an organiser of data living
+        # elsewhere: there is one file to copy, name and version, and no
+        # convention to remember.
+        self.single_file = store_file is not None
+        if self.single_file:
+            self.store_path = Path(store_file).expanduser()
+            self.config_dir = self.store_path.parent
+            self.config_path = self.store_path
+        else:
+            self.config_dir = self.root / CONFIG_DIR
+            self.config_path = self.config_dir / CONFIG_NAME
+            self.store_path = self.config_dir / STORE_NAME
 
         self.samples: Dict[str, Sample] = {}
-        self.config = ProjectConfig(name=name or self.root.name)
+        default_name = (self.store_path.stem if self.single_file
+                        else self.root.name)
+        self.config = ProjectConfig(name=name or default_name)
 
         self._load_config()
         self._load_store()
@@ -145,19 +161,26 @@ class Project:
         """Open an existing project directory."""
         return cls(root, create=False)
 
+    def _read_document(self) -> dict:
+        if not self.store_path.exists():
+            return {}
+        with open(self.store_path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
     def _load_config(self):
-        if self.config_path.exists():
+        if self.single_file:
+            data = self._read_document().get("project")
+            if isinstance(data, dict):
+                self.config = ProjectConfig.from_dict(data)
+        elif self.config_path.exists():
             with open(self.config_path, "r", encoding="utf-8") as handle:
                 self.config = ProjectConfig.from_dict(json.load(handle))
-            if not self.config.name:
-                self.config.name = self.root.name
+        if not self.config.name:
+            self.config.name = (self.store_path.stem if self.single_file
+                                else self.root.name)
 
     def _load_store(self):
-        if not self.store_path.exists():
-            return
-        with open(self.store_path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        for record in data.get("samples", []):
+        for record in self._read_document().get("samples", []):
             sample = Sample.from_dict(record)
             self.samples[sample.sample_id] = sample
 
@@ -166,14 +189,16 @@ class Project:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config.updated_at = datetime.now().isoformat(timespec="seconds")
 
-        with open(self.config_path, "w", encoding="utf-8") as handle:
-            json.dump(self.config.to_dict(), handle, indent=2)
-
         payload = {
-            "project": self.config.name,
+            "project": (self.config.to_dict() if self.single_file
+                        else self.config.name),
             "updated_at": self.config.updated_at,
             "samples": [s.to_dict() for s in self.sorted_samples()],
         }
+        if not self.single_file:
+            with open(self.config_path, "w", encoding="utf-8") as handle:
+                json.dump(self.config.to_dict(), handle, indent=2)
+
         with open(self.store_path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, default=str)
         return self.store_path
@@ -263,20 +288,39 @@ class Project:
     # ingest
     # ------------------------------------------------------------------
 
-    def ingest(self, source: Union[str, Path], adapter: str = "auto",
-               record: bool = True, **kwargs) -> List[str]:
-        """Read an authored metadata file into the sample store.
+    def ingest(self, source: Union[str, Path, Mapping, None] = None,
+               adapter: str = "auto", record: bool = True,
+               stage: str = "", replace: bool = False,
+               **kwargs) -> List[str]:
+        """Read authored metadata into the sample store.
+
+        *source* is either a **file** — a ``*_dict.py`` written at the
+        instrument, which stays the source of truth and is never edited — or a
+        **live dict** ``{sample_id: record}`` held in a notebook, which is
+        being written right now.  Both end in the same records::
+
+            project.ingest("MetaData/Synthesis_dict.py")
+            project.ingest(Synthesis_dict, stage="synthesis")
+            project.ingest(synthesis=Synthesis_dict, catalysis=Catalysis_dict)
+
+        The third form reads the stage from the keyword, which is the shape
+        that keeps a notebook honest: the dict's variable name is invisible
+        once it has been passed in.
 
         Parameters
         ----------
-        source : str or Path
-            Metadata file, absolute or relative to the project root.
-        adapter : str
-            Adapter key from :mod:`NanoOrganizer.ingest`, or ``"auto"`` to let
-            the registry choose by inspecting the file.
+        stage : str
+            Stage label for a dict source.  For a file, each dict inside gets
+            its own stage from its variable name unless this overrides them.
+        replace : bool
+            Treat the mapping as the whole truth for this stage: parameters
+            are replaced rather than merged, and a sample that has left the
+            mapping loses this stage — and goes entirely if that was all it
+            had.  This is what makes an edit-and-re-ingest loop honest, since
+            a merge can only ever add, so a popped key would linger.
         record : bool
-            Remember the source in the project config so it can be re-ingested
-            later with :meth:`reingest`.
+            Remember a file source so :meth:`reingest` can re-read it.  A dict
+            lives in the session, so there is nothing to record.
 
         Returns
         -------
@@ -285,6 +329,29 @@ class Project:
         """
         from NanoOrganizer.ingest import run_adapter, choose_adapter
 
+        mappings: List[Tuple[str, Mapping]] = []
+        if isinstance(source, Mapping):
+            mappings.append((stage or "metadata", source))
+        for key, value in list(kwargs.items()):
+            if isinstance(value, Mapping) and value and all(
+                    isinstance(v, dict) for v in value.values()):
+                mappings.append((key, value))
+                kwargs.pop(key)
+
+        if mappings:
+            if source is not None and not isinstance(source, Mapping):
+                raise TypeError(
+                    "ingest() takes either a path or dict records, not both")
+            touched: List[str] = []
+            for stage_id, records in mappings:
+                touched.extend(self._ingest_mapping(
+                    records, stage_id, replace=replace,
+                    modality_map=kwargs.get("modality_map")))
+            return touched
+
+        if source is None:
+            raise TypeError("ingest() needs a metadata file or a dict of records")
+
         path = Path(source)
         if not path.is_absolute():
             path = self.root / path
@@ -292,6 +359,8 @@ class Project:
             raise FileNotFoundError(f"Metadata source not found: {path}")
 
         key = adapter if adapter != "auto" else choose_adapter(path)
+        if stage:
+            kwargs["stage"] = stage
         samples = run_adapter(key, path, project=self, **kwargs)
 
         touched = []
@@ -306,6 +375,40 @@ class Project:
                 if s.get("path") != entry["path"]
             ]
             self.config.metadata_sources.append(entry)
+        return touched
+
+    def _ingest_mapping(self, records: Mapping, stage: str, *,
+                        replace: bool = False,
+                        modality_map: Optional[Dict[str, str]] = None,
+                        ) -> List[str]:
+        """Fold a live ``{sample_id: record}`` dict into the store."""
+        from NanoOrganizer.ingest import sampledict as _sampledict
+
+        incoming = _sampledict.ingest_mapping(dict(records), stage=stage,
+                                              modality_map=modality_map)
+        touched = []
+        for sample in incoming:
+            if replace:
+                current = self.samples.get(sample.sample_id)
+                if current is not None:
+                    current.stages.pop(stage, None)
+                    current.measurements = [m for m in current.measurements
+                                            if m.stage != stage]
+            self.merge_sample(sample)
+            touched.append(sample.sample_id)
+
+        if replace:
+            # A sample popped from the mapping loses this stage, and goes
+            # entirely when that was the only thing holding it.
+            for sample_id in [s for s in self.samples if s not in touched]:
+                sample = self.samples[sample_id]
+                if stage not in sample.stages:
+                    continue
+                sample.stages.pop(stage, None)
+                sample.measurements = [m for m in sample.measurements
+                                       if m.stage != stage]
+                if not sample.stages and not sample.measurements:
+                    del self.samples[sample_id]
         return touched
 
     def reingest(self) -> Dict[str, List[str]]:

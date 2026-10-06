@@ -21,9 +21,44 @@ recover, and both refuse to overwrite a directory they did not create.
 >>> from NanoOrganizer import open_project
 >>> root = build_showcase_project("/tmp/CuAuDemo")       # doctest: +SKIP
 >>> workbench = open_project(root)                       # doctest: +SKIP
+
+Where generated data goes
+-------------------------
+:func:`demo_root` gives one parent for everything these generators write, so a
+few runs of the notebooks cannot leave a scatter of directories across a home
+folder.  Override it with ``$NANOORGANIZER_DEMO_ROOT``; nothing in the package
+writes anywhere else unless you pass an explicit path, which every builder
+still accepts.
 """
 
 from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Union
+
+#: Environment variable that overrides where generated demo data is written.
+DEMO_ROOT_ENV = "NANOORGANIZER_DEMO_ROOT"
+
+#: Default parent for generated data.  One directory, not one per project.
+DEFAULT_DEMO_ROOT = Path.home() / "Repos" / "OrgDemo"
+
+
+def demo_root(*parts: Union[str, Path]) -> Path:
+    """Return the demo data directory, optionally joined with *parts*.
+
+    >>> demo_root()                      # doctest: +SKIP
+    PosixPath('/home/you/Repos/OrgDemo')
+    >>> demo_root("Lab", "lab.json")     # doctest: +SKIP
+    PosixPath('/home/you/Repos/OrgDemo/Lab/lab.json')
+
+    The directory is **not** created here — the builder that writes into it
+    does that, so merely asking where data would go leaves nothing behind.
+    """
+    base = os.environ.get(DEMO_ROOT_ENV, "").strip()
+    root = Path(base).expanduser() if base else DEFAULT_DEMO_ROOT
+    return root.joinpath(*(str(p) for p in parts)) if parts else root
+
 
 from NanoOrganizer.demo.materials import (
     DEFAULT_FRACTIONS, PRODUCTS, co_binding_eV, co_partial_current,
@@ -40,6 +75,8 @@ from NanoOrganizer.demo.simple import (
 )
 
 __all__ = [
+    # where generated data goes
+    "demo_root", "DEMO_ROOT_ENV", "DEFAULT_DEMO_ROOT",
     # the quick demo
     "build_demo_project", "demo_truth", "AXIS", "DEFAULT_TEMPERATURES",
     "band_centre_nm", "particle_diameter_nm",

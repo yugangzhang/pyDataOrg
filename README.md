@@ -32,9 +32,14 @@ for micrographs, Streamlit and Plotly for the GUI. Nothing else.
 ## Try it without any data
 
 ```bash
-python -m NanoOrganizer.demo ~/NanoOrganizerDemo     # the full showcase
-python -m NanoOrganizer.demo ~/NanoQuick --quick     # small and fast
+python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase        # the full showcase
+python -m NanoOrganizer.demo ~/Repos/OrgDemo/Quick --quick   # small and fast
 ```
+
+Generated data goes under **one parent**, `demo_root()` — `~/Repos/OrgDemo` by
+default, `$NANOORGANIZER_DEMO_ROOT` to move it — so a few runs of the notebooks
+cannot leave a scatter of directories across your home folder. Every builder
+still takes an explicit path.
 
 or from the web app: **Project → No project yet? Generate an example one**.
 Nothing is downloaded; both projects are simulated on the spot and can be
@@ -65,9 +70,11 @@ shows two fixed bands whose heights change instead.
 
 ```python
 from NanoOrganizer import open_project
-from NanoOrganizer.demo import build_showcase_project, showcase_truth
+from NanoOrganizer.demo import (
+    build_showcase_project, demo_root, showcase_truth,
+)
 
-wb = open_project(build_showcase_project("~/NanoOrganizerDemo"))
+wb = open_project(build_showcase_project(demo_root("Showcase")))
 wb.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), n_peaks=2,
          background="linear")            # the (111) peak measures composition
 showcase_truth()                          # what the generator actually used
@@ -93,10 +100,9 @@ too strongly and it never leaves. So the CO partial current is a **Sabatier
 volcano** in the binding energy — and that is the reason anyone builds a
 composition series in the first place.
 
-`notebook/05_multimodal_demo` is the full tour and
-`notebook/06_build_organizer` builds the same campaign from scratch by linking
-scattered data. `notebook/00_quickstart` →
-`04_compare` walk the same pipeline on the smaller project, and
+`notebook/legacy/05_multimodal_demo` is the full tour;
+`notebook/legacy/00_quickstart` → `04_compare` walk the same pipeline on the
+smaller project, and
 [`docs/demo_data.md`](docs/demo_data.md) records what is in the showcase on
 purpose — including the failed run, the sparse matrix, and the one technique
 with no story to tell.
@@ -121,24 +127,35 @@ reports as unreadable rather than breaking.
 
 ## Building one: link, don't collect
 
-A folder layout is the tidy case and not the common one. The common one is nine
-samples, fifteen techniques, and data that already exists — the micrographs on
-the microscope's share, the scattering on a beamline mount, the spectra in
-whatever folder somebody made that afternoon. None of it is going to move, and
-copying it would only create a second copy to keep in sync.
+A folder layout is the tidy case and not the common one. The common one is
+nine samples, fifteen techniques, and data that already exists — the
+micrographs on the microscope's share, the scattering on a beamline mount, the
+spectra in whatever folder somebody made that afternoon. None of it is going to
+move, and copying it would only create a second copy to keep in sync.
 
-So the organiser records **where** things are:
+So an **organizer** is one named file that records *where* things are:
 
 ```python
-from NanoOrganizer import new_organizer
+from NanoOrganizer import Organizer
 
-wb = new_organizer("~/CuAuStudy")        # root holds the store, not the data
+org = Organizer("~/Repos/OrgDemo/cuau.json")    # empty if the file is new
 
-wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
-wb.link("CuAu05", "tem",   "/mnt/scope/session17/")
-wb.set_params("CuAu05", au_fraction=0.55, temperature_C=90)
-wb.save()
+org.ingest(synthesis=Synthesis_dict)            # a live dict, not a path to it
+org.link("CuAu05", "tem", "/mnt/scope/session17/")
+org.set_params("CuAu05", au_fraction=0.55)
+org.save()
 ```
+
+Not a directory layout and not a hidden folder — a document you can copy, diff,
+version and email. Reopening is the same call, and everything is back.
+
+**Two ways in, for two different situations.** `ingest` reads metadata somebody
+already wrote: a `*_dict.py` from the instrument, or the **dict itself**, which
+is what a notebook actually has. Keep editing that dict and re-ingest —
+`replace=True` makes it the whole truth for its stage, so a popped key is
+really gone rather than lingering as a merge artefact. `link` is for data
+nobody wrote down, one call per measurement, because by hand is the only thing
+that is true.
 
 A **glob** is kept live and re-expanded every read, so frames written later
 appear; a **directory** is listed now, filtered by the modality's extensions —
@@ -151,29 +168,75 @@ machine that wrote it. Each link instead registers the **mount** its data sits
 on as an alias, so moving is one line per mount rather than one edit per
 record.
 
+`attach_folders()` also exists, for data genuinely laid out as
+`<Modality>Data/<SampleID>/` under one root. It is the exception, not the
+route the documentation leads with, because almost no campaign is shaped that
+way.
+
 Then technique is an argument, not a code path:
 
 ```python
-wb.catalog()                              # the sample x technique matrix
-wb.plot("CuAu05", "uvvis")                # lines, coloured by acquisition time
-wb.plot("CuAu05", "uvvis", t=600)         # the frame nearest 600 s
-wb.plot("CuAu05", "tem", frame=2)         # a heatmap on nanometre axes
-wb.plot("CuAu01", "tomo", engine="interactive", mode="volume")
-wb.overlay("waxs1d")                      # one curve per selected sample
+org.catalog()                              # the sample x technique matrix
+org.plot("CuAu05", "uvvis")                # lines, coloured by acquisition time
+org.plot("CuAu05", "uvvis", t=600)         # the frame nearest 600 s
+org.plot("CuAu05", "tem", frame=2)         # a heatmap on nanometre axes
+org.plot("CuAu01", "tomo", engine="interactive", mode="volume")
+org.overlay("waxs1d")                      # one curve per selected sample
 ```
 
-`wb.frames("CuAu05", "uvvis")` is the layer below a measurement: one row per
+`org.frames("CuAu05", "uvvis")` is the layer below a measurement: one row per
 file, with whatever its name admitted about when (`t_s`) and how hot (`T_c`) it
 was taken — which is what `t=` and `T=` select on, by nearest value.
 
-`wb.links_table()` exports every link as a table `link_table()` reads back
+**Nothing is a dead end.** Every quick call has a lower-level one underneath
+it, because the moment an analysis gets interesting it stops fitting whatever
+the convenience function assumed:
+
+```python
+org.describe()                             # what is in here, in one cell
+org.subset(["S01", "S03"], name="plate_A") # a deep copy, not a view
+
+frames = org.data("CuAu05", "tem", lazy=True)   # resolved, not read
+len(frames); frames[2]                          # one file opened
+
+trial, axes = org.fit("CuAu05", "waxs1d", show=True, **params)  # stores nothing
+org.batch("peak_fit", modality="waxs1d", link=True, **params)   # same params
+```
+
+`lazy=True` is the difference between looking at the third of four hundred
+micrographs and reading twelve gigabytes to do it; a single file holding a
+volume is memory-mapped, so its frames are planes.
+
+Keying on `sample_id` scales: **10 000 samples** ingest in 0.15 s, save in
+0.9 s (13 MB), load in 0.4 s, and filter in 0.1 s. A plate-based campaign uses
+the same calls as a six-sample one.
+
+### Results come back too
+
+Scalars from an analysis become `derived.*` columns in the same table as the
+authored parameters. The **curves** — the fitted line, the residuals — would
+make the store unreadable, so they are written beside it and linked back like
+any other data. A fit is a measurement of a measurement, and needs no second
+mechanism:
+
+```python
+org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), link=True)
+org.save()
+
+later = Organizer("~/Repos/OrgDemo/cuau.json")
+later.results()                            # what has been analysed, and how
+later.plot_result("CuAu05", "peak_fit")    # redrawn, not refitted
+```
+
+`org.links_table()` exports every link as a table `link_table()` reads back
 unchanged, because a spreadsheet is a better editor than a form when forty rows
 need the same fix.
 
 All of it has buttons on the **📁 Project** page — create, link, edit
-parameters in a grid, export — and an organizer built in a notebook opens there
-with its links, parameters and derived values intact, and the reverse.
-`notebook/06_build_organizer` is the walkthrough.
+parameters in a grid, export — and it opens either shape, a project folder or
+an organizer `.json` a notebook wrote. `notebook/10_simulate_data` →
+`11_build_organizer` → `12_use_organizer` is the walkthrough;
+`notebook/legacy/` keeps the older directory-project tour.
 
 ## Technique is metadata, not a code path
 
@@ -237,11 +300,11 @@ come from file headers, so a 4 GB tomogram is described without being opened.
 
 ```python
 from NanoOrganizer import structure
-print(structure.tree("~/NanoOrganizerDemo", depth=1))
+print(structure.tree(demo_root("Showcase"), depth=1))
 ```
 
 ```
-📁 NanoOrganizerDemo  11 folders · 1 file · .txt 1 · 1 hidden
+📁 Showcase  11 folders · 1 file · .txt 1 · 1 hidden
 ├── 📁 Computation  8 folders
 ├── 📁 DLSData  8 folders
 ├── 📁 Dynamics  3 folders
@@ -262,7 +325,7 @@ address is a path, optionally followed by `::` and a path inside the file —
 makes descending into a folder and descending into a file the same operation.
 
 ```python
-print(structure.tree("~/NanoOrganizerDemo/MetaData/Characterization_dict.py"
+print(structure.tree(f"{demo_root('Showcase')}/MetaData/Characterization_dict.py"
                      "::Characterization_dict/CuAu05", depth=2, limit=4))
 ```
 
@@ -333,7 +396,7 @@ than skipping them.
 
 | | |
 |---|---|
-| [`docs/sample_model.md`](docs/sample_model.md) | the data model, path aliases, ingest |
+| [`docs/sample_model.md`](docs/sample_model.md) | the data model, path aliases, ingest, linking, stored results |
 | [`docs/analysis.md`](docs/analysis.md) | analyses, the registry, and decisions that affect the numbers |
 | [`docs/web_app.md`](docs/web_app.md) | the GUI, and how to extend it |
 | [`docs/demo_data.md`](docs/demo_data.md) | the generated example projects, and what is in them on purpose |
@@ -354,7 +417,7 @@ than skipping them.
 pytest
 ```
 
-317 tests, including the Streamlit pages driven through `AppTest` against both
+383 tests, including the Streamlit pages driven through `AppTest` against both
 generated projects — the small one, and the fifteen-technique showcase that
 exercises all four visualisation groups at once. No test needs a data mount.
 

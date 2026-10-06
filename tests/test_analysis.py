@@ -643,3 +643,112 @@ def test_an_explicit_polarity_still_wins():
     _, info = segment_particles(_disc_field(40, 200), dark_particles=False)
     assert info["dark_particles"] is False
     assert "dark_particles_auto" not in info
+
+
+# ---------------------------------------------------------------------------
+# Reading curves that are one file per frame
+# ---------------------------------------------------------------------------
+
+def _two_column_series(folder, centres, *, header=""):
+    """A growth series written the common way: one two-column file per frame."""
+    import numpy as np
+
+    folder.mkdir(parents=True, exist_ok=True)
+    x = np.linspace(400.0, 700.0, 301)
+    for index, centre in enumerate(centres):
+        y = np.exp(-0.5 * ((x - centre) / 25.0) ** 2) + 0.05
+        np.savetxt(folder / f"run_t{index * 60:04d}s.csv",
+                   np.column_stack([x, y]), delimiter=",",
+                   header=header, comments="" if header else "# ")
+    return x
+
+
+def test_peak_fit_on_per_file_frames_honours_reduce(tmp_path):
+    """The endpoint of a series must not quietly become its first frame.
+
+    A folder of two-column files is a time series as surely as a stack of
+    single-column frames is. Reading ``paths[0]`` and reporting
+    ``reduce='last_decile'`` answers a different question from the one asked,
+    and says it did the right thing while doing so.
+    """
+    from NanoOrganizer.analysis import peaks
+    from NanoOrganizer.core.pathmap import PathResolver
+    from NanoOrganizer.core.schema import Measurement
+
+    folder = tmp_path / "spectra"
+    _two_column_series(folder, [500.0, 520.0, 540.0, 560.0])
+    measurement = Measurement(sample_id="S1", modality="uvvis",
+                              pattern=f"{folder}/run_t*.csv")
+    resolver = PathResolver()
+
+    x, y, info = peaks.load_curve(measurement, resolver, reduce="last_decile")
+    assert float(x[y.argmax()]) == pytest.approx(560.0, abs=2.0)
+    assert "last 1 of 4" in info["source"]
+
+    x, y, info = peaks.load_curve(measurement, resolver, reduce="frame",
+                                  index=0)
+    assert float(x[y.argmax()]) == pytest.approx(500.0, abs=2.0)
+    assert "file 0 of 4" in info["source"]
+
+    x, y, info = peaks.load_curve(measurement, resolver, reduce="mean")
+    assert "mean of 4 files" in info["source"]
+
+
+def test_peak_fit_reports_which_curve_it_actually_read(tmp_path):
+    """The diagnostic has to describe what happened, not what was requested."""
+    from NanoOrganizer.analysis import peaks
+    from NanoOrganizer.core.pathmap import PathResolver
+    from NanoOrganizer.core.schema import Measurement
+
+    folder = tmp_path / "spectra"
+    _two_column_series(folder, [500.0, 530.0, 560.0])
+    measurement = Measurement(sample_id="S1", modality="uvvis",
+                              pattern=f"{folder}/run_t*.csv")
+
+    result = peaks.peak_fit(measurement, PathResolver(), x_range=(450, 650),
+                            n_peaks=1)
+    assert result.ok, result.message
+    assert result.values["peak1_center"] == pytest.approx(560.0, abs=3.0)
+    assert "of 3" in result.diagnostics["curve_source"]
+
+
+def test_a_single_file_is_unaffected_by_the_reduce_path(tmp_path):
+    import numpy as np
+
+    from NanoOrganizer.analysis import peaks
+    from NanoOrganizer.core.pathmap import PathResolver
+    from NanoOrganizer.core.schema import Measurement
+
+    x = np.linspace(2.0, 4.0, 400)
+    y = 100 * np.exp(-0.5 * ((x - 3.0) / 0.05) ** 2) + 5.0
+    path = tmp_path / "one.dat"
+    np.savetxt(path, np.column_stack([x, y]))
+
+    measurement = Measurement(sample_id="S1", modality="waxs1d",
+                              paths=[str(path)])
+    result = peaks.peak_fit(measurement, PathResolver(), x_range=(2.5, 3.5),
+                            n_peaks=1)
+    assert result.ok
+    assert result.values["peak1_center"] == pytest.approx(3.0, abs=0.01)
+
+
+def test_a_bare_csv_header_row_is_not_a_corrupt_file(tmp_path):
+    """Instruments export ``wavelength,absorbance`` on line one constantly."""
+    from NanoOrganizer.analysis.reading import read_array
+
+    folder = tmp_path / "spectra"
+    _two_column_series(folder, [520.0], header="wavelength_nm,absorbance")
+    path = next(folder.glob("*.csv"))
+    assert "wavelength_nm" in path.read_text().splitlines()[0]
+
+    array = read_array(path)
+    assert array.shape == (301, 2)
+
+
+def test_two_header_rows_are_reported_not_guessed_at(tmp_path):
+    from NanoOrganizer.analysis.reading import read_array
+
+    path = tmp_path / "odd.csv"
+    path.write_text("instrument,LabSpec\nwavelength,absorbance\n400,0.1\n")
+    with pytest.raises(ValueError, match="header row"):
+        read_array(path)

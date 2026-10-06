@@ -34,7 +34,7 @@ From a notebook
 ---------------
 
 >>> from NanoOrganizer.structure import tree
->>> print(tree("~/NanoOrganizerDemo", depth=2))     # doctest: +SKIP
+>>> print(tree("~/Repos/OrgDemo/Showcase", depth=2))  # doctest: +SKIP
 """
 
 from __future__ import annotations

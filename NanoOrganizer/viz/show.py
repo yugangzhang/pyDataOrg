@@ -79,6 +79,22 @@ def select_frame(measurement, resolver, *, frame=None, t=None, T=None,
                               t=t, T=T, file=file)
 
 
+def _times_from_names(measurement, resolver, n_rows: int):
+    """Times parsed from filenames, or None if they do not describe the rows.
+
+    The count has to match and every value has to be finite: a partial clock
+    would colour some curves by time and the rest by nothing, which reads as
+    data rather than as a gap.
+    """
+    rows = frames(measurement, resolver)
+    if len(rows) != n_rows:
+        return None
+    values = np.array([r["t_s"] for r in rows], dtype=float)
+    if not np.all(np.isfinite(values)) or np.all(values == values[0]):
+        return None
+    return values
+
+
 def curve_data(measurement, resolver, *, frame=None, t=None, T=None,
                file: str = "", reduce: str = "", crop=None, max_curves: int = 200
                ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
@@ -94,6 +110,15 @@ def curve_data(measurement, resolver, *, frame=None, t=None, T=None,
     labels = list(info.get("labels") or
                   [f"frame {i}" for i in range(matrix.shape[0])])
     times = info.get("t_s")
+
+    if times is None:
+        # A folder of two-column files is read as independent curves, so the
+        # loader has no clock to report — but the filenames may still carry
+        # one, and a series ordered in time should be coloured by it rather
+        # than given a legend of forty filenames.
+        times = _times_from_names(measurement, resolver, matrix.shape[0])
+        if times is not None:
+            info["t_s"] = times
 
     wants_one = frame is not None or t is not None or T is not None or file
     if wants_one:
@@ -370,6 +395,51 @@ def volume_figure(measurement, resolver, *, engine: str = STATIC,
 # Dispatch
 # ---------------------------------------------------------------------------
 
+def result_figure(result, *, engine: str = STATIC, ax=None, title: str = "",
+                  xlabel: str = "", ylabel: str = "", **options):
+    """Draw a stored :class:`AnalysisResult`: the fit over its data.
+
+    A fit with residuals gets the two-panel treatment, because a fitted line
+    drawn over data is persuasive whatever it does and the residuals are where
+    the lie shows. Anything else is drawn as whatever curves it carries.
+    """
+    curves = {k: np.asarray(v) for k, v in result.curves.items()}
+    x = curves.get("x")
+    if x is None:
+        raise ValueError(
+            f"{result.analysis} result for {result.sample_id} has no 'x' "
+            f"curve to plot against; it has: {', '.join(curves) or 'nothing'}")
+
+    diagnostics = result.diagnostics or {}
+    xlabel = xlabel or diagnostics.get("x_label") or (
+        f"x ({diagnostics['x_unit']})" if diagnostics.get("x_unit") else "x")
+    ylabel = ylabel or diagnostics.get("y_label") or "signal"
+    r2 = result.values.get("fit_r2")
+    title = title or (
+        f"{result.sample_id} — {result.analysis}"
+        + (f", R² = {r2:.4f}" if isinstance(r2, float) else ""))
+
+    has_fit = "y" in curves and "y_fit" in curves
+
+    if engine == INTERACTIVE:
+        from NanoOrganizer.viz import interactive
+
+        drawn = [(name, x, y) for name, y in curves.items()
+                 if name != "x" and y.shape == x.shape]
+        return interactive.curves_figure(drawn, xlabel=xlabel, ylabel=ylabel,
+                                         title=title, **options)
+
+    if has_fit and ax is None:
+        from NanoOrganizer.viz import plots as _plots
+
+        return _plots.plot_peak_fit(result)
+
+    drawn = [(name, x, y) for name, y in curves.items()
+             if name != "x" and y.shape == x.shape]
+    return plots.plot_curves(drawn, ax=ax, xlabel=xlabel, ylabel=ylabel,
+                             title=title, **options)
+
+
 def figure(measurement, resolver, *, engine: str = STATIC, **options):
     """Draw *measurement* with whatever figure its group calls for.
 
@@ -384,6 +454,18 @@ def figure(measurement, resolver, *, engine: str = STATIC, **options):
 
     spec = measurement.spec
     group = measurement.group
+
+    if measurement.modality == "fit":
+        # A stored result is a bundle, not an array: reading it as one would
+        # pick whichever curve happened to be longest.
+        from NanoOrganizer.analysis import store as _store
+
+        paths = measurement.resolve(resolver)
+        if not paths:
+            raise FileNotFoundError(
+                f"No file resolves for {measurement.measurement_id}")
+        return result_figure(_store.load_result(paths[0]), engine=engine,
+                             **options)
 
     if group == "image" or (spec is not None and spec.shape == "twotime"):
         return image_figure(measurement, resolver, engine=engine, **options)
@@ -458,5 +540,6 @@ def _caption(measurement, info: Dict[str, Any]) -> str:
 
 __all__ = [
     "figure", "curve_figure", "image_figure", "volume_figure", "overlay",
+    "result_figure",
     "curve_data", "frames", "select_frame", "STATIC", "INTERACTIVE", "REDUCERS",
 ]

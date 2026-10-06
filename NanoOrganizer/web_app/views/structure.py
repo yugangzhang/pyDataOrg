@@ -15,7 +15,7 @@ The traversal itself is :mod:`NanoOrganizer.structure`, which works the same
 way from a notebook::
 
     from NanoOrganizer.structure import tree
-    print(tree("~/NanoOrganizerDemo", depth=3))
+    print(tree("~/Repos/OrgDemo/Showcase", depth=3))
 """
 
 from pathlib import Path

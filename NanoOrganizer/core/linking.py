@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
@@ -229,6 +230,7 @@ def link(project, sample_id: str, modality: str, source: Source, *,
          extensions: Optional[Sequence[str]] = None,
          recursive: bool = False,
          alias: bool = True,
+         check: bool = True,
          create_sample: bool = True,
          replace_existing: bool = True,
          **extra_meta) -> Measurement:
@@ -251,6 +253,11 @@ def link(project, sample_id: str, modality: str, source: Source, *,
         folded into *meta*, so ``link(..., operator="RH", kV=200)`` works.
     alias
         Register the mount this data sits on as a project alias.
+    check
+        Warn when the link resolves to nothing *here*.  Not an error — data on
+        a mount that is not up is a normal, supported state — but a typo'd
+        path is far more common than an offline mount, and it is otherwise
+        invisible until something downstream reads the measurement.
     extensions
         Override the modality's file extensions when listing a directory.
 
@@ -286,7 +293,27 @@ def link(project, sample_id: str, modality: str, source: Source, *,
         for recorded in measurement.recorded_paths()[:1]:
             register_mount_alias(project, recorded)
 
+    if check:
+        _warn_if_unresolved(project, measurement)
+
     return measurement
+
+
+def _warn_if_unresolved(project, measurement: Measurement) -> None:
+    """Say so when a fresh link matches nothing on this machine."""
+    if measurement.resolve(project.resolver):
+        return
+
+    recorded = (measurement.recorded_paths() or [""])[0]
+    reason = ("that pattern matches nothing yet" if measurement.pattern
+              else "that path does not exist here")
+    warnings.warn(
+        f"{measurement.measurement_id}: {reason} — {recorded!r}. "
+        f"Fine if the data is on a mount that is not up (add an alias, and "
+        f"see project.availability()); check for a typo otherwise. "
+        f"Pass check=False to silence this.",
+        UserWarning, stacklevel=3,
+    )
 
 
 def link_folder(project, sample_id: str, modality: str, folder: PathLike, *,

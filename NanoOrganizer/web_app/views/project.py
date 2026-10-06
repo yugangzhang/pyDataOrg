@@ -47,13 +47,19 @@ with st.container(border=True):
         ],
     )
 
-    default_root = str(workbench.project.root) if workbench else ""
-    root = folder_picker("nano_project_root", label="Project folder",
+    default_root = (str(workbench.project.store_path)
+                    if workbench and workbench.project.single_file
+                    else str(workbench.project.root) if workbench else "")
+    root = folder_picker("nano_project_root", label="Project folder or .json",
                          default=default_root,
-                         help="For an existing project, the folder holding "
-                              "MetaData/ and the data. For a new organizer, "
-                              "the folder that will hold the store — the data "
-                              "itself can be anywhere.")
+                         help="A project folder — or the path to a single "
+                              "`.json` organizer, the kind `Organizer(...)` "
+                              "writes in a notebook.")
+    st.caption(
+        "A folder is a project: `MetaData/`, data underneath, a store in "
+        "`.nanoorganizer/`. A path ending in **`.json`** is a single-document "
+        "organizer instead — one file naming data that lives anywhere."
+    )
 
     if mode == "An existing project":
         left, middle, right = st.columns([1, 1, 2])
@@ -111,10 +117,17 @@ with st.expander("No project yet? Generate an example one", expanded=workbench i
         ],
     )
 
+    from NanoOrganizer.demo import demo_root
+
     target = st.text_input(
-        "Write it to", value=str(Path.home() / "NanoOrganizerDemo"),
+        "Write it to",
+        value=str(demo_root("Showcase" if kind == "Multimodal showcase"
+                            else "QuickDemo")),
         key="nano_demo_root",
-        help="Must be empty, or a demo project this button made earlier.")
+        help="Must be empty, or a demo project this button made earlier. "
+             "Generated data goes under one parent so a few runs cannot "
+             "scatter directories across your home folder; set "
+             "$NANOORGANIZER_DEMO_ROOT to move it.")
 
     if st.button("Generate and open", width="stretch", disabled=not target):
         from NanoOrganizer import demo

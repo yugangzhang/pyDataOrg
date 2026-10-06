@@ -2,9 +2,9 @@
 """
 Build a demo project from the command line.
 
-    python -m NanoOrganizer.demo ~/NanoDemo              # the full showcase
-    python -m NanoOrganizer.demo ~/NanoQuick --quick     # the small one
-    python -m NanoOrganizer.demo ~/NanoDemo --no-images  # no Pillow needed
+    python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase   # the full showcase
+    python -m NanoOrganizer.demo ~/Repos/OrgDemo/Quick --quick   # the small one
+    python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase --no-images
 
 Then point the web app or a notebook at the directory it prints.
 """

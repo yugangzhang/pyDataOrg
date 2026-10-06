@@ -577,3 +577,61 @@ def test_the_gui_alone_can_build_what_the_notebook_builds(tmp_path):
     assert reopened.project.availability()["n_unresolved"] == 0
     # The data never moved into the project.
     assert not (root / "WAXSData").exists()
+
+
+def test_the_gui_opens_a_json_organizer_a_notebook_wrote(tmp_path):
+    """The two halves are one object whichever shape the store takes."""
+    from NanoOrganizer import Organizer
+
+    source = tmp_path / "rig"
+    source.mkdir()
+    (source / "scan.dat").write_text("1 2\n3 4\n")
+
+    made = Organizer(tmp_path / "lab.json", name="from a notebook")
+    made.ingest(synthesis={"S01": {"sample_id": "S01",
+                                   "conditions": {"temperature_C": 90.0}}})
+    made.link("S01", "waxs1d", str(source / "scan.dat"))
+    made.save()
+
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.text_input(key="nano_project_root_path").set_value(
+        str(tmp_path / "lab.json")).run()
+    [b for b in app.button if b.label == "Open project"][0].click().run()
+    assert not app.exception, _why(app)
+
+    reopened = app.session_state["nano_workbench"]
+    assert reopened.project.config.name == "from a notebook"
+    assert reopened.project.sample_ids() == ["S01"]
+    assert reopened.project.single_file
+    assert reopened.project.availability()["n_unresolved"] == 0
+
+
+def test_creating_a_json_organizer_from_the_gui(tmp_path):
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.radio(key="nano_open_mode").set_value("Nothing yet").run()
+    app.text_input(key="nano_project_root_path").set_value(
+        str(tmp_path / "fresh.json")).run()
+    app.text_input(key="nano_new_name").set_value("fresh").run()
+    [b for b in app.button if b.label == "Create organizer"][0].click().run()
+    assert not app.exception, _why(app)
+
+    made = app.session_state["nano_workbench"]
+    assert made.project.single_file
+    assert made.project.store_path.name == "fresh.json"
+
+
+def test_creating_over_an_existing_json_is_refused(tmp_path):
+    from NanoOrganizer import Organizer
+
+    Organizer(tmp_path / "taken.json").save()
+
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.radio(key="nano_open_mode").set_value("Nothing yet").run()
+    app.text_input(key="nano_project_root_path").set_value(
+        str(tmp_path / "taken.json")).run()
+    [b for b in app.button if b.label == "Create organizer"][0].click().run()
+    assert not app.exception, _why(app)
+    assert any("already exists" in e.value for e in app.error)

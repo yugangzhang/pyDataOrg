@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from NanoOrganizer import analysis as _analysis
+from NanoOrganizer.core import modality as _modality
 from NanoOrganizer.core.project import Project
 from NanoOrganizer.core.schema import Measurement, Sample
 
@@ -55,7 +56,21 @@ def open_project(root: Union[str, Path], *,
     save : bool
         Write the store afterwards. Off by default — a first look should not
         leave files behind in someone's data directory.
+
+    Notes
+    -----
+    A path to a ``.json`` file opens that file as an :class:`Organizer`
+    instead, so one call handles both shapes a project can take — a directory
+    with a hidden store, or a single document naming data that lives
+    elsewhere.
     """
+    target = Path(root).expanduser()
+    if target.suffix.lower() == ".json":
+        organizer = Organizer(target, aliases=aliases)
+        if save:
+            organizer.save()
+        return organizer
+
     project = Project(root)
 
     for prefix, candidates in (aliases or {}).items():
@@ -94,7 +109,7 @@ def new_organizer(root: Union[str, Path], name: str = "", *,
     *root* is only where the store is written (``.nanoorganizer/``); none of
     the data has to live there, or anywhere near it.
 
-    >>> wb = new_organizer("~/CuAuStudy")                     # doctest: +SKIP
+    >>> wb = new_organizer("~/Repos/OrgDemo/CuAuStudy")                     # doctest: +SKIP
     >>> wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv")  # doctest: +SKIP
     >>> wb.link("CuAu05", "tem", "/mnt/scope/session17/")      # doctest: +SKIP
     >>> wb.set_params("CuAu05", au_fraction=0.55)              # doctest: +SKIP
@@ -147,9 +162,36 @@ class Workbench:
     # selection
     # ------------------------------------------------------------------
 
-    def table(self, level: str = "sample", all_samples: bool = False):
-        """The flat table, restricted to the basket unless *all_samples*."""
-        ids = () if all_samples else self._basket
+    def ids(self, query: str = "", **equals) -> List[str]:
+        """The sample ids in play, without changing the selection.
+
+        ``wb.ids()`` is the basket (or everything, if none is set);
+        ``wb.ids("`synthesis.temperature_C` > 90")`` answers a question
+        without committing to it, which :meth:`filter` would.
+        """
+        if not query and not equals:
+            return list(self.active)
+
+        frame = self.project.to_dataframe()
+        if query:
+            frame = frame.query(query)
+        for column, value in equals.items():
+            frame = frame[frame[column] == value]
+        chosen = [str(s) for s in frame["sample_id"]]
+        if self._basket:
+            keep = set(self._basket)
+            chosen = [s for s in chosen if s in keep]
+        return chosen
+
+    def table(self, level: str = "sample", all_samples: bool = False,
+              sample_ids: Sequence[str] = ()):
+        """The flat table, restricted to the basket unless told otherwise.
+
+        *sample_ids* overrides both, which is how a comparison over an
+        explicit list is built without disturbing the current selection.
+        """
+        ids = tuple(sample_ids) if sample_ids else (
+            () if all_samples else self._basket)
         return self.project.to_dataframe(level=level, sample_ids=ids)
 
     def columns(self, contains: str = "") -> List[str]:
@@ -330,7 +372,181 @@ class Workbench:
         """
         return self.project.set_params(sample_id, stage=stage, **fields)
 
-    def catalog(self, counts: bool = False):
+    # ------------------------------------------------------------------
+    # looking at the organiser itself
+    # ------------------------------------------------------------------
+
+    def tree(self, depth: int = 2, limit: int = 8, address: str = "") -> str:
+        """Walk the organiser one layer at a time — structure, not data.
+
+        ``wb.tree()`` describes what is in the session **now**, not what was
+        last saved. That distinction matters more than it sounds: walking the
+        file on disk would quietly show the state before your last twenty
+        links and look entirely correct.
+
+        Pass *address* to descend inside it (``"samples/0"``), or to point
+        somewhere else entirely — a data folder, an HDF5 group, a metadata
+        module — in which case that address is walked as given.
+        """
+        import json
+        import tempfile
+
+        from NanoOrganizer import structure
+
+        if address and "::" in address:
+            return structure.tree(address, depth=depth, limit=limit)
+
+        payload = {
+            "project": self.project.config.to_dict(),
+            "samples": [s.to_dict() for s in self.project.sorted_samples()],
+        }
+        # Serialising to a scratch file is what lets the same walker handle a
+        # live organiser and a saved one; the user's own store is untouched.
+        handle = tempfile.NamedTemporaryFile(
+            "w", suffix=f"-{Path(self.project.store_path).name}",
+            delete=False, encoding="utf-8")
+        try:
+            json.dump(payload, handle, indent=2, default=str)
+            handle.close()
+            target = f"{handle.name}::{address}" if address else handle.name
+            text = structure.tree(target, depth=depth, limit=limit)
+        finally:
+            Path(handle.name).unlink(missing_ok=True)
+
+        # The scratch name is an implementation detail; show the real one.
+        return text.replace(Path(handle.name).name,
+                            Path(self.project.store_path).name, 1)
+
+    def overview(self) -> Dict[str, Any]:
+        """What this organiser contains, in one dict.
+
+        Four questions a session opens with — how many samples, what was done
+        to them, which techniques are present, and what has been analysed —
+        answered without touching the data. :meth:`describe` prints it.
+        """
+        samples = self.project.sorted_samples()
+        stages: Dict[str, int] = {}
+        for sample in samples:
+            for stage_id in sample.stages:
+                stages[stage_id] = stages.get(stage_id, 0) + 1
+
+        by_group: Dict[str, List[str]] = {}
+        for key in self.project.modalities():
+            spec = _modality.get(key)
+            if key == "fit":
+                continue
+            by_group.setdefault(spec.group if spec else "curve", []).append(key)
+
+        analyses: Dict[str, int] = {}
+        for measurement in self.project.measurements(modality="fit"):
+            name = measurement.meta.get("analysis") or measurement.role or "?"
+            source = measurement.meta.get("source_modality", "")
+            label = f"{name} ({source})" if source else name
+            analyses[label] = analyses.get(label, 0) + 1
+
+        derived = sorted({name for s in samples for name in s.derived})
+        report = self.project.availability()
+
+        return {
+            "name": self.project.config.name,
+            "store": str(self.project.store_path),
+            "n_samples": len(samples),
+            "sample_ids": [s.sample_id for s in samples],
+            "stages": stages,
+            "modalities": by_group,
+            "n_measurements": report["n_measurements"],
+            "n_readable": report["n_available"],
+            "n_unresolved": report["n_unresolved"],
+            "analyses": analyses,
+            "derived_columns": derived,
+            "selected": list(self._basket),
+        }
+
+    def describe(self) -> str:
+        """A printable :meth:`overview` — the first cell of a session."""
+        info = self.overview()
+        lines = [f"{info['name']}  ({info['store']})",
+                 f"  samples       {info['n_samples']}"]
+
+        shown = info["sample_ids"][:8]
+        tail = ("  … +%d more" % (info["n_samples"] - len(shown))
+                if info["n_samples"] > len(shown) else "")
+        lines.append(f"                {', '.join(shown)}{tail}")
+
+        if info["stages"]:
+            lines.append("  stages        " + ", ".join(
+                f"{k} ({v})" for k, v in sorted(info["stages"].items())))
+
+        for group, keys in info["modalities"].items():
+            label = _modality.GROUP_LABELS.get(group, group)
+            lines.append(f"  {label:<13} {', '.join(keys)}")
+
+        lines.append(f"  measurements  {info['n_measurements']} "
+                     f"({info['n_readable']} readable here, "
+                     f"{info['n_unresolved']} not mounted)")
+        if info["analyses"]:
+            lines.append("  stored fits   " + ", ".join(
+                f"{k} ({v})" for k, v in sorted(info["analyses"].items())))
+        if info["derived_columns"]:
+            columns = info["derived_columns"]
+            lines.append(f"  derived       {len(columns)}: "
+                         + ", ".join(columns[:4])
+                         + (" …" if len(columns) > 4 else ""))
+        if info["selected"]:
+            lines.append(f"  selected      {len(info['selected'])} samples")
+
+        text = "\n".join(lines)
+        print(text)
+        return text
+
+    def subset(self, sample_ids: Sequence[str] = (), query: str = "",
+               name: str = "", path: Union[str, Path, None] = None,
+               **equals) -> "Workbench":
+        """A new organiser holding only the samples named.
+
+        Takes an explicit list, a query, or both::
+
+            plate = org.subset(["S01", "S03", "S07"], name="plate_A")
+            hot   = org.subset(query="`synthesis.temperature_C` >= 100")
+
+        The samples are **deep-copied**, so analysing the subset cannot write
+        derived values back into the parent by accident — the one thing a
+        shared view would get wrong. Path aliases come along, so the data
+        still resolves.
+
+        **Nothing is written** until you call ``save()`` on the result; the
+        store path is only where it *would* go.
+        """
+        import copy
+
+        chosen = list(sample_ids) if sample_ids else []
+        if query or equals:
+            found = self.ids(query, **equals)
+            chosen = [s for s in chosen if s in set(found)] if chosen else found
+        if not chosen:
+            chosen = list(self.active)
+
+        known = set(self.project.sample_ids())
+        missing = [s for s in chosen if s not in known]
+        if missing:
+            raise KeyError(f"unknown samples: {', '.join(missing)}")
+
+        store = Path(self.project.store_path)
+        if path is None:
+            tag = name or "subset"
+            path = store.with_name(f"{store.stem}__{tag}.json")
+
+        child = Organizer(path, name=name or f"{self.project.config.name}"
+                                             f" ({len(chosen)} samples)")
+        child.project.config.path_aliases = list(self.project.config.path_aliases)
+        child.project.config.extra_roots = list(self.project.config.extra_roots)
+        child.project._resolver = None
+        for sample_id in chosen:
+            child.project.add_sample(
+                copy.deepcopy(self.project.get_sample(sample_id)))
+        return child
+
+    def catalog(self, counts: bool = False, sample_ids: Sequence[str] = ()):
         """The sample × technique matrix — what exists, and what does not.
 
         The gaps are the point. A campaign's measurement matrix is always
@@ -343,8 +559,12 @@ class Workbench:
         import pandas as pd
 
         modalities = self.project.modalities()
+        chosen = ([self.project.get_sample(s) for s in sample_ids]
+                  if sample_ids else self.samples())
         rows = []
-        for sample in self.samples():
+        for sample in chosen:
+            if sample is None:
+                continue
             row: Dict[str, Any] = {"sample_id": sample.sample_id}
             for key in modalities:
                 found = sample.get_measurements(modality=key)
@@ -381,7 +601,7 @@ class Workbench:
         return pd.DataFrame(_show.frames(measurement, self.resolver))
 
     def data(self, sample_id: str, modality: str = "", *, stage: str = "",
-             role: str = "", **selection):
+             role: str = "", lazy: bool = False, **selection):
         """Read one measurement into arrays — no figure, just the numbers.
 
         What comes back follows the group, because that is what the data is:
@@ -395,6 +615,17 @@ class Workbench:
         Frame selectors (``frame=``, ``t=``, ``T=``, ``file=``) address the
         layer below; ``t`` and ``T`` take the nearest recorded value, since an
         acquisition clock never lands on a round number.
+
+        With ``lazy=True`` nothing is read: you get a
+        :class:`~NanoOrganizer.analysis.lazy.LazyFrames` sequence that knows
+        how many frames there are and opens one only when it is indexed. That
+        is the difference between looking at the third of four hundred
+        micrographs and reading twelve gigabytes to do it.
+
+        >>> frames = org.data("S01", "tem", lazy=True)     # doctest: +SKIP
+        >>> len(frames)                                    # nothing opened
+        >>> array, info = frames[2]                        # one file opened
+        >>> stack, info = frames.load()                    # all of them
         """
         from NanoOrganizer.analysis import reading
         from NanoOrganizer.viz import show as _show
@@ -402,6 +633,16 @@ class Workbench:
         measurement = self.measurement(sample_id, modality=modality,
                                        stage=stage, role=role)
         group = measurement.group
+
+        if lazy:
+            from NanoOrganizer.analysis import lazy as _lazy
+
+            if selection:
+                raise TypeError(
+                    "lazy=True returns every frame, so frame=/t=/T=/file= do "
+                    "not apply — index the result instead: "
+                    "data(..., lazy=True)[2]")
+            return _lazy.frames_for(measurement, self.resolver)
 
         if group in ("volume", "image"):
             unknown = set(selection) - {"frame", "t", "T", "file"}
@@ -443,10 +684,16 @@ class Workbench:
                                        stage=stage, role=role)
         return _show.figure(measurement, self.resolver, engine=engine, **options)
 
-    def overlay(self, modality: str, *, stage: str = "", role: str = "",
+    def overlay(self, modality: str, *, sample_ids: Sequence[str] = (),
+                stage: str = "", role: str = "",
                 reduce: str = "last", engine: str = "static",
                 verbose: bool = True, **options):
-        """One curve per selected sample — the across-samples comparison.
+        """One curve per sample — the across-samples comparison.
+
+        Draws the basket by default; *sample_ids* overrides it, so a one-off
+        comparison needs neither a filter nor a subset::
+
+            org.overlay("waxs1d", sample_ids=["S01", "S04", "S06"])
 
         Many-frame measurements are collapsed by *reduce* first, because the
         comparison is between samples and forty frames of each would bury it.
@@ -455,7 +702,10 @@ class Workbench:
         """
         from NanoOrganizer.viz import show as _show
 
-        measurements = self.measurements(modality=modality, stage=stage)
+        wanted = tuple(sample_ids) if sample_ids else self.active
+        measurements = self.project.measurements(modality=modality,
+                                                 stage=stage,
+                                                 sample_ids=wanted)
         if role:
             measurements = [m for m in measurements if m.role == role]
 
@@ -466,6 +716,158 @@ class Workbench:
             print(f"skipped {len(skipped)}: " + "; ".join(skipped[:3])
                   + (" …" if len(skipped) > 3 else ""))
         return figure
+
+    # ------------------------------------------------------------------
+    # results: analysis output, linked back like any other data
+    # ------------------------------------------------------------------
+
+    @property
+    def results_dir(self) -> Path:
+        """Where stored results go: ``results/`` beside the store."""
+        from NanoOrganizer.analysis import store as _store
+
+        return Path(self.project.store_path).parent / _store.RESULTS_DIR
+
+    def link_result(self, result, *, folder: Union[str, Path, None] = None,
+                    write: bool = True) -> Measurement:
+        """Persist an :class:`AnalysisResult` and link it onto its sample.
+
+        The scalars already live in the store as ``derived.*``; what this adds
+        is the **curves** — the fitted line, the residuals — written beside the
+        organiser and referenced like any other data. A fit is a measurement
+        of a measurement, so it needs no second mechanism: it comes back with
+        ``result()``, draws with ``plot_result()``, and survives being
+        reopened months later without the analysis being run again.
+
+        >>> fit = wb.run("peak_fit", "CuAu05")             # doctest: +SKIP
+        >>> wb.link_result(fit)                            # doctest: +SKIP
+        """
+        from NanoOrganizer.analysis import get_analysis
+        from NanoOrganizer.analysis import store as _store
+
+        sample = self.project.get_sample(result.sample_id)
+        if sample is None:
+            raise KeyError(f"unknown sample {result.sample_id!r}")
+
+        path = _store.save_result(result, folder or self.results_dir)
+
+        source = sample.get_measurement(result.measurement_id)
+        if write and result.ok:
+            prefix = ""
+            try:
+                spec = get_analysis(result.analysis)
+                prefix = spec.prefix_for(source) if source is not None else ""
+            except KeyError:
+                pass
+            result.write_to(sample, prefix=prefix)
+
+        # The role carries the modality it was fitted on, for the same reason
+        # the derived columns do: peak-fitting a UV-Vis band and then a
+        # diffraction peak are two results, and a shared id would make the
+        # second quietly replace the first.
+        source_modality = source.modality if source is not None else ""
+        role = (f"{result.analysis}-{source_modality}" if source_modality
+                else result.analysis)
+
+        return self.project.link(
+            result.sample_id, "fit", str(path), stage="analysis",
+            role=role, alias=False, check=False,
+            label=f"{result.analysis} of {result.measurement_id}",
+            meta={"analysis": result.analysis,
+                  "source_measurement": result.measurement_id,
+                  "source_modality": source_modality,
+                  "ok": result.ok},
+        )
+
+    def _stored_fit(self, sample_id: str, analysis: str = "",
+                    modality: str = "") -> Measurement:
+        """The one stored fit matching, or an error naming the candidates."""
+        sample = self.project.get_sample(sample_id)
+        if sample is None:
+            raise KeyError(f"unknown sample {sample_id!r}")
+
+        found = sample.get_measurements(modality="fit")
+        if analysis:
+            found = [m for m in found
+                     if m.meta.get("analysis") == analysis
+                     or m.role in (analysis, f"{analysis}-{modality}")]
+        if modality:
+            found = [m for m in found
+                     if m.meta.get("source_modality") == modality]
+
+        if len(found) == 1:
+            return found[0]
+
+        catalogue = ", ".join(
+            f"{m.meta.get('analysis', m.role)} of "
+            f"{m.meta.get('source_modality', '?')}"
+            for m in sample.get_measurements(modality="fit"))
+        if not found:
+            raise KeyError(
+                f"{sample_id} has no stored {analysis or 'fit'} result"
+                + (f"; it has: {catalogue}" if catalogue else
+                   ". Run an analysis with link=True first."))
+        raise KeyError(
+            f"{sample_id} has {len(found)} stored results matching: "
+            f"{catalogue}. Narrow with modality=.")
+
+    def result(self, sample_id: str, analysis: str = "", *,
+               modality: str = ""):
+        """Load a stored result back. Returns an :class:`AnalysisResult`.
+
+        ``modality=`` picks between two fits of the same analysis on one
+        sample — a peak fit of the spectrum and one of the diffraction
+        pattern are two results, not one.
+        """
+        from NanoOrganizer.analysis import store as _store
+
+        measurement = self._stored_fit(sample_id, analysis, modality)
+        paths = measurement.resolve(self.resolver)
+        if not paths:
+            raise FileNotFoundError(
+                f"{measurement.measurement_id} does not resolve: the result "
+                f"file was moved or never written here.")
+        return _store.load_result(paths[0])
+
+    def results(self, all_samples: bool = False):
+        """Every stored result as a table — what has been analysed, and how."""
+        import pandas as pd
+
+        from NanoOrganizer.analysis import store as _store
+
+        rows = []
+        samples = (self.project.sorted_samples() if all_samples
+                   else [self.project.get_sample(s) for s in self.active])
+        for sample in samples:
+            if sample is None:
+                continue
+            for measurement in sample.get_measurements(modality="fit"):
+                paths = measurement.resolve(self.resolver)
+                row = {
+                    "sample_id": sample.sample_id,
+                    "analysis": measurement.meta.get("analysis",
+                                                     measurement.role),
+                    "modality": measurement.meta.get("source_modality", ""),
+                    "of": measurement.meta.get("source_measurement", ""),
+                    "ok": measurement.meta.get("ok", True),
+                    "file": paths[0].name if paths else "",
+                    "readable": bool(paths),
+                }
+                if paths:
+                    meta = _store.peek(paths[0])
+                    row.update({k: v for k, v in meta.get("values", {}).items()
+                                if isinstance(v, (int, float, str, bool))})
+                rows.append(row)
+        return pd.DataFrame(rows)
+
+    def plot_result(self, sample_id: str, analysis: str = "", *,
+                    modality: str = "", engine: str = "static", **options):
+        """Redraw a stored fit over its data — no analysis is run."""
+        from NanoOrganizer.viz import show as _show
+
+        return _show.result_figure(
+            self.result(sample_id, analysis, modality=modality),
+            engine=engine, **options)
 
     # ------------------------------------------------------------------
     # analysis
@@ -533,13 +935,63 @@ class Workbench:
                 prefix=_analysis.get_analysis(key).prefix_for(measurement))
         return result
 
+    def fit(self, sample_id: str, modality: str = "", *,
+            analysis: str = "peak_fit", stage: str = "", role: str = "",
+            show: bool = False, **params):
+        """Try one fit on one sample and hand back the result — nothing stored.
+
+        The deliberate first step of an analysis: settle the parameters on a
+        sample you can look at, *then* spend them on the whole set. Running
+        the batch first and reading its R² column afterwards is the same work
+        in the order that hides the mistake.
+
+        >>> params = dict(x_range=(2.3, 3.0), n_peaks=1, background="linear")
+        >>> result = org.fit("S01", "waxs1d", show=True, **params)  # +SKIP
+        >>> org.batch("peak_fit", modality="waxs1d", link=True, **params)
+
+        Returns the :class:`AnalysisResult`; with *show*, returns
+        ``(result, axes)`` so the check is one call.
+        """
+        where = {k: v for k, v in (("modality", modality), ("stage", stage),
+                                   ("role", role)) if v}
+        measurement = self._target(analysis, sample_id, **where)
+        result = _analysis.run(analysis, measurement, self.resolver, **params)
+        if not show:
+            return result
+        if not result.ok:
+            raise ValueError(f"{analysis} failed on {sample_id}: "
+                             f"{result.message}")
+        return result, self.plot_fit(result)
+
+    def plot_fit(self, result, *, engine: str = "static", **options):
+        """Draw a result you are holding — no store, no file, no round trip."""
+        from NanoOrganizer.viz import show as _show
+
+        return _show.result_figure(result, engine=engine, **options)
+
     def batch(self, key: str, *, write: bool = True, verbose: bool = True,
-              **options):
-        """Run an analysis over the basket and write the derived values back."""
-        frame = _analysis.batch(self.project, key, sample_ids=self.active,
-                                write=write, **options)
+              link: bool = False, **options):
+        """Run an analysis over the basket and write the derived values back.
+
+        With *link*, each result's curves are also saved beside the organiser
+        and linked onto its sample, so the fits can be redrawn later without
+        being recomputed. Off by default: a batch over a large selection
+        writes one file per sample, which should be asked for.
+        """
+        outcome = _analysis.batch(self.project, key, sample_ids=self.active,
+                                  write=write, keep_results=link, **options)
+        frame, results = outcome if link else (outcome, [])
+
+        linked = 0
+        for result in results:
+            if not result.ok:
+                continue
+            self.link_result(result, write=False)
+            linked += 1
+
         if verbose:
-            print(f"{key}: {_analysis.batch_report(frame)}")
+            note = f", linked {linked}" if link else ""
+            print(f"{key}: {_analysis.batch_report(frame)}{note}")
         return frame
 
     def run_all(self, keys: Sequence[str] = (), *, write: bool = True,
@@ -639,4 +1091,78 @@ class Workbench:
                                  title=f"A({wavelength:.0f} nm) over time")
 
 
-__all__ = ["Workbench", "open_project"]
+class Organizer(Workbench):
+    """One named file that knows where a campaign's data is.
+
+    ``Project``/``open_project`` assume a project *directory*: metadata in
+    ``MetaData/``, data underneath, a store in a hidden ``.nanoorganizer/``.
+    That is right when the directory is the project.  It is the wrong shape
+    when the data is scattered across mounts that are not going to move and
+    what you actually want is a single document naming all of it::
+
+        org = Organizer("~/Repos/OrgDemo/cuau.json")      # empty if new
+
+        org.ingest(synthesis=Synthesis_dict)        # a live dict, not a path
+        org.link("CuAu05", "tem", "/mnt/scope/session17/")
+        org.save()
+
+    Reopening is the same call, and everything is back — links, parameters,
+    derived values, and the results linked by :meth:`link_result`:
+
+        org = Organizer("~/Repos/OrgDemo/cuau.json")
+        org.filter("`synthesis.temperature_C` > 90")
+        org.plot("CuAu05", "uvvis")
+        org.plot_result("CuAu05", "peak_fit")
+
+    Parameters
+    ----------
+    store : path
+        The JSON document.  A directory is accepted and gets
+        ``organizer.json`` inside it.  Its parent is the project root, which
+        is only used to resolve relative paths — the data can be anywhere.
+    name : str, optional
+        Display name.  Defaults to the file's stem.
+    aliases : dict, optional
+        ``{recorded_prefix: local_path_or_list}``, applied before anything
+        else so an availability report means something straight away.
+    """
+
+    def __init__(self, store: Union[str, Path], name: str = "", *,
+                 aliases: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
+                 basket: Sequence[str] = ()):
+        path = Path(store).expanduser()
+        if path.is_dir() or not path.suffix:
+            path = path / "organizer.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        project = Project(path.parent, name=name, store_file=path)
+        for prefix, candidates in (aliases or {}).items():
+            project.add_alias(prefix, candidates)
+
+        super().__init__(project, basket=basket)
+
+    @property
+    def path(self) -> Path:
+        """The document this organizer reads and writes."""
+        return Path(self.project.store_path)
+
+    def ingest(self, source=None, **kwargs) -> List[str]:
+        """Read metadata in — a live dict, or an authored file.
+
+        >>> org.ingest(synthesis=Synthesis_dict)              # doctest: +SKIP
+        >>> org.ingest(Synthesis_dict, stage="synthesis")     # doctest: +SKIP
+        >>> org.ingest("MetaData/Synthesis_dict.py")          # doctest: +SKIP
+
+        Pass ``replace=True`` to treat the dict as the whole truth for its
+        stage, so that editing a record and re-ingesting removes what was
+        popped instead of leaving it behind.
+        """
+        return self.project.ingest(source, **kwargs)
+
+    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+        chosen = f"{len(self._basket)} selected" if self._basket else "all"
+        return (f"<Organizer {self.project.config.name!r}: "
+                f"{len(self.project)} samples, {chosen} — {self.path}>")
+
+
+__all__ = ["Workbench", "Organizer", "open_project", "new_organizer"]

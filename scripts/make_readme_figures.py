@@ -28,7 +28,9 @@ import numpy as np
 
 from NanoOrganizer import open_project, structure
 from NanoOrganizer.analysis.reading import load_curve_set, load_image, load_volume
-from NanoOrganizer.demo import build_showcase_project, materials as mat, showcase_truth
+from NanoOrganizer.demo import (
+    build_showcase_project, demo_root, materials as mat, showcase_truth,
+)
 from NanoOrganizer.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
 from NanoOrganizer.viz import plots
 
@@ -337,7 +339,8 @@ def tomogram(wb) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    root = sys.argv[1] if len(sys.argv) > 1 else "~/NanoOrganizerDemo"
+    root = (sys.argv[1] if len(sys.argv) > 1
+            else str(demo_root("Showcase")))
     print(f"building {root} …")
     build_showcase_project(root)
     wb = open_project(root)

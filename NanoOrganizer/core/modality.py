@@ -346,6 +346,16 @@ _BUILTINS = [
         extensions=(".tif", ".tiff", ".h5", ".npy"),
         category="microscopy",
     ),
+    # --- results of analysis ----------------------------------------------
+    # A fit is a measurement of a measurement, so it is linked like one rather
+    # than needing a second mechanism. It gets its own key so that attaching a
+    # fit to a sample can never make `plot(sample, "uvvis")` ambiguous between
+    # the spectrum and the curve drawn through it.
+    Modality(
+        key="fit", label="Fitted result", domain="x", shape="curve",
+        x_label="x", y_label="signal", extensions=(".npz",),
+        category="analysis", aliases=("result", "analysis_result"),
+    ),
 ]
 
 for _modality in _BUILTINS:

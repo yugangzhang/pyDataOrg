@@ -144,7 +144,7 @@ def test_the_alias_makes_a_moved_tree_resolve(tmp_path, data_root):
     """The portability claim, tested the way it would actually be used."""
     recorded = "/instrument/that/is/not/mounted"
     wb = new_organizer(tmp_path / "Study")
-    wb.link("A", "waxs1d", f"{recorded}/CuAu01/waxs_1d.dat")
+    wb.link("A", "waxs1d", f"{recorded}/CuAu01/waxs_1d.dat", check=False)
 
     assert wb.project.availability()["n_unresolved"] == 1
 
@@ -334,7 +334,7 @@ def test_overlay_draws_one_curve_per_sample(organizer):
 
 
 def test_overlay_skips_what_cannot_be_read_and_says_so(organizer, capsys):
-    organizer.link("CuAu04", "waxs1d", "/not/mounted/waxs_1d.dat")
+    organizer.link("CuAu04", "waxs1d", "/not/mounted/waxs_1d.dat", check=False)
     axes = organizer.overlay("waxs1d")
     assert len(axes.get_lines()) == 3
     assert "skipped 1" in capsys.readouterr().out
@@ -466,3 +466,26 @@ def test_add_sample_takes_parameters_and_needs_no_data(organizer):
     assert sample.measurements == []
     assert sample.stage("synthesis").status == "error"
     assert "CuAu09" in organizer.table(all_samples=True).index
+
+
+def test_a_link_that_matches_nothing_warns(tmp_path):
+    """The typo this catches is invisible until something tries to read it."""
+    wb = new_organizer(tmp_path / "Study")
+
+    with pytest.warns(UserWarning, match="does not exist here"):
+        wb.link("A", "tem", 'RAW / "microscope_share" / S01')
+
+    # Still linked — an unmounted drive is a normal state, not an error.
+    assert wb["A"].modalities == ["tem"]
+
+
+def test_a_pattern_matching_nothing_warns_differently(tmp_path):
+    wb = new_organizer(tmp_path / "Study")
+    with pytest.warns(UserWarning, match="matches nothing yet"):
+        wb.link("A", "uvvis", "/nowhere/run_*.csv")
+
+
+def test_check_false_silences_it(tmp_path, recwarn):
+    wb = new_organizer(tmp_path / "Study")
+    wb.link("A", "uvvis", "/nowhere/run_*.csv", check=False)
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]

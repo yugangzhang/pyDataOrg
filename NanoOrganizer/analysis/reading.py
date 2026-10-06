@@ -53,13 +53,46 @@ def read_array(path) -> np.ndarray:
             return np.asarray(image, dtype=float)
 
     if suffix in _TEXT_SUFFIXES:
-        return np.loadtxt(path, delimiter="," if suffix == ".csv" else None,
-                          comments=("#", "%", ";"), ndmin=2)
+        return _read_text(path, suffix)
 
     raise ValueError(
         f"Cannot read {path.name}: unsupported suffix {suffix!r}. "
         f"Known: {', '.join(sorted(_ARRAY_SUFFIXES | _IMAGE_SUFFIXES | _TEXT_SUFFIXES))}"
     )
+
+
+def _read_text(path: Path, suffix: str) -> np.ndarray:
+    """Read a delimited text file, tolerating a bare header row.
+
+    Instruments write ``wavelength_nm,absorbance`` on line one as often as they
+    write ``# wavelength_nm, absorbance``, and an uncommented header is not a
+    corrupt file — it is the single most common shape of exported data. So a
+    first line that will not parse as numbers is skipped, once. A *second*
+    unparseable line is a real problem and is reported as one.
+    """
+    delimiter = "," if suffix == ".csv" else None
+    comments = ("#", "%", ";")
+    try:
+        return np.loadtxt(path, delimiter=delimiter, comments=comments, ndmin=2)
+    except ValueError:
+        pass
+
+    try:
+        return np.loadtxt(path, delimiter=delimiter, comments=comments,
+                          skiprows=1, ndmin=2)
+    except ValueError as exc:
+        # Comma-separated data in a ``.dat``/``.txt`` is the other common case.
+        if delimiter is None:
+            try:
+                return np.loadtxt(path, delimiter=",", comments=comments,
+                                  skiprows=1, ndmin=2)
+            except ValueError:
+                pass
+        raise ValueError(
+            f"Cannot read {path.name} as a numeric table: {exc}. "
+            f"More than one header row, or an unusual delimiter — convert it, "
+            f"or give this modality a loader of its own."
+        ) from exc
 
 
 def frame_paths(measurement, resolver) -> List[Path]:

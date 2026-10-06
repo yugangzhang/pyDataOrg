@@ -66,7 +66,8 @@ def load_curve(measurement, resolver, *, index: int = -1,
             # two-column file with no clock in its name. Read it as a curve
             # rather than demanding a frame grammar that does not apply.
             pass
-    return _curve_from_file(measurement, resolver, crop)
+    return _curve_from_file(measurement, resolver, crop, index=index,
+                            reduce=reduce)
 
 
 def _curve_from_series(measurement, resolver, index, reduce, crop):
@@ -92,11 +93,31 @@ def _curve_from_series(measurement, resolver, index, reduce, crop):
     }
 
 
-def _curve_from_file(measurement, resolver, crop):
+def _curve_from_file(measurement, resolver, crop, *, index: int = -1,
+                     reduce: str = "frame"):
+    """Read a curve from the files themselves, honouring *reduce*.
+
+    A growth series is not always written as single-column frames on a shared
+    axis; it is just as often a folder of two-column files, one per time
+    point.  Those land here, and they are still a series: reading the first
+    file and calling it the endpoint would answer a different question from
+    the one that was asked — and the diagnostics would still say
+    ``last_decile``, which is worse than being wrong loudly.
+    """
     paths = measurement.resolve(resolver)
     if not paths:
         raise FileNotFoundError(
             f"No files resolve for {measurement.measurement_id}")
+
+    if len(paths) > 1:
+        stacked = _stack_two_column(paths)
+        if stacked is not None:
+            x, matrix = stacked
+            y, note = _reduce_rows(matrix, index, reduce, len(paths))
+            if crop is not None:
+                keep = (x >= crop[0]) & (x <= crop[1])
+                x, y = x[keep], y[keep]
+            return x, y, {"source": note, "n_files": len(paths)}
 
     path = paths[0]
     suffix = path.suffix.lower()
@@ -115,9 +136,10 @@ def _curve_from_file(measurement, resolver, crop):
             raise ValueError(f"{path.name}: need two arrays, found {keys}")
         x, y = bundle[keys[0]], bundle[keys[1]]
     else:
-        array = np.loadtxt(path, delimiter="," if suffix == ".csv" else None,
-                           comments=("#", "%", ";"), ndmin=2)
-        if array.shape[1] < 2:
+        from NanoOrganizer.analysis.reading import read_array
+
+        array = read_array(path)
+        if array.ndim != 2 or array.shape[1] < 2:
             raise ValueError(f"{path.name}: need at least two columns")
         x, y = array[:, 0], array[:, 1]
 
@@ -276,6 +298,47 @@ def peak_fit(measurement, resolver, *, n_peaks: int = 1,
 # ---------------------------------------------------------------------------
 # Peak shapes, guesses and bounds
 # ---------------------------------------------------------------------------
+
+def _stack_two_column(paths):
+    """Read two-column files onto one axis; None if they do not share one.
+
+    Files are ordered as they resolve, which for a time series is the order
+    their names sort in — the convention every rig that puts a clock in a
+    filename already follows.
+    """
+    from NanoOrganizer.analysis.reading import read_array
+
+    axis = None
+    rows = []
+    for path in paths:
+        try:
+            array = read_array(path)
+        except (ValueError, OSError):
+            return None
+        if array.ndim != 2 or array.shape[1] < 2:
+            return None
+        x, y = array[:, 0], array[:, 1]
+        if axis is None:
+            axis = np.asarray(x, dtype=float)
+        elif len(y) != len(axis):
+            return None
+        rows.append(np.asarray(y, dtype=float))
+
+    if axis is None or not rows:
+        return None
+    return axis, np.vstack(rows)
+
+
+def _reduce_rows(matrix, index: int, reduce: str, n_files: int):
+    """Collapse stacked frames to one curve the way *reduce* asks."""
+    if reduce == "mean":
+        return matrix.mean(axis=0), f"mean of {n_files} files"
+    if reduce == "last_decile":
+        keep = max(1, int(round(0.1 * matrix.shape[0])))
+        return (matrix[-keep:].mean(axis=0),
+                f"mean of the last {keep} of {n_files} files")
+    return matrix[index], f"file {index % matrix.shape[0]} of {n_files}"
+
 
 def _profile(shape: str):
     """Return the unit-height line shape for *shape*."""

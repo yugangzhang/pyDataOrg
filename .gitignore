@@ -2,7 +2,9 @@
 users.json
 users*.json
 *.users.json
-test
+tests
+Debug
+debug
 # Local access configuration contains machine paths and password hashes.
 .config/pyViz.conf
 .config/pyviz.conf
