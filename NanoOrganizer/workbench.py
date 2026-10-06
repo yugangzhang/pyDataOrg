@@ -80,6 +80,33 @@ def open_project(root: Union[str, Path], *,
     return Workbench(project)
 
 
+def new_organizer(root: Union[str, Path], name: str = "", *,
+                  aliases: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
+                  ) -> "Workbench":
+    """Start an empty organiser at *root*, to be filled by linking.
+
+    :func:`open_project` is for a project that already exists on disk — a
+    ``MetaData/`` folder to ingest, data laid out underneath it to attach.
+    This is for the other case, which is at least as common: the data is
+    already somewhere, scattered across mounts that are not going to change,
+    and what is missing is the thing that knows where it all is.
+
+    *root* is only where the store is written (``.nanoorganizer/``); none of
+    the data has to live there, or anywhere near it.
+
+    >>> wb = new_organizer("~/CuAuStudy")                     # doctest: +SKIP
+    >>> wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv")  # doctest: +SKIP
+    >>> wb.link("CuAu05", "tem", "/mnt/scope/session17/")      # doctest: +SKIP
+    >>> wb.set_params("CuAu05", au_fraction=0.55)              # doctest: +SKIP
+    >>> wb.plot("CuAu05", "uvvis")                             # doctest: +SKIP
+    >>> wb.save()                                              # doctest: +SKIP
+    """
+    project = Project(root, name=name)
+    for prefix, candidates in (aliases or {}).items():
+        project.add_alias(prefix, candidates)
+    return Workbench(project)
+
+
 class Workbench:
     """A project, a selection, and the analyses that run over them."""
 
@@ -211,6 +238,234 @@ class Workbench:
     def available(self) -> Dict[str, Any]:
         """How much of the selection's data is readable on this machine."""
         return self.project.availability()
+
+    def __getitem__(self, sample_id: str) -> Sample:
+        """``wb["CuAu05"]`` — the sample record itself."""
+        sample = self.project.get_sample(str(sample_id))
+        if sample is None:
+            raise KeyError(f"unknown sample {sample_id!r}")
+        return sample
+
+    # ------------------------------------------------------------------
+    # building: linking data in, wherever it lives
+    # ------------------------------------------------------------------
+
+    def link(self, sample_id: str, modality: str, source, **kwargs) -> Measurement:
+        """Attach data to a sample wherever it lives.
+
+        *source* is a glob (kept live and re-expanded at read time), a
+        directory (listed now), or a path or list of paths. The mount it sits
+        on is recorded as a project alias, so the store moves to another
+        machine by editing one line rather than every record.
+
+        >>> wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv",
+        ...         stage="synthesis", instrument="HR4000")   # doctest: +SKIP
+
+        See :func:`NanoOrganizer.core.linking.link` for every option.
+        """
+        return self.project.link(sample_id, modality, source, **kwargs)
+
+    def link_folder(self, sample_id: str, modality: str, folder,
+                    **kwargs) -> Measurement:
+        """Link a folder as a **live** glob rather than a snapshot listing.
+
+        The right choice while an experiment is still running: frames written
+        after the link appear the next time the measurement is read.
+        """
+        return self.project.link_folder(sample_id, modality, folder, **kwargs)
+
+    def link_many(self, mapping, **defaults) -> List[Measurement]:
+        """Link a whole campaign from ``{sample_id: {modality: source}}``."""
+        return self.project.link_many(mapping, **defaults)
+
+    def link_table(self, rows, **defaults) -> List[Measurement]:
+        """Link from a DataFrame, a CSV, or a list of dicts.
+
+        A spreadsheet kept by whoever ran the instrument is an ingest format,
+        with no adapter to write for it.
+        """
+        return self.project.link_table(rows, **defaults)
+
+    def links_table(self, all_samples: bool = False):
+        """Every link as a table — the export half of ``link_table``.
+
+        A spreadsheet is a better editor than a form: export the links, fix
+        the forty rows where the instrument wrote the sample id with a
+        different separator, and feed the file back to :meth:`link_table`.
+        """
+        import pandas as pd
+
+        ids = () if all_samples else self._basket
+        return pd.DataFrame(self.project.links_table(sample_ids=ids))
+
+    def unlink(self, sample_id: str, modality: str = "", stage: str = "",
+               role: str = "") -> List[str]:
+        """Drop matching measurements; returns the ids removed."""
+        return self.project.unlink(sample_id, modality=modality, stage=stage,
+                                   role=role)
+
+    def add_sample(self, sample_id: str, **params) -> Sample:
+        """Create a sample, with or without any data yet.
+
+        A synthesis that failed has no files and is still a result: leaving it
+        out biases every comparison drawn afterwards.
+        """
+        sample = self.project.add_sample(str(sample_id))
+        if params:
+            self.set_params(sample_id, **params)
+        return sample
+
+    def remove_sample(self, sample_id: str) -> bool:
+        """Forget a sample and its links. No file is touched."""
+        removed = self.project.remove_sample(sample_id)
+        self._basket = [s for s in self._basket if s != sample_id]
+        return removed
+
+    def set_params(self, sample_id: str, stage: str = "synthesis", **fields):
+        """Record the conditions a sample was made or measured under.
+
+        Linking gives an organiser files; this gives it something to filter
+        on. ``wb.set_params("CuAu05", au_fraction=0.55)`` becomes the column
+        ``synthesis.au_fraction``.
+        """
+        return self.project.set_params(sample_id, stage=stage, **fields)
+
+    def catalog(self, counts: bool = False):
+        """The sample × technique matrix — what exists, and what does not.
+
+        The gaps are the point. A campaign's measurement matrix is always
+        sparse (beamtime is finite, a synthesis failed, someone was away that
+        week) and a table of ticks is how you see which comparisons are
+        actually available before building one.
+
+        With *counts*, each cell is the number of files instead of a tick.
+        """
+        import pandas as pd
+
+        modalities = self.project.modalities()
+        rows = []
+        for sample in self.samples():
+            row: Dict[str, Any] = {"sample_id": sample.sample_id}
+            for key in modalities:
+                found = sample.get_measurements(modality=key)
+                if counts:
+                    row[key] = sum(len(m.resolve(self.resolver)) for m in found)
+                else:
+                    row[key] = bool(found)
+            rows.append(row)
+
+        frame = pd.DataFrame(rows)
+        if "sample_id" in frame.columns:
+            frame = frame.set_index("sample_id")
+        return frame
+
+    # ------------------------------------------------------------------
+    # reading and drawing, by sample and technique
+    # ------------------------------------------------------------------
+
+    def frames(self, sample_id: str, modality: str = "", *, stage: str = "",
+               role: str = ""):
+        """The layer below a measurement: one row per file.
+
+        A measurement is rarely one number — it is forty spectra taken while
+        the reaction ran. Each row carries the frame's index and whatever its
+        filename admitted about when (``t_s``) and how hot (``T_c``) it was
+        taken, which is what makes ``plot(..., t=600)`` possible.
+        """
+        import pandas as pd
+
+        from NanoOrganizer.viz import show as _show
+
+        measurement = self.measurement(sample_id, modality=modality,
+                                       stage=stage, role=role)
+        return pd.DataFrame(_show.frames(measurement, self.resolver))
+
+    def data(self, sample_id: str, modality: str = "", *, stage: str = "",
+             role: str = "", **selection):
+        """Read one measurement into arrays — no figure, just the numbers.
+
+        What comes back follows the group, because that is what the data is:
+
+        ===========  ====================================================
+        curve        ``(x, Y, info)`` with ``Y`` of shape (n_frames, n_x)
+        image        ``(array, info)``
+        volume       ``(volume, info)``
+        ===========  ====================================================
+
+        Frame selectors (``frame=``, ``t=``, ``T=``, ``file=``) address the
+        layer below; ``t`` and ``T`` take the nearest recorded value, since an
+        acquisition clock never lands on a round number.
+        """
+        from NanoOrganizer.analysis import reading
+        from NanoOrganizer.viz import show as _show
+
+        measurement = self.measurement(sample_id, modality=modality,
+                                       stage=stage, role=role)
+        group = measurement.group
+
+        if group in ("volume", "image"):
+            unknown = set(selection) - {"frame", "t", "T", "file"}
+            if unknown:
+                raise TypeError(
+                    f"{group} data takes only frame=, t=, T= and file=; "
+                    f"got {', '.join(sorted(unknown))}")
+        if group == "volume":
+            return reading.load_volume(measurement, self.resolver)
+        if group == "image":
+            index = _show.select_frame(
+                measurement, self.resolver,
+                n_available=len(measurement.resolve(self.resolver)),
+                **selection)
+            return reading.load_image(measurement, self.resolver, index)
+        return _show.curve_data(measurement, self.resolver, **selection)
+
+    def plot(self, sample_id: str, modality: str = "", *, stage: str = "",
+             role: str = "", engine: str = "static", **options):
+        """Draw one measurement, chosen by sample and technique.
+
+        The figure follows what the data *is*, not which instrument made it:
+        a curve gets lines (coloured by time when the filenames carry a
+        clock), an image gets a percentile-clipped heatmap on calibrated axes
+        where the file knew its scale, a volume gets a slab projection — or,
+        with ``engine="interactive"``, something you can turn around.
+
+        >>> wb.plot("CuAu05", "uvvis")                        # doctest: +SKIP
+        >>> wb.plot("CuAu05", "uvvis", t=600)      # nearest frame to 600 s
+        >>> wb.plot("CuAu05", "tem", frame=2)                 # doctest: +SKIP
+        >>> wb.plot("CuAu05", "tomo", engine="interactive", mode="volume")
+
+        Returns a matplotlib ``Axes``, or a Plotly ``Figure`` when
+        *engine* is ``"interactive"``.
+        """
+        from NanoOrganizer.viz import show as _show
+
+        measurement = self.measurement(sample_id, modality=modality,
+                                       stage=stage, role=role)
+        return _show.figure(measurement, self.resolver, engine=engine, **options)
+
+    def overlay(self, modality: str, *, stage: str = "", role: str = "",
+                reduce: str = "last", engine: str = "static",
+                verbose: bool = True, **options):
+        """One curve per selected sample — the across-samples comparison.
+
+        Many-frame measurements are collapsed by *reduce* first, because the
+        comparison is between samples and forty frames of each would bury it.
+        Samples whose files do not resolve are skipped and named, rather than
+        taking the figure down.
+        """
+        from NanoOrganizer.viz import show as _show
+
+        measurements = self.measurements(modality=modality, stage=stage)
+        if role:
+            measurements = [m for m in measurements if m.role == role]
+
+        skipped: List[str] = []
+        figure = _show.overlay(measurements, self.resolver, reduce=reduce,
+                               engine=engine, skipped=skipped, **options)
+        if skipped and verbose:
+            print(f"skipped {len(skipped)}: " + "; ".join(skipped[:3])
+                  + (" …" if len(skipped) > 3 else ""))
+        return figure
 
     # ------------------------------------------------------------------
     # analysis

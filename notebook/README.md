@@ -11,6 +11,7 @@ configure.
 | `03_analyze_batch` | single runs, batches, derived columns |
 | `04_compare` | structure–property plots, checked against the generator's truth |
 | `05_multimodal_demo` | **the full tour** — fifteen techniques, one hidden number |
+| `06_build_organizer` | build one yourself: link data wherever it lives, then plot by sample and technique |
 
 Run `00`–`04` in order; they share one small project (UV-Vis and TEM, six
 samples) written to `~/DemoProject`.
@@ -35,6 +36,20 @@ recover it to within a couple of percent.
 from NanoOrganizer.demo import showcase_truth
 showcase_truth()      # the answer key
 ```
+
+`06` is the one to read if your data is **not** laid out the way `00`–`05`
+assume — which is the usual situation. It opens an empty organizer and links
+the showcase's files in from where they already are, then shows what that buys:
+`wb.catalog()` for the sample × technique matrix, `wb.plot(sample, modality)`
+for any of the four groups, `wb.frames()` and `t=` / `T=` for the layer below a
+measurement, `wb.overlay()` across samples, and `links_table()` ↔
+`link_table()` for the export round trip. It depends only on `05`'s generated
+data, not on `05` itself.
+
+Everything in `06` also has buttons on the **📁 Project** page, and it is the
+same object either way: an organizer this notebook saves opens in the GUI with
+its links, parameters and derived values intact, and one built with the buttons
+opens here.
 
 Or from a shell, without opening a notebook at all:
 

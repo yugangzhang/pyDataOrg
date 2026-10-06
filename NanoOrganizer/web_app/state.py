@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
-from NanoOrganizer.workbench import Workbench, open_project
+from NanoOrganizer.workbench import Workbench, new_organizer, open_project
 
 WORKBENCH = "nano_workbench"
 LAST_ROOT = "nano_last_root"
@@ -59,6 +59,23 @@ def require_workbench() -> Workbench:
 def open_in_session(root, **kwargs) -> Workbench:
     """Open a project and put it in the session."""
     return set_workbench(open_project(root, **kwargs))
+
+
+def new_in_session(root, name: str = "") -> Workbench:
+    """Start an empty organiser and put it in the session.
+
+    The counterpart to :func:`open_in_session`, for the case where there is no
+    project yet — only data, somewhere, waiting to be linked.  Refuses a folder
+    that already holds a store, because silently opening one when the user
+    asked to create one would be the wrong kind of helpful.
+    """
+    target = Path(root).expanduser()
+    if (target / ".nanoorganizer" / "samples.json").exists():
+        raise FileExistsError(
+            f"{target} already holds an organizer. Open it instead, or choose "
+            f"another folder."
+        )
+    return set_workbench(new_organizer(target, name=name))
 
 
 # ---------------------------------------------------------------------------

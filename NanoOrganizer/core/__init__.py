@@ -10,6 +10,10 @@ from NanoOrganizer.core.schema import (
 )
 from NanoOrganizer.core.pathmap import PathAlias, PathResolver, suggest_aliases
 from NanoOrganizer.core.project import Project, ProjectConfig
+from NanoOrganizer.core.linking import (
+    link, link_folder, link_many, link_table, links_table, mount_prefix,
+    unlink,
+)
 from NanoOrganizer.core.access_config import (
     AccessConfig, UserAccess, configured_extra_roots, configured_start_dir,
     discover_config_path, load_access_config,
@@ -20,6 +24,8 @@ __all__ = [
     'Project', 'ProjectConfig',
     'Sample', 'Stage', 'Measurement', 'DerivedValue', 'flatten_dict',
     'PathResolver', 'PathAlias', 'suggest_aliases',
+    'link', 'link_folder', 'link_many', 'link_table', 'links_table',
+    'unlink', 'mount_prefix',
 
     # Legacy run-centric model
     'ChemicalSpec', 'ReactionParams', 'RunMetadata',

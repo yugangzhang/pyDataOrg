@@ -329,3 +329,251 @@ def test_compare_warns_when_groups_separate_more_than_the_x_axis(tmp_path):
     app.run()
     assert not app.exception, _why(app)
     assert any("confounded" in w.value for w in app.warning)
+
+
+# ---------------------------------------------------------------------------
+# Linking data from anywhere
+# ---------------------------------------------------------------------------
+
+def test_link_section_attaches_a_folder_outside_the_project(workbench, tmp_path):
+    """The whole point: the data is not under the root and does not move."""
+    elsewhere = tmp_path / "elsewhere" / "scope"
+    elsewhere.mkdir(parents=True)
+    for name in ("a.dat", "b.dat"):
+        (elsewhere / name).write_text("1 2\n3 4\n")
+
+    app = page("project.py", workbench)
+    app.run()
+    assert not app.exception, _why(app)
+
+    app.selectbox(key="nano_link_sample").select("Sample000002").run()
+    app.selectbox(key="nano_link_modality").select("waxs1d").run()
+    app.text_input(key="nano_link_folder_path").set_value(str(elsewhere)).run()
+    [b for b in app.button if b.label == "🔗 Link"][0].click().run()
+    assert_clean(app, "link")
+
+    measurement = workbench.measurement("Sample000002", modality="waxs1d")
+    assert len(measurement.paths) == 2
+    assert measurement.paths[0].startswith(str(elsewhere))
+    # Recorded as given, with the mount named rather than the record rewritten.
+    assert workbench.project.config.path_aliases
+
+
+def test_link_section_refuses_an_empty_folder_without_crashing(workbench,
+                                                               tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    app = page("project.py", workbench)
+    app.run()
+    app.text_input(key="nano_link_folder_path").set_value(str(empty)).run()
+    [b for b in app.button if b.label == "🔗 Link"][0].click().run()
+    assert not app.exception, _why(app)
+    assert app.error
+
+
+# ---------------------------------------------------------------------------
+# Creating, revising and exporting an organizer from the GUI
+# ---------------------------------------------------------------------------
+
+def _editor_state(edited=None, added=None, deleted=None):
+    """The payload Streamlit's data editor keeps in session state."""
+    return {"edited_rows": edited or {}, "added_rows": added or [],
+            "deleted_rows": deleted or []}
+
+
+def test_an_organizer_saved_by_a_notebook_opens_in_the_gui(tmp_path):
+    """The two halves are one object, so this has to hold or nothing does."""
+    from NanoOrganizer import new_organizer
+
+    source = tmp_path / "data"
+    source.mkdir()
+    (source / "scan.dat").write_text("1 2\n3 4\n")
+
+    made = new_organizer(tmp_path / "FromNotebook", name="from a notebook")
+    made.link("CuAu01", "waxs1d", str(source / "scan.dat"))
+    made.set_params("CuAu01", au_fraction=0.55)
+    made.save()
+
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.text_input(key="nano_project_root_path").set_value(
+        str(tmp_path / "FromNotebook")).run()
+    [b for b in app.button if b.label == "Open project"][0].click().run()
+    assert not app.exception, _why(app)
+
+    reopened = app.session_state["nano_workbench"]
+    assert reopened.project.config.name == "from a notebook"
+    assert reopened.project.sample_ids() == ["CuAu01"]
+    assert reopened["CuAu01"].stage("synthesis").params["au_fraction"] == 0.55
+    assert len(reopened.measurement("CuAu01", modality="waxs1d").resolve(
+        reopened.resolver)) == 1
+
+
+def test_create_makes_an_empty_organizer_to_link_into(tmp_path):
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.radio(key="nano_open_mode").set_value("Nothing yet").run()
+    app.text_input(key="nano_project_root_path").set_value(
+        str(tmp_path / "Fresh")).run()
+    app.text_input(key="nano_new_name").set_value("fresh study").run()
+    [b for b in app.button if b.label == "Create organizer"][0].click().run()
+    assert not app.exception, _why(app)
+
+    made = app.session_state["nano_workbench"]
+    assert made.project.config.name == "fresh study"
+    assert len(made.project) == 0
+
+
+def test_create_refuses_to_overwrite_an_existing_organizer(tmp_path, workbench):
+    workbench.save()
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.radio(key="nano_open_mode").set_value("Nothing yet").run()
+    app.text_input(key="nano_project_root_path").set_value(
+        str(workbench.project.root)).run()
+    [b for b in app.button if b.label == "Create organizer"][0].click().run()
+    assert not app.exception, _why(app)
+    assert any("already holds" in e.value for e in app.error)
+
+
+def test_parameter_grid_edits_adds_and_removes_samples(workbench):
+    app = page("project.py", workbench)
+    app.run()
+    assert not app.exception, _why(app)
+    app.selectbox(key="nano_param_stage").select("synthesis").run()
+
+    app.session_state["nano_param_editor"] = _editor_state(
+        edited={0: {"conditions.temperature_C": 11.0}},
+        added=[{"sample_id": "Sample000003", "conditions.temperature_C": 3.0}],
+    )
+    [b for b in app.button if b.label == "Apply changes"][0].click().run()
+    assert_clean(app, "parameter grid")
+
+    project = workbench.project
+    assert project.sample_ids() == ["Sample000001", "Sample000002",
+                                    "Sample000003"]
+    assert project.get_sample("Sample000001").stage(
+        "synthesis").params["conditions"]["temperature_C"] == 11.0
+    # A new sample has parameters and no data, which is a valid state: a
+    # synthesis that failed is a result.
+    assert project.get_sample("Sample000003").measurements == []
+    assert "synthesis.conditions.temperature_C" in workbench.table().columns
+
+
+def test_deleting_a_grid_row_forgets_the_sample_and_its_links(workbench):
+    app = page("project.py", workbench)
+    app.run()
+    app.session_state["nano_param_editor"] = _editor_state(deleted=[1])
+    [b for b in app.button if b.label == "Apply changes"][0].click().run()
+    assert_clean(app, "delete row")
+    assert workbench.project.sample_ids() == ["Sample000001"]
+
+
+def test_a_new_parameter_column_can_be_added_and_filled(workbench):
+    app = page("project.py", workbench)
+    app.run()
+    app.selectbox(key="nano_param_stage").select("synthesis").run()
+    app.text_input(key="nano_param_newcol").set_value("au_fraction").run()
+    app.session_state["nano_param_editor"] = _editor_state(
+        edited={0: {"au_fraction": 0.55}})
+    [b for b in app.button if b.label == "Apply changes"][0].click().run()
+    assert_clean(app, "new column")
+    assert workbench.project.get_sample("Sample000001").stage(
+        "synthesis").params["au_fraction"] == 0.55
+
+
+def test_the_page_offers_the_three_exports(workbench, tmp_path):
+    """Downloads cannot be clicked in AppTest, so check they are offered."""
+    elsewhere = tmp_path / "scope"
+    elsewhere.mkdir()
+    (elsewhere / "a.dat").write_text("1 2\n")
+    workbench.link("Sample000001", "waxs1d", str(elsewhere / "a.dat"))
+
+    app = page("project.py", workbench)
+    app.run()
+    assert not app.exception, _why(app)
+
+    labels = [str(getattr(b, "label", "")) for b in app.get("download_button")]
+    assert any("Links (CSV)" in label for label in labels)
+    assert any("Sample table (CSV)" in label for label in labels)
+    assert any("Store (JSON)" in label for label in labels)
+
+
+def test_the_default_stage_is_the_one_carrying_parameters(workbench):
+    """A project whose stages sort badly must not open on a blank grid."""
+    app = page("project.py", workbench)
+    app.run()
+    assert app.selectbox(key="nano_param_stage").value == "synthesis"
+
+
+def test_the_gui_alone_can_build_what_the_notebook_builds(tmp_path):
+    """Notebook 06 in buttons: create, link, describe, save, reopen.
+
+    The claim is that the GUI is not a viewer bolted onto a notebook API —
+    someone who never opens Python can produce the same organizer. If this
+    passes, that is true end to end.
+    """
+    data = tmp_path / "mount" / "beamline"
+    data.mkdir(parents=True)
+    for sample in ("CuAu01", "CuAu02"):
+        folder = data / sample
+        folder.mkdir()
+        for name in ("scan_a.dat", "scan_b.dat"):
+            (folder / name).write_text("1 2\n3 4\n")
+
+    root = tmp_path / "Study"
+
+    # 1. Create an empty organizer.
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.radio(key="nano_open_mode").set_value("Nothing yet").run()
+    app.text_input(key="nano_project_root_path").set_value(str(root)).run()
+    app.text_input(key="nano_new_name").set_value("gui study").run()
+    [b for b in app.button if b.label == "Create organizer"][0].click().run()
+    built = app.session_state["nano_workbench"]
+
+    # 2. Link data that lives on another mount, one sample at a time.
+    for sample in ("CuAu01", "CuAu02"):
+        app = page("project.py", built)
+        app.run()
+        app.selectbox(key="nano_link_sample").select("➕ new sample…").run()
+        app.text_input(key="nano_link_new_id").set_value(sample).run()
+        app.selectbox(key="nano_link_modality").select("waxs1d").run()
+        app.text_input(key="nano_link_folder_path").set_value(
+            str(data / sample)).run()
+        [b for b in app.button if b.label == "🔗 Link"][0].click().run()
+        assert_clean(app, f"link {sample}")
+
+    assert sorted(built.project.sample_ids()) == ["CuAu01", "CuAu02"]
+    assert len(built.measurement("CuAu01", modality="waxs1d").paths) == 2
+
+    # 3. Give the samples something to filter on.
+    app = page("project.py", built)
+    app.run()
+    app.text_input(key="nano_param_newcol").set_value("au_fraction").run()
+    app.session_state["nano_param_editor"] = _editor_state(
+        edited={0: {"au_fraction": 0.0}, 1: {"au_fraction": 1.0}})
+    [b for b in app.button if b.label == "Apply changes"][0].click().run()
+    assert_clean(app, "parameters")
+    assert built.filter("`synthesis.au_fraction` > 0.5") == ["CuAu02"]
+    built.clear()
+
+    # 4. Save, and reopen it from scratch.
+    app = page("project.py", built)
+    app.run()
+    [b for b in app.button if b.label == "💾 Save project"][0].click().run()
+    assert_clean(app, "save")
+
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.text_input(key="nano_project_root_path").set_value(str(root)).run()
+    [b for b in app.button if b.label == "Open project"][0].click().run()
+    reopened = app.session_state["nano_workbench"]
+
+    assert reopened.project.config.name == "gui study"
+    assert sorted(reopened.project.sample_ids()) == ["CuAu01", "CuAu02"]
+    assert reopened["CuAu02"].stage("synthesis").params["au_fraction"] == 1.0
+    assert reopened.project.availability()["n_unresolved"] == 0
+    # The data never moved into the project.
+    assert not (root / "WAXSData").exists()

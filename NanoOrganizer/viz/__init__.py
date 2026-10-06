@@ -3,6 +3,16 @@ Visualization module – plotters for each data type.
 
 PLOTTER_REGISTRY maps a data-type key to its plotter class.
 ``"sem"`` and ``"tem"`` both resolve to ImagePlotter.
+
+Three modules are technique-neutral and are the ones to reach for with the
+sample-centric model:
+
+``show``
+    draw any measurement, dispatched on its group — what ``wb.plot()`` calls.
+``plots``
+    the house style and the analysis-result figures (matplotlib).
+``interactive``
+    the same drawings as Plotly figures, for a notebook or the GUI.
 """
 
 from NanoOrganizer.viz.base    import BasePlotter

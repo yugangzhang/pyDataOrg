@@ -72,7 +72,7 @@ from NanoOrganizer.core          import modality
 # Workbench binds a project, a selection and the analyses together — the entry
 # point the notebooks and the GUI both use.  Imported last: it reaches back
 # into this package, so everything it needs must already be defined.
-from NanoOrganizer.workbench     import Workbench, open_project
+from NanoOrganizer.workbench     import Workbench, new_organizer, open_project
 
 # ---------------------------------------------------------------------------
 # Loaders
@@ -131,7 +131,7 @@ __all__ = [
     'save_time_series_to_csv',
 
     # Sample-centric model
-    'Workbench', 'open_project',
+    'Workbench', 'open_project', 'new_organizer',
     'Project', 'ProjectConfig',
     'Sample', 'Stage', 'Measurement', 'DerivedValue', 'flatten_dict',
     'PathResolver', 'PathAlias', 'suggest_aliases',

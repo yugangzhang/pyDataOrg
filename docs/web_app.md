@@ -13,7 +13,7 @@ page.
 
 | | |
 |---|---|
-| **📁 Project** | Open a folder, map recorded paths onto this machine, read the metadata dicts, attach data folders, save — or generate an example project to explore |
+| **📁 Project** | Open a folder, map recorded paths onto this machine, read the metadata dicts, attach data folders, **link data from anywhere**, save — or generate an example project to explore |
 | **🌳 Structure** | Drill into a folder, a metadata file or an archive, one layer at a time |
 | **🔎 Explore & Filter** | Filter the sample table; this sets the **selection** every later page uses |
 | **📈 Visualize** | Draw any measurement, grouped by what the data *is* |
@@ -36,6 +36,61 @@ causes, so it is never invisible.
 It is the same `Workbench` the notebooks use. A page and a notebook cannot
 drift apart in behaviour, because there is only one implementation.
 
+## Project: building an organizer, not just opening one
+
+Everything `notebook/06_build_organizer` does has buttons, in the same order.
+The page is the only one that writes, so all of it lives here.
+
+**Open or create.** *An existing project* opens a folder — `MetaData/`, data
+folders, a store written earlier, **or one a notebook saved**; they are the
+same object, so an organizer built in a notebook opens here with its links,
+parameters and derived values intact, and one built here opens in a notebook.
+*Nothing yet* creates an empty organizer: the folder only has to hold the
+store, and the data can be anywhere. It refuses a folder that already holds
+one, because silently opening it would be the wrong kind of helpful.
+
+**Samples and their conditions.** An editable grid, one row per sample, one
+column per parameter of the selected stage — `wb.set_params()` with a
+spreadsheet on top. Add a column to record something new, add a row to create
+a sample (a synthesis that failed has no files and is still a result), delete
+a row to forget one. The stage that actually carries parameters is offered
+first, so a project whose stages sort badly does not open on a blank grid.
+
+**Link data from anywhere.** *Attach data folders* needs the
+`<Modality>Data/<SampleID>/` layout under the project root. This does not:
+pick a sample, a technique, and either a folder or a glob, and the files stay
+exactly where they are. Nothing is copied.
+
+The section says how many files match **before** you commit, because a link
+that silently matches nothing is the failure worth spending a preview on. A
+folder is listed now; *Keep it live* records a glob instead, so frames written
+later appear — the one to use while a run is still going. *Extra extensions*
+links files the technique does not normally claim. Links are listed back with
+their recorded path and file count, and can be removed one at a time.
+
+*Link a whole campaign from a table* takes a CSV — `sample_id`, `modality`,
+`source`, optionally `stage` / `role` / `aux`, anything else becoming metadata.
+
+**Save and export.** Saving writes `.nanoorganizer/` into the project folder
+and nothing else. Three exports:
+
+| | |
+|---|---|
+| **Links (CSV)** | one row per measurement, and the one that **comes back** — re-importable above or through `wb.link_table()` |
+| **Sample table (CSV)** | parameters and derived values, for reading elsewhere |
+| **Store (JSON)** | the whole organizer |
+
+The links CSV is a genuine round trip: a pattern exports as that pattern, a
+folder as its folder, and explicit paths as a `;`-joined list whenever listing
+the folder would not reproduce them exactly — so a re-import can never quietly
+link a different set of files. That is the reason it exists: a spreadsheet is
+a better editor than a form when forty rows need the same fix.
+
+These call `wb.link()`, `wb.link_folder()`, `wb.link_table()`,
+`wb.links_table()` and `wb.set_params()` — see
+[`sample_model.md`](sample_model.md#linking-data-that-is-somewhere-else-and-is-staying-there)
+and `notebook/06_build_organizer`.
+
 ## Visualize dispatches on shape, not technique
 
 The tabs are the four visualisation groups from
@@ -47,6 +102,13 @@ The tabs are the four visualisation groups from
 | **Images & Maps (2D)** | image, map | TEM, SEM, optical, cell, SAXS/WAXS 2D, GIWAXS |
 | **Volumes (3D)** | volume, stack | tomography, z-stack |
 | **Correlation** | corr, twotime | XPCS g₂, two-time |
+
+The dispatch itself is library code in `NanoOrganizer/viz/show.py`, which is
+what `wb.plot(sample, modality)` calls in a notebook. The page keeps its own
+widget layer — sliders and colour pickers have no meaning in a notebook — but
+the decisions that affect the *numbers* are shared: which frame a time or a
+temperature selects, how a long series is strided down, where an image's
+display range comes from, and how a volume is projected.
 
 Only the groups present in the current selection are shown. A volume is drawn
 as a single plane or as a **slab** projection: projecting the full depth of a

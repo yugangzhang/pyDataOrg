@@ -93,7 +93,9 @@ too strongly and it never leaves. So the CO partial current is a **Sabatier
 volcano** in the binding energy — and that is the reason anyone builds a
 composition series in the first place.
 
-`notebook/05_multimodal_demo` is the full tour. `notebook/00_quickstart` →
+`notebook/05_multimodal_demo` is the full tour and
+`notebook/06_build_organizer` builds the same campaign from scratch by linking
+scattered data. `notebook/00_quickstart` →
 `04_compare` walk the same pipeline on the smaller project, and
 [`docs/demo_data.md`](docs/demo_data.md) records what is in the showcase on
 purpose — including the failed run, the sparse matrix, and the one technique
@@ -116,6 +118,62 @@ survives re-measurement; keying on a run scatters it.
 Paths are stored **exactly as the instrument recorded them** and mapped per
 machine, so a project whose data is not currently mounted still browses — it
 reports as unreadable rather than breaking.
+
+## Building one: link, don't collect
+
+A folder layout is the tidy case and not the common one. The common one is nine
+samples, fifteen techniques, and data that already exists — the micrographs on
+the microscope's share, the scattering on a beamline mount, the spectra in
+whatever folder somebody made that afternoon. None of it is going to move, and
+copying it would only create a second copy to keep in sync.
+
+So the organiser records **where** things are:
+
+```python
+from NanoOrganizer import new_organizer
+
+wb = new_organizer("~/CuAuStudy")        # root holds the store, not the data
+
+wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
+wb.link("CuAu05", "tem",   "/mnt/scope/session17/")
+wb.set_params("CuAu05", au_fraction=0.55, temperature_C=90)
+wb.save()
+```
+
+A **glob** is kept live and re-expanded every read, so frames written later
+appear; a **directory** is listed now, filtered by the modality's extensions —
+a snapshot you can audit. `link_many({sample: {modality: source}})` and
+`link_table("session_log.csv")` do a whole campaign at once, which makes the
+spreadsheet whoever ran the instrument was keeping anyway an ingest format.
+
+Paths are recorded exactly as given — a rewritten store only works on the
+machine that wrote it. Each link instead registers the **mount** its data sits
+on as an alias, so moving is one line per mount rather than one edit per
+record.
+
+Then technique is an argument, not a code path:
+
+```python
+wb.catalog()                              # the sample x technique matrix
+wb.plot("CuAu05", "uvvis")                # lines, coloured by acquisition time
+wb.plot("CuAu05", "uvvis", t=600)         # the frame nearest 600 s
+wb.plot("CuAu05", "tem", frame=2)         # a heatmap on nanometre axes
+wb.plot("CuAu01", "tomo", engine="interactive", mode="volume")
+wb.overlay("waxs1d")                      # one curve per selected sample
+```
+
+`wb.frames("CuAu05", "uvvis")` is the layer below a measurement: one row per
+file, with whatever its name admitted about when (`t_s`) and how hot (`T_c`) it
+was taken — which is what `t=` and `T=` select on, by nearest value.
+
+`wb.links_table()` exports every link as a table `link_table()` reads back
+unchanged, because a spreadsheet is a better editor than a form when forty rows
+need the same fix.
+
+All of it has buttons on the **📁 Project** page — create, link, edit
+parameters in a grid, export — and an organizer built in a notebook opens there
+with its links, parameters and derived values intact, and the reverse.
+`notebook/06_build_organizer` is the walkthrough.
 
 ## Technique is metadata, not a code path
 
@@ -296,7 +354,7 @@ than skipping them.
 pytest
 ```
 
-264 tests, including the Streamlit pages driven through `AppTest` against both
+317 tests, including the Streamlit pages driven through `AppTest` against both
 generated projects — the small one, and the fifteen-technique showcase that
 exercises all four visualisation groups at once. No test needs a data mount.
 

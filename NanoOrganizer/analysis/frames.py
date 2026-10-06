@@ -294,7 +294,96 @@ def _wavelength_axis(measurement, resolver, override=None) -> np.ndarray:
     )
 
 
+# ---------------------------------------------------------------------------
+# The layer below a measurement: its individual frames
+# ---------------------------------------------------------------------------
+
+def frame_table(measurement, resolver, *,
+                grammar: Optional[FrameGrammar] = None) -> List[Dict[str, Any]]:
+    """Describe every frame of *measurement*: one row per file.
+
+    A measurement is rarely one number — it is forty spectra taken while the
+    reaction ran, or a micrograph series, or a temperature ramp.  This is that
+    layer, made addressable: each row carries the frame's index, its file, and
+    whatever the filename admitted about *when* (``t_s``) and *how hot*
+    (``T_c``) it was taken.
+
+    Names that no registered grammar parses still get a row, with ``t_s`` and
+    ``T_c`` as NaN — an unparsed frame is listed, never dropped.
+    """
+    paths = measurement.resolve(resolver)
+    if not paths:
+        return []
+
+    names = [p.name for p in paths]
+    grammar = grammar or detect_grammar(names)
+
+    rows: List[Dict[str, Any]] = []
+    for index, path in enumerate(paths):
+        info = grammar.parse(path.name) if grammar else None
+        rows.append({
+            "index": index,
+            "file": path.name,
+            "path": str(path),
+            "t_s": info.t_s if info else float("nan"),
+            "T_c": info.T_c if info else float("nan"),
+            "batch": info.batch if info else "",
+            "scan": info.scan if info else -1,
+            "kind": info.kind if info else "",
+        })
+    return rows
+
+
+def pick_frame(rows: Sequence[Dict[str, Any]], *, frame: Optional[int] = None,
+               t: Optional[float] = None, T: Optional[float] = None,
+               file: str = "") -> int:
+    """Return the index of the frame *frame*/*t*/*T*/*file* asks for.
+
+    ``t`` and ``T`` select the **nearest** recorded value rather than an exact
+    one, because an acquisition clock never lands on a round number; ``frame``
+    is a plain index and ``file`` matches a name or a substring of one.  Later
+    arguments narrow earlier ones, so ``t=600, T=90`` means *the frame closest
+    to 600 s among those recorded at about 90 °C*.
+    """
+    if not rows:
+        raise IndexError("the measurement has no readable frames")
+
+    pool = list(rows)
+
+    if T is not None:
+        valid = [r for r in pool if r["T_c"] == r["T_c"]]
+        if not valid:
+            raise KeyError("no frame carries a temperature in its name; "
+                           "select by frame= or t= instead")
+        nearest = min(abs(r["T_c"] - float(T)) for r in valid)
+        pool = [r for r in valid if abs(r["T_c"] - float(T)) == nearest]
+
+    if t is not None:
+        valid = [r for r in pool if r["t_s"] == r["t_s"]]
+        if not valid:
+            raise KeyError("no frame carries a time in its name; "
+                           "select by frame= instead")
+        pool = [min(valid, key=lambda r: abs(r["t_s"] - float(t)))]
+
+    if file:
+        hits = [r for r in pool if r["file"] == file] or \
+               [r for r in pool if file in r["file"]]
+        if not hits:
+            raise KeyError(f"no frame named {file!r}")
+        pool = hits
+
+    if frame is not None:
+        if T is None and t is None and not file:
+            if not -len(rows) <= frame < len(rows):
+                raise IndexError(f"frame {frame} of {len(rows)}")
+            return int(rows[frame]["index"])
+        pool = [pool[frame]]
+
+    return int(pool[0]["index"])
+
+
 __all__ = [
     "FrameInfo", "FrameGrammar", "GRAMMAR_REGISTRY", "register_grammar",
-    "detect_grammar", "load_series", "KINETIC", "STATIC",
+    "detect_grammar", "load_series", "frame_table", "pick_frame",
+    "KINETIC", "STATIC",
 ]

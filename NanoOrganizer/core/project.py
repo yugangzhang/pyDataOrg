@@ -389,6 +389,93 @@ class Project:
 
         return created
 
+    # ------------------------------------------------------------------
+    # linking data that lives elsewhere
+    # ------------------------------------------------------------------
+
+    def link(self, sample_id: str, modality: str, source, **kwargs):
+        """Attach data to a sample wherever it lives.
+
+        See :func:`NanoOrganizer.core.linking.link`.  *source* may be a glob
+        (kept live), a directory (listed now) or explicit paths; the mount it
+        sits on is registered as an alias so the store stays portable.
+        """
+        from NanoOrganizer.core import linking
+
+        return linking.link(self, sample_id, modality, source, **kwargs)
+
+    def link_folder(self, sample_id: str, modality: str, folder, **kwargs):
+        """Link a folder as a live glob. See :func:`linking.link_folder`."""
+        from NanoOrganizer.core import linking
+
+        return linking.link_folder(self, sample_id, modality, folder, **kwargs)
+
+    def link_many(self, mapping, **defaults) -> List[Measurement]:
+        """Link ``{sample_id: {modality: source}}``. See :func:`linking.link_many`."""
+        from NanoOrganizer.core import linking
+
+        return linking.link_many(self, mapping, **defaults)
+
+    def link_table(self, rows, **defaults) -> List[Measurement]:
+        """Link from a DataFrame, CSV or list of dicts. See :func:`linking.link_table`."""
+        from NanoOrganizer.core import linking
+
+        return linking.link_table(self, rows, **defaults)
+
+    def links_table(self, sample_ids: Sequence[str] = ()) -> List[Dict[str, Any]]:
+        """Every link as a row :meth:`link_table` reads back unchanged."""
+        from NanoOrganizer.core import linking
+
+        return linking.links_table(self, sample_ids=sample_ids)
+
+    def unlink(self, sample_id: str, modality: str = "", stage: str = "",
+               role: str = "") -> List[str]:
+        """Drop matching measurements from a sample; returns the ids removed."""
+        from NanoOrganizer.core import linking
+
+        return linking.unlink(self, sample_id, modality=modality, stage=stage,
+                              role=role)
+
+    def remove_sample(self, sample_id: str) -> bool:
+        """Forget a sample entirely. Returns False if it was not there.
+
+        Only the record goes — no file is touched.
+        """
+        return self.samples.pop(str(sample_id), None) is not None
+
+    def set_params(self, sample_id: str, stage: str = "synthesis",
+                   params: Optional[Dict[str, Any]] = None,
+                   **fields) -> Stage:
+        """Record the conditions a sample was made or measured under.
+
+        Without this an organiser built by linking has files but nothing to
+        filter on.  The parameters land in a :class:`Stage` and flatten into
+        dotted columns — ``set_params("CuAu05", temperature_C=90)`` becomes
+        ``synthesis.temperature_C`` in :meth:`to_dataframe`.
+
+        Promoted stage fields (``run_id``, ``batch_tag``, ``campaign``,
+        ``status``, ``started_at``, ``ended_at``, ``run_time_s``, ``error``,
+        ``source``) are set on the stage itself; everything else is a
+        parameter.  Calling it twice merges rather than replaces.
+        """
+        sample = self.get_sample(sample_id) or self.add_sample(sample_id)
+
+        promoted = {"run_id", "batch_tag", "campaign", "status", "error",
+                    "started_at", "ended_at", "run_time_s", "source"}
+        head = {k: v for k, v in fields.items() if k in promoted}
+        body = dict(params or {})
+        body.update({k: v for k, v in fields.items() if k not in promoted})
+
+        existing = sample.stage(stage)
+        if existing is not None:
+            for key, value in head.items():
+                setattr(existing, key, value)
+            existing.params.update(body)
+            return existing
+
+        return sample.add_stage(Stage(stage_id=stage, kind=stage,
+                                      params=body, **head))
+
     def _guess_modality(self, folder_name: str) -> Optional[str]:
         """Resolve a folder name like ``RamanData`` to a modality key."""
         name = folder_name.lower()

@@ -141,6 +141,150 @@ folder of micrographs dropped in by whoever ran the microscope joins the project
 without anyone hand-editing a record. Folder names are configurable through
 `ProjectConfig.modality_dirs`.
 
+## Linking: data that is somewhere else and is staying there
+
+The folder convention covers data laid out under the project root. The common
+case is the other one: the micrographs are on the microscope's share, the
+scattering on a beamline mount, the spectra in whatever folder somebody made
+that afternoon, and none of it is going to move.
+
+`link()` records where data is instead of collecting it:
+
+```python
+from NanoOrganizer import new_organizer
+
+wb = new_organizer("~/CuAuStudy")          # root holds the store, not the data
+
+wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
+wb.link("CuAu05", "tem",   "/mnt/scope/session17/")
+wb.link("CuAu05", "waxs1d", ["/beamline/2024_3/w1.dat"])
+```
+
+`new_organizer(root)` is the empty-project entry point, as `open_project(root)`
+is the existing-project one. Both return a `Workbench`.
+
+**Three forms of source, and the difference matters:**
+
+| | |
+|---|---|
+| a glob — `".../uvvis_b05_*.npy"` | stored as `Measurement.pattern`, a **live** query re-expanded at read time, so frames written later appear |
+| a directory — `".../TEMData/CuAu05"` | listed **now** and filtered by the modality's extensions — a snapshot you can audit |
+| a path or a list | stored verbatim |
+
+`link_folder(sample, modality, folder, pattern="*.tif")` records the glob
+rather than the listing, which is the one to use while a run is still going.
+
+Linking the same sample, modality, stage and role twice **replaces** rather
+than duplicating, so re-running a setup script is safe. `unlink()` removes.
+
+### Bulk forms
+
+```python
+wb.link_many({                          # {sample: {modality: source}}
+    "CuAu01": {"waxs1d": "/beamline/CuAu01/w.dat",
+               "tem": {"source": "/mnt/scope/CuAu01/", "kV": 200}},
+    "CuAu02": {"waxs1d": "/beamline/CuAu02/w.dat"},
+}, stage="characterization")
+
+wb.link_table("session_log.csv")        # sample_id, modality, source, …
+```
+
+`link_table` takes a DataFrame, a CSV path or a list of dicts. Columns beyond
+the recognised ones become measurement metadata, so the spreadsheet whoever ran
+the instrument was keeping anyway is an ingest format with no adapter to write.
+
+`wb.links_table()` is the other half, and the pair is a genuine round trip —
+export, fix forty rows in a spreadsheet, re-import:
+
+```python
+wb.links_table().to_csv("links.csv", index=False)
+wb.link_table("links.csv")          # identical measurements
+```
+
+What a row records is the shortest form that re-imports to the same files: a
+pattern as that pattern, a folder as its folder, and explicit paths as a
+`;`-joined list **whenever listing the folder would not reproduce them
+exactly**. A re-import can therefore never quietly link a different set of
+files. `aux` travels as JSON.
+
+### Paths are not rewritten, and the store still moves
+
+A link records the path **exactly as given**. Nothing is made relative to the
+project, because a rewritten store only works on the machine that wrote it —
+the same reason ingest keeps instrument paths verbatim.
+
+Portability is an alias instead. Each link registers the mount its data sits on
+(found by walking up to the first real mount point), mapping the prefix onto
+itself. That is a no-op where the data was linked, and the one line to edit
+anywhere else:
+
+```python
+wb.project.add_alias("/mnt/data", ["/facility/data"])    # on the next machine
+```
+
+### Giving links something to filter on
+
+Links give an organiser files. `set_params` gives it columns:
+
+```python
+wb.set_params("CuAu05", stage="synthesis", au_fraction=0.55, temperature_C=90)
+#   -> synthesis.au_fraction, synthesis.temperature_C in to_dataframe()
+```
+
+Promoted stage fields (`run_id`, `batch_tag`, `campaign`, `status`, `error`,
+timings) are set on the `Stage`; everything else lands in `params`. Calling it
+again merges.
+
+`wb.add_sample("CuAu09", status="error")` creates a sample with no data at all,
+which is a state worth being able to record: a synthesis that failed is a
+result, and leaving it out biases every comparison drawn afterwards.
+`wb.remove_sample()` forgets one — the record only; no file is touched.
+
+`wb.catalog()` is the sample × technique matrix — ticks, or file counts with
+`counts=True`. The gaps are the point: a campaign's measurement matrix is
+always sparse, and knowing which comparisons exist beats discovering halfway
+through that four samples never got the technique the argument rests on.
+
+## Reading and drawing by sample and technique
+
+With the organiser built, technique is an argument rather than a code path:
+
+```python
+x, Y, info = wb.data("CuAu05", "uvvis")      # (n_frames, n_points)
+array, meta = wb.data("CuAu05", "tem", frame=1)
+volume, meta = wb.data("CuAu01", "tomo")
+
+wb.plot("CuAu05", "uvvis")                    # lines, coloured by time
+wb.plot("CuAu05", "tem", frame=2)             # heatmap on nm axes
+wb.plot("CuAu01", "tomo", engine="interactive", mode="volume")
+wb.overlay("waxs1d", reduce="last")           # one curve per selected sample
+```
+
+`wb.plot` returns a matplotlib `Axes`, or a Plotly `Figure` with
+`engine="interactive"`. The dispatch lives in `NanoOrganizer/viz/show.py`, so
+the notebooks and the Visualize page make the same decisions about the numbers
+— which frame a time selects, how a long series is strided down, where an
+image's display range comes from.
+
+### The layer below a measurement: frames
+
+A measurement is rarely one number; it is forty spectra taken while the
+reaction ran. `wb.frames(sample, modality)` is that layer as a table — one row
+per file, with whatever the filename admitted about when (`t_s`) and how hot
+(`T_c`) it was taken, parsed by the grammars in `analysis/frames.py`. Files no
+grammar parses are listed with NaN, never dropped.
+
+That table is what makes these addressable:
+
+```python
+wb.plot("CuAu05", "uvvis", frame=0)    # by position — always available
+wb.plot("CuAu05", "uvvis", t=600)      # nearest frame to 600 s
+wb.plot("CuAu05", "uvvis", T=90)       # nearest frame at about 90 °C
+```
+
+`t` and `T` take the **nearest** recorded value, not an exact one, because an
+acquisition clock never lands on a round number.
+
 ## The table is the engine
 
 `project.to_dataframe()` returns one row per sample: authored parameters as
