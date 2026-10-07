@@ -16,6 +16,12 @@ Start here. It is the shape a real campaign actually has.
 Run them in order; `11` and `12` use what `10` leaves in
 `~/Repos/OrgDemo/Lab`.
 
+`10` drives the generator in `NanoOrganizer/demo/lab.py` one instrument at a
+time. The same functions are behind `python -m NanoOrganizer.demo --lab` (all
+of `10` in one command) and the web app's **🎓 Demo** page, which walks
+`10` → `11` → `12` with buttons — so the three routes write identical files
+and cannot drift apart.
+
 `12` is laid out the way a session actually goes:
 
 | | |
@@ -31,6 +37,11 @@ The through-line is that **nothing is a dead end**: every quick call has a
 lower-level one underneath handing you the arrays, because the moment an
 analysis gets interesting it stops fitting whatever the convenience function
 assumed.
+
+Two rules show up in every cell that draws. Analysing and drawing are **two
+calls** — `fit_peaks` returns a result, `plot_fit` draws it — and every plot
+takes **`ax=`**, draws into the figure you made, and returns the axes it drew
+on. See [`docs/kernel_adapter_rule.md`](../docs/kernel_adapter_rule.md).
 
 The organizer is **one JSON file you name** — not a directory layout, not a
 hidden folder. A document you can copy, diff and version, holding where every
@@ -138,7 +149,10 @@ Everything in these notebooks is on the web app, driving the same `Workbench`:
 streamlit run NanoOrganizer/web_app/Home.py       # or: viz
 ```
 
+**🎓 Demo** is these three notebooks with buttons — simulate, ingest, link,
+look, fit, batch, compare — each step showing the Python it ran.
 **📁 Project** opens either shape — a project folder, or a path ending in
 `.json` for an organizer a notebook wrote — and can create, link, edit
-parameters and export without any Python. A notebook and the GUI cannot drift
+parameters and export without any Python. [`docs/gui_demo.md`](../docs/gui_demo.md)
+walks through it with screenshots. A notebook and the GUI cannot drift
 apart, because there is one implementation.

@@ -2,7 +2,13 @@
 """
 Generated example projects, so the package has something to run on anywhere.
 
-Two of them, for two different questions:
+Three of them, for three different questions:
+
+:func:`~NanoOrganizer.demo.lab.simulate_lab`
+    **Raw data, not a project** — three instruments writing into three folder
+    trees that do not agree, plus a metadata dict naming only some of it. The
+    data behind notebooks 10–12 and the web app's Demo page: building the
+    organizer from it is the lesson.
 
 :func:`build_demo_project`
     Small and quick — one technique on the curve side, one on the image side,
@@ -68,6 +74,7 @@ from NanoOrganizer.demo.materials import (
 from NanoOrganizer.demo.materials import (
     particle_diameter_nm as alloy_particle_diameter_nm,
 )
+from NanoOrganizer.demo.lab import lab_paths, lab_truth, simulate_lab
 from NanoOrganizer.demo.showcase import build_showcase_project
 from NanoOrganizer.demo.simple import (
     AXIS, DEFAULT_TEMPERATURES, band_centre_nm, build_demo_project, demo_truth,
@@ -77,6 +84,8 @@ from NanoOrganizer.demo.simple import (
 __all__ = [
     # where generated data goes
     "demo_root", "DEMO_ROOT_ENV", "DEFAULT_DEMO_ROOT",
+    # the lab: raw data for notebooks 10-12 and the Demo page
+    "simulate_lab", "lab_paths", "lab_truth",
     # the quick demo
     "build_demo_project", "demo_truth", "AXIS", "DEFAULT_TEMPERATURES",
     "band_centre_nm", "particle_diameter_nm",
