@@ -14,6 +14,7 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
+import pandas as pd
 import pytest
 
 matplotlib.use("Agg")
@@ -333,3 +334,14 @@ def test_legacy_plot_types_that_computed_warn_but_still_draw():
            "intensity": np.vstack([np.ones(50), np.ones(50)])}
     with pytest.warns(DeprecationWarning):
         DLSPlotter().plot(dls, plot_type="kinetics")
+
+
+def test_plot_compare_takes_its_own_labels_without_a_second_title():
+    frame = pd.DataFrame({"sample_id": ["a", "b"], "derived.x": [1.0, 2.0],
+                          "derived.y": [3.0, 4.0]})
+    fig, ax = plt.subplots()
+    plots.plot_compare(frame, "derived.x", "derived.y", ax=ax, title="mine",
+                       xlabel="X", ylabel="")
+    assert ax.get_title(loc="left") == "mine"
+    assert ax.get_title() == "" and ax.get_xlabel() == "X"
+    assert ax.get_ylabel() == ""

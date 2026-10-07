@@ -469,13 +469,18 @@ def plot_image(array, ax=None, *, extent=None, cmap: str = "viridis",
 
 def plot_compare(frame, x: str, y: str, color_by: str = "", ax=None,
                  yerr: str = "", label_points: bool = True,
-                 logy: bool = False):
+                 logy: bool = False, *, title: Optional[str] = None,
+                 xlabel: Optional[str] = None, ylabel: Optional[str] = None):
     """Scatter one derived quantity against a synthesis parameter.
 
     This is the plot the whole pipeline exists to produce. *color_by* is capped
     at three categories, because a scatter asks the eye to separate every pair
     of colours at once rather than just neighbouring ones; anything beyond
     three folds into "Other" and is reported in the legend.
+
+    *title*, *xlabel* and *ylabel* default to the last part of the column
+    names — ``derived.uvvis_peak1_center`` reads ``uvvis_peak1_center`` — and
+    pass ``""`` to leave one off.
     """
     ax = _axes(ax, figsize=(7.0, 5.0))
 
@@ -524,8 +529,10 @@ def plot_compare(frame, x: str, y: str, color_by: str = "", ax=None,
 
     if logy:
         ax.set_yscale("log")
-    style(ax, x.split(".")[-1], y.split(".")[-1], f"{y.split('.')[-1]} vs "
-          f"{x.split('.')[-1]}")
+    short_x, short_y = x.split(".")[-1], y.split(".")[-1]
+    style(ax, short_x if xlabel is None else xlabel,
+          short_y if ylabel is None else ylabel,
+          f"{short_y} vs {short_x}" if title is None else title)
     return ax
 
 

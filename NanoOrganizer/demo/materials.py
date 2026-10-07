@@ -260,6 +260,50 @@ def oer_overpotential_mV(x: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Inverses — from a measured number back to composition
+#
+# Kernels: plain numbers or arrays (a pandas column works too) in, numbers
+# out. The notebooks, the Demo page and the README all recover composition
+# with these, so the arithmetic exists once and is tested once.
+# ---------------------------------------------------------------------------
+
+def lattice_from_q(q_invA, hkl=(1, 1, 1)):
+    """Cubic lattice parameter (Å) from one reflection's position. **Kernel.**
+
+    ``a = 2π √(h² + k² + l²) / q`` — the (111) by default, the strongest fcc
+    reflection and the first one a WAXS fit finds.
+    """
+    if np.any(np.asarray(q_invA, dtype=float) <= 0):
+        raise ValueError("q must be positive")
+    h, k, l = hkl
+    return 2.0 * np.pi * np.sqrt(h * h + k * k + l * l) / q_invA
+
+
+def fraction_from_lattice(a_A):
+    """Gold fraction from a lattice parameter — Vegard's law run backwards.
+
+    **Kernel**, the inverse of :func:`lattice_parameter_A`. Not clipped to
+    0–1: a value outside it is information about the measurement, not
+    something to hide.
+    """
+    return (a_A - A_CU) / (A_AU - A_CU)
+
+
+def fraction_from_signals(gold, copper, gold_factor: float = 1.0,
+                          copper_factor: float = 1.0):
+    """Gold fraction from a gold and a copper line intensity. **Kernel.**
+
+    Each intensity is divided by its sensitivity factor first — the
+    Cliff–Lorimer k-factor for EDS (``signals.EDS_K_FACTOR_AU_CU`` on the
+    gold line), the relative sensitivity factors for XPS
+    (``signals.XPS_RSF``) — then ``x = Au / (Au + Cu)``.
+    """
+    au = gold / gold_factor
+    cu = copper / copper_factor
+    return au / (au + cu)
+
+
+# ---------------------------------------------------------------------------
 # Which samples got which technique
 # ---------------------------------------------------------------------------
 
@@ -323,6 +367,8 @@ def showcase_truth(fractions: Sequence[float] = DEFAULT_FRACTIONS):
 __all__ = [
     "DEFAULT_FRACTIONS", "PRODUCTS", "REPORT_POTENTIAL_V", "SPARSE_COVERAGE",
     "A_CU", "A_AU", "sample_id", "measured", "showcase_truth",
+    # inverses — kernels from a measurement back to composition
+    "lattice_from_q", "fraction_from_lattice", "fraction_from_signals",
     "lattice_parameter_A", "particle_diameter_nm", "crystallite_nm",
     "hydrodynamic_nm", "aggregate_nm", "size_dispersity", "lspr_nm",
     "lspr_fwhm_nm", "d_band_centre_eV", "co_binding_eV", "h_binding_eV",

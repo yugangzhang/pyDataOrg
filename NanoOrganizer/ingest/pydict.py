@@ -58,9 +58,14 @@ def load_module(path: Path):
         raise ImportError(f"Cannot import metadata module: {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
+    # Reading metadata must not write into the folder it lives in: the normal
+    # import machinery would leave a __pycache__/ beside the user's data.
+    writes_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
     try:
         spec.loader.exec_module(module)
     finally:
+        sys.dont_write_bytecode = writes_bytecode
         # Do not leave a throwaway module behind in the import cache.
         sys.modules.pop(name, None)
     return module

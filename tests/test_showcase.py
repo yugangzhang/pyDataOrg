@@ -319,3 +319,66 @@ def test_it_builds_without_pillow(tmp_path):
     workbench = open_project(root)
     assert "uvvis" in workbench.project.modalities()
     assert "tem" not in workbench.project.modalities()
+
+
+# ---------------------------------------------------------------------------
+# The workflow route: ingest the four dicts, link the four bare folders by hand
+# ---------------------------------------------------------------------------
+
+def test_inverting_vegard_returns_the_composition():
+    for x in (0.0, 0.3, 1.0):
+        q111 = 2 * np.pi * np.sqrt(3) / mat.lattice_parameter_A(x)
+        assert mat.fraction_from_lattice(mat.lattice_from_q(q111)) == \
+            pytest.approx(x, abs=1e-12)
+    with pytest.raises(ValueError, match="positive"):
+        mat.lattice_from_q(0.0)
+
+
+def test_line_intensities_give_the_composition_after_their_factors():
+    # 3 parts gold to 1 part copper, with the gold line read 0.85x too weak.
+    assert mat.fraction_from_signals(3 * 0.85, 1.0, gold_factor=0.85) == \
+        pytest.approx(0.75)
+    assert mat.fraction_from_signals(np.array([0.0, 1.0]),
+                                     np.array([1.0, 0.0])).tolist() == [0.0, 1.0]
+
+
+def test_the_hand_built_organizer_matches_the_attached_project(project_root,
+                                                               tmp_path):
+    from NanoOrganizer import Organizer
+
+    org = Organizer(tmp_path / "cuau.json")
+    for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
+        org.ingest(project_root / "MetaData" / f"{stage}_dict.py")
+    folders = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData",
+               "tomo": "TomoData"}
+    for sample in org.ids():
+        for modality, folder in folders.items():
+            source = project_root / folder / sample
+            if source.is_dir():
+                org.link(sample, modality, str(source), stage="characterization")
+
+    attached = open_project(project_root)
+    assert (org.catalog(counts=True).sort_index(axis=1)
+            .equals(attached.catalog(counts=True).sort_index(axis=1)))
+
+
+def test_the_campaign_command_writes_data_and_answer_key(tmp_path, monkeypatch):
+    from NanoOrganizer.demo.__main__ import main
+
+    monkeypatch.setenv("NANOORGANIZER_DEMO_ROOT", str(tmp_path))
+    assert main(["--campaign", "--no-images"]) == 0
+    assert (tmp_path / "CuAu" / "Campaign" / "MetaData" /
+            "Synthesis_dict.py").exists()
+    assert (tmp_path / "CuAu" / "truth.csv").exists()
+    assert not (tmp_path / "CuAu" / "cuau.json").exists()   # building is yours
+
+
+def test_ingesting_a_metadata_module_writes_nothing_beside_it(tmp_path):
+    from NanoOrganizer import Organizer
+
+    meta = tmp_path / "MetaData"
+    meta.mkdir()
+    (meta / "Synthesis_dict.py").write_text(
+        "Synthesis_dict = {'S1': {'sample_id': 'S1', 'c': {'T': 1.0}}}\n")
+    Organizer(tmp_path / "o.json").ingest(meta / "Synthesis_dict.py")
+    assert sorted(p.name for p in meta.iterdir()) == ["Synthesis_dict.py"]

@@ -423,7 +423,9 @@ def volume_figure(volume: np.ndarray, *,
     if level is None:
         level = float(0.5 * (np.percentile(small, 50) + np.percentile(small, 99.5)))
 
-    note = f"{'×'.join(str(n) for n in volume.shape)} {unit}"
+    note = f"{'×'.join(str(n) for n in volume.shape)} voxels"
+    if unit != "voxels":
+        note += f" of {voxel_size:g} {unit}"
     if step > 1:
         note += f" · subsampled 1:{step}"
 

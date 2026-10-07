@@ -60,6 +60,12 @@ def test_the_subsampling_is_reported_not_hidden():
     assert "128×128×128" in figure.layout.title.text
 
 
+def test_a_calibrated_volume_title_counts_voxels_not_nanometres():
+    figure = iv.volume_figure(np.zeros((8, 8, 8)) + np.arange(8),
+                              voxel_size=2.0, unit="nm")
+    assert "8×8×8 voxels of 2 nm" in figure.layout.title.text
+
+
 def test_isosurface_has_no_colour_bar(volume):
     """One surface is one colour; a colour bar would imply a variation."""
     figure = iv.volume_figure(volume, mode="isosurface")
