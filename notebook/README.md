@@ -17,16 +17,20 @@ sample, the gold fraction *x*.
 | `11_build_organizer` | `Organizer("cuau.json")` — `ingest` the four dicts, `link` the four folders by hand |
 | `12_use_organizer` | reopen it and work, in six parts |
 
-Run them in order; `11` and `12` use what `10` leaves in
-`~/Repos/OrgDemo/CuAu`:
+Run them in order; `11` and `12` use what `10` leaves in `../OrgDemo/CuAu`,
+beside the repository:
 
 ```
-~/Repos/OrgDemo/CuAu/
-├── Campaign/      the data and MetaData/*_dict.py   (10)
+../OrgDemo/CuAu/
+├── MetaData/ …    the data and the four *_dict.py   (10)
 ├── truth.csv      the answer key                     (10)
 ├── cuau.json      the organizer                      (11)
 └── results/       stored fits                        (12)
 ```
+
+Every path in it — in the metadata, the links, the stored fits — is relative
+to that folder, so it moves as one piece, and no notebook output names
+anyone's home directory.
 
 `10` calls `NanoOrganizer.demo.build_showcase_project`. The same function is
 behind `python -m NanoOrganizer.demo --campaign` (all of `10` in one command)
@@ -67,8 +71,8 @@ itself never moves.
 ```python
 org = Organizer(demo_root("CuAu", "cuau.json"))
 
-org.ingest(CAMPAIGN / "MetaData" / "Testing_dict.py")    # what somebody wrote down
-org.link("CuAu05", "tem", str(CAMPAIGN / "TEMData" / "CuAu05"))   # what nobody did
+org.ingest("MetaData/Testing_dict.py")              # what somebody wrote down
+org.link("CuAu05", "tem", "TEMData/CuAu05")         # what nobody did — relative to cuau.json
 org.save()
 ```
 
@@ -111,7 +115,7 @@ as a directory.
 | `legacy/05_multimodal_demo` | **the full tour** — fifteen techniques, one hidden number |
 
 Run `legacy/00`–`04` in order; they share one small project (UV-Vis and TEM, six
-samples) written to `~/Repos/OrgDemo/DemoProject`.
+samples) written to `../OrgDemo/DemoProject`.
 
 `legacy/05` is the same Cu–Au campaign `10`–`12` use, opened the older way —
 as a directory project with `open_project`, the four bare folders picked up by
@@ -140,12 +144,12 @@ python -m NanoOrganizer.demo --campaign       # what 10 writes
 ## Where generated data goes
 
 Everything these notebooks write lands under **one parent**,
-`NanoOrganizer.demo.demo_root()` — `~/Repos/OrgDemo` by default. Set
+`NanoOrganizer.demo.demo_root()` — `../OrgDemo` beside the repository by default. Set
 `$NANOORGANIZER_DEMO_ROOT` to put it somewhere else. Nothing is written to your
 home directory itself, so a few runs cannot leave a scatter of folders behind.
 
 ```
-~/Repos/OrgDemo/
+../OrgDemo/
 ├── CuAu/           10 -> 12: the campaign, the answer key, cuau.json, results/
 ├── DemoProject/    legacy 00 -> 04: the small project
 └── Showcase/       legacy 05: the same campaign, as a directory project

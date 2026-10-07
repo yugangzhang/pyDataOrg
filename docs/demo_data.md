@@ -4,9 +4,9 @@ Two projects ship as generators rather than as files. Nothing is committed,
 nothing is downloaded, and either can be deleted freely.
 
 ```bash
-python -m NanoOrganizer.demo --campaign     # the showcase as raw data → ~/Repos/OrgDemo/CuAu
-python -m NanoOrganizer.demo                # the showcase as a project → ~/Repos/OrgDemo/Showcase
-python -m NanoOrganizer.demo --quick        # the small one            → ~/Repos/OrgDemo/Quick
+python -m NanoOrganizer.demo --campaign     # the showcase as raw data → ../OrgDemo/CuAu
+python -m NanoOrganizer.demo                # the showcase as a project → ../OrgDemo/Showcase
+python -m NanoOrganizer.demo --quick        # the small one            → ../OrgDemo/Quick
 python -m NanoOrganizer.demo ~/elsewhere/Showcase --no-images
 ```
 
@@ -15,16 +15,21 @@ file, so pointing one at real data cannot destroy it.
 
 **The showcase is the workflow's data.** Notebooks `10` → `11` → `12`, the web
 app's **🎓 Demo** page and the README walkthrough all run on it, laid out like
-this — the campaign as its instruments left it, and beside it the organizer
-built from it and the answer key:
+this — one folder holding the campaign as its instruments left it, the answer
+key, and the organizer built from it:
 
 ```
-~/Repos/OrgDemo/CuAu/
-├── Campaign/      build_showcase_project() — data and MetaData/*_dict.py
+../OrgDemo/CuAu/   beside the repository (demo_root("CuAu"))
+├── MetaData/ …    build_showcase_project() — the data and the four *_dict.py
 ├── truth.csv      showcase_truth(), the answer key
 ├── cuau.json      the organizer: four dicts ingested, four folders linked by hand
 └── results/       stored fits, linked back onto their samples
 ```
+
+Every path the generator writes into the metadata is **relative to the
+folder**, and the organizer links relative too, so the folder moves as one
+piece and nothing in it names a home directory. Rebuilding replaces the whole
+folder — organizer and stored fits included.
 
 `--campaign` writes the first two and stops, because building the organizer
 is the lesson. Without it the same campaign goes to `Showcase/` and is opened
@@ -158,7 +163,7 @@ whole project follows.
 ## Layout on disk
 
 ```
-Campaign/            (or Showcase/)
+CuAu/                (or Showcase/)
   MetaData/            Synthesis_dict.py, Characterization_dict.py,
                        Testing_dict.py, Computation_dict.py
   RawSpectra/          UV-Vis growth series, one .npy per frame + the axis

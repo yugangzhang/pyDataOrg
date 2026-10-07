@@ -80,24 +80,23 @@ def build(base: Path):
     )
 
     ROOT = demo_root("CuAu")
-    CAMPAIGN = ROOT / "Campaign"
     # step 0 — what `python -m NanoOrganizer.demo --campaign` does
-    build_showcase_project(CAMPAIGN)
+    build_showcase_project(ROOT)
     showcase_truth().to_csv(ROOT / "truth.csv", index=False)
 
-    # step 1 — ingest what was written down, link what was not
+    # step 1 — ingest what was written down, link what was not; every path
+    # relative to the organizer's own folder, as in the README
     org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")
     for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
-        org.ingest(CAMPAIGN / "MetaData" / f"{stage}_dict.py")
+        org.ingest(f"MetaData/{stage}_dict.py")
 
     BY_HAND = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData",
                "tomo": "TomoData"}
     for sample in org.ids():
         for modality, folder in BY_HAND.items():
-            source = CAMPAIGN / folder / sample
-            if source.is_dir():
+            if (ROOT / folder / sample).is_dir():
                 extra = {"voxel_size_nm": 2.0} if modality == "tomo" else {}
-                org.link(sample, modality, str(source),
+                org.link(sample, modality, f"{folder}/{sample}",
                          stage="characterization", **extra)
     org.save()
     return org, ROOT
@@ -351,7 +350,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     # A scratch folder: the README figures must not depend on, or disturb, a
-    # campaign someone is working in under ~/Repos/OrgDemo.
+    # campaign someone is working in under demo_root().
     with tempfile.TemporaryDirectory(prefix="nano_readme_") as scratch:
         print(f"building the campaign in {scratch} …")
         org, ROOT = build(Path(scratch))

@@ -89,18 +89,19 @@ data never lets you check.
 ### 0 · Get the data
 
 ```bash
-python -m NanoOrganizer.demo --campaign     # writes ~/Repos/OrgDemo/CuAu/Campaign + truth.csv
+python -m NanoOrganizer.demo --campaign     # writes ../OrgDemo/CuAu, beside this repository
 ```
 
 (or run notebook `10_simulate_data`, or **Demo → 1 Simulate** in the GUI —
 all three call the same generator.) Generated data goes under one parent,
-`~/Repos/OrgDemo` by default; set `$NANOORGANIZER_DEMO_ROOT` to move it.
+`../OrgDemo` beside the repository by default; set `$NANOORGANIZER_DEMO_ROOT`
+to move it.
 
 What lands on disk is a campaign as the groups that ran it left it — one tree
 per kind of instrument, none of them agreeing on a layout:
 
 ```
-📁 Campaign  11 folders · 1 file · .txt 1 · 1 hidden
+📁 CuAu  11 folders · 2 files · .csv 1, .txt 1 · 1 hidden
 ├── 📁 Computation  8 folders            DFT projected density of states
 ├── 📁 DLSData  8 folders                ← no record
 ├── 📁 Dynamics  3 folders               XPCS — three samples got beamtime
@@ -112,10 +113,11 @@ per kind of instrument, none of them agreeing on a layout:
 ├── 📁 Spectroscopy  8 folders           EDS, XPS, Raman, IR, XAS
 ├── 📁 TEMData  8 folders                ← no record
 ├── 📁 TomoData  2 folders               ← no record
-└── 📄 README.txt  1.2 KB
+├── 📄 README.txt  1.2 KB
+└── 📄 truth.csv                         the answer key
 ```
 
-*(The listing is `structure.tree(CAMPAIGN, depth=1)` — the same walk works on
+*(The listing is `structure.tree(ROOT, depth=1)` — the same walk works on
 any folder, JSON record, HDF5 group or `.npz`, reading shapes from headers
 rather than loading data.)*
 
@@ -124,8 +126,12 @@ synthesis conditions, and for every other stage the blocks that name the files
 each technique wrote. Four techniques never made it into them: the TEM, SEM,
 DLS and tomography folders were dropped on the share by whoever ran the
 instrument that week. That is the normal state of affairs, and it is why the
-next step links them by hand. `truth.csv`, beside the campaign, is the answer
-key.
+next step links them by hand. `truth.csv` is the answer key.
+
+Every path the metadata records is **relative to this folder**, and the
+organizer the next step builds sits inside it — so the folder moves as one
+piece. Copy it, zip it, open it on another machine: nothing names anyone's
+home directory, and nothing needs reconfiguring.
 
 ### 1 · Build the organizer — notebook 11
 
@@ -137,12 +143,11 @@ hidden folder — a document you can copy, diff, version and email. It records
 from NanoOrganizer import Organizer
 from NanoOrganizer.demo import demo_root
 
-ROOT = demo_root("CuAu")                     # ~/Repos/OrgDemo/CuAu
-CAMPAIGN = ROOT / "Campaign"
+ROOT = demo_root("CuAu")                     # ../OrgDemo/CuAu, beside this repository
 
 org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")   # empty if the file is new
 for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
-    org.ingest(CAMPAIGN / "MetaData" / f"{stage}_dict.py")       # the stage is named by the dict
+    org.ingest(f"MetaData/{stage}_dict.py")  # relative to cuau.json; the stage is named by the dict
 print(org.summary())                         # 9 samples, 118 measurements
 ```
 
@@ -160,7 +165,7 @@ artefact:
 ```python
 import runpy
 
-Synthesis_dict = runpy.run_path(str(CAMPAIGN / "MetaData" / "Synthesis_dict.py"))["Synthesis_dict"]
+Synthesis_dict = runpy.run_path(str(ROOT / "MetaData" / "Synthesis_dict.py"))["Synthesis_dict"]
 Synthesis_dict["CuAu04"]["conditions"]["hold_time_min"] = 75.0   # a transcription error, found later
 org.ingest(synthesis=Synthesis_dict, replace=True)               # the keyword names the stage
 ```
@@ -173,10 +178,10 @@ BY_HAND = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData", "tomo": "TomoDa
 
 for sample in org.ids():
     for modality, folder in BY_HAND.items():
-        source = CAMPAIGN / folder / sample
-        if source.is_dir():                  # CuAu09 failed; tomography is on two samples
+        if (ROOT / folder / sample).is_dir():    # CuAu09 failed; tomography is on two samples
             extra = {"voxel_size_nm": 2.0} if modality == "tomo" else {}   # the reconstruction's voxel
-            org.link(sample, modality, str(source), stage="characterization", **extra)
+            org.link(sample, modality, f"{folder}/{sample}",               # relative, like the dicts
+                     stage="characterization", **extra)
 ```
 
 `link` reads its third argument three ways:
@@ -188,9 +193,11 @@ for sample in org.ids():
 | a **path or list** | stored verbatim |
 
 Anything else you pass is kept with the link — the tomogram's voxel size here,
-which step C reads back. Paths are recorded exactly as given; each link
-registers the **mount** its data sits on as an alias, so moving to another
-machine is one line per mount, not one edit per record.
+which step C reads back. A **relative** path is relative to the organizer's
+folder, which is what lets this one travel with its data. Data that lives
+somewhere else entirely is linked by its absolute path, recorded exactly as
+given; each such link registers the **mount** it sits on as an alias, so moving
+to another machine is one line per mount, not one edit per record.
 
 ```python
 org.catalog()               # the sample × technique matrix: 9 × 16, 144 measurements
@@ -626,8 +633,8 @@ register_analysis(Analysis(key="pl_band", func=curve_metrics,
 ## Other generated data
 
 ```bash
-python -m NanoOrganizer.demo            # the same campaign as a ready project → ~/Repos/OrgDemo/Showcase
-python -m NanoOrganizer.demo --quick    # a small two-technique project       → ~/Repos/OrgDemo/Quick
+python -m NanoOrganizer.demo            # the same campaign as a ready project → ../OrgDemo/Showcase
+python -m NanoOrganizer.demo --quick    # a small two-technique project       → ../OrgDemo/Quick
 ```
 
 The first opens the campaign with folder conventions instead of building an
