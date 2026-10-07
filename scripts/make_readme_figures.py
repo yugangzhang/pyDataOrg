@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Render the figures the README shows, from the generated demo data.
+"""Render the figures the README shows, from the generated Cu–Au campaign.
 
-Nothing here is special-cased for the documentation: every panel goes through
-the same ``Organizer``, the same loaders and the same house style a notebook
-would use. If a figure stops reproducing, the pipeline changed.
+Nothing here is special-cased for the documentation: the campaign is written
+into a temporary folder, the organizer is built with the very calls the README
+walkthrough shows — ingest the four metadata dicts, link the four bare folders
+by hand, batch the analyses — and every panel is drawn by the package's own
+plot functions into axes made here. If a figure stops reproducing, the
+pipeline changed; if the README's code changes, change this file with it.
 
-    python scripts/make_readme_figures.py [showcase_root]   # everything
-    python scripts/make_readme_figures.py --only lab        # the walkthrough
-    python scripts/make_readme_figures.py --only showcase   # the Cu–Au tour
+    python scripts/make_readme_figures.py                    # everything
+    python scripts/make_readme_figures.py --only campaign    # the walkthrough
+    python scripts/make_readme_figures.py --only tomogram    # the 3D still
 
-The **lab** figures (``lab_*.png``) are the README walkthrough: the lab data
-is simulated into a temporary folder and the organizer is built with the very
-calls the README shows, in the same order — so if the README's code changes,
-change :func:`lab_figures` with it. The **showcase** figures (``demo_*.png``)
-come from the fifteen-technique Cu–Au project.
+Writes PNGs into ``docs/images/``:
 
-Writes PNGs into ``docs/images/`` along with the two structure listings the
-README quotes verbatim.
+``campaign_gallery.png``   step C — eight techniques, all four groups
+``campaign_fit.png``       step D — the WAXS fit and the segmentation check
+``campaign_compare.png``   step E — composition three ways, the plasmon band,
+                           three sizes, and the volcano off the table
+``demo_tomogram.png``      the interactive tomogram as a still (docs/web_app.md)
 
 The tomogram is a Plotly figure, so writing it to PNG needs ``kaleido``
 (``pip install kaleido``). It is not a dependency of the package: without it
@@ -26,7 +28,7 @@ that one figure is skipped and the rest still build.
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -36,15 +38,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
-from NanoOrganizer import Organizer, open_project, structure
-from NanoOrganizer.analysis import fit_peaks
-from NanoOrganizer.analysis.reading import load_curve_set, load_image, load_volume
-from NanoOrganizer.demo import (
-    build_showcase_project, demo_root, materials as mat, showcase_truth,
-)
-from NanoOrganizer.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
-from NanoOrganizer.viz import plots
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "images"
 DPI = 110
@@ -71,254 +64,254 @@ def shrink(path: Path) -> None:
     Image.open(path).convert("RGB").save(path, optimize=True)
 
 
-def ramp(index: int, total: int):
-    """The single-hue ramp, for curves ordered by a continuous quantity."""
-    return plots.sequential_cmap()(0.28 + 0.72 * index / max(total - 1, 1))
+# ---------------------------------------------------------------------------
+# Steps 0 and 1 — exactly as the README does them
+# ---------------------------------------------------------------------------
 
+def build(base: Path):
+    """Write the campaign under *base* and build the organizer from it."""
+    # demo_root() reads the variable, so the README's own ROOT line lands in
+    # the scratch folder rather than in somebody's working demo.
+    os.environ["NANOORGANIZER_DEMO_ROOT"] = str(base)
 
-def scale_bar(ax, nm_per_pixel: float, length_nm: float, colour: str,
-              behind: str) -> None:
-    """A bar drawn from the image's own calibration, not from a guess.
+    from NanoOrganizer import Organizer
+    from NanoOrganizer.demo import (
+        build_showcase_project, demo_root, showcase_truth,
+    )
 
-    ``behind`` is the contrasting outline. A micrograph has no empty corner
-    reserved for annotation, so a bar in one ink alone disappears the moment a
-    particle lands under it.
-    """
-    from matplotlib import patheffects
+    ROOT = demo_root("CuAu")
+    CAMPAIGN = ROOT / "Campaign"
+    # step 0 — what `python -m NanoOrganizer.demo --campaign` does
+    build_showcase_project(CAMPAIGN)
+    showcase_truth().to_csv(ROOT / "truth.csv", index=False)
 
-    outline = [patheffects.withStroke(linewidth=3.2, foreground=behind)]
-    width = length_nm / nm_per_pixel
-    x0, y0 = ax.get_xlim()[1] * 0.05, ax.get_ylim()[0] * 0.94
-    ax.plot([x0, x0 + width], [y0, y0], color=colour, lw=4,
-            solid_capstyle="butt", path_effects=outline)
-    label = (f"{length_nm / 1000:g} µm" if length_nm >= 1000
-             else f"{length_nm:g} nm")
-    # Offset in points, not data units: an image axis runs top-down, so a
-    # data-unit offset would put the label under the bar on half of them.
-    ax.annotate(label, xy=(x0 + width / 2, y0), xytext=(0, 9),
-                textcoords="offset points", color=colour, fontsize=9,
-                ha="center", va="bottom", path_effects=outline)
+    # step 1 — ingest what was written down, link what was not
+    org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")
+    for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
+        org.ingest(CAMPAIGN / "MetaData" / f"{stage}_dict.py")
+
+    BY_HAND = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData",
+               "tomo": "TomoData"}
+    for sample in org.ids():
+        for modality, folder in BY_HAND.items():
+            source = CAMPAIGN / folder / sample
+            if source.is_dir():
+                extra = {"voxel_size_nm": 2.0} if modality == "tomo" else {}
+                org.link(sample, modality, str(source),
+                         stage="characterization", **extra)
+    org.save()
+    return org, ROOT
 
 
 # ---------------------------------------------------------------------------
-# 1. One figure per visualisation group
+# Step C — every group, drawn from arrays into one figure
 # ---------------------------------------------------------------------------
 
-def gallery(wb, truth) -> None:
-    figure, axes = plt.subplots(2, 4, figsize=(19.5, 8.6))
+def gallery(org) -> None:
+    from NanoOrganizer.viz.plots import plot_curves, plot_image, plot_series
+    from NanoOrganizer.viz.show import project_volume
 
-    # -- curves -------------------------------------------------------------
-    m = wb.measurement("CuAu05", modality="uvvis")
-    x, frames, _ = load_curve_set(m, wb.resolver)
-    for index, y in enumerate(frames):
-        axes[0, 0].plot(x, y, lw=1.3, color=ramp(index, len(frames)))
-    plots.style(axes[0, 0], "wavelength (nm)", "absorbance",
-                "UV-Vis · growth series (colour = time)")
+    # -- the README's step C, verbatim --------------------------------------
+    done = org.ids("`synthesis.status` == 'done'")
+    x_nominal = org.table(sample_ids=done)["synthesis.composition.nominal_x_Au"]
 
-    ids = list(truth.index)
-    for index, sample_id in enumerate(ids):
-        q, Y, _ = load_curve_set(wb.measurement(sample_id, modality="waxs1d"),
-                                 wb.resolver)
-        axes[0, 1].plot(q, Y[0] / Y[0].max() + 0.55 * index, lw=1.4,
-                        color=ramp(index, len(ids)))
-    axes[0, 1].set_xlim(2.4, 5.4)
-    axes[0, 1].set_yticks([])
-    plots.style(axes[0, 1], "q (Å⁻¹)", "intensity (offset)",
-                "WAXS · fcc peaks walk left as Au enters")
+    x, Y, info = org.data("CuAu05", "uvvis")
+    q = org.data("CuAu01", "waxs1d")[0]                 # one q grid for all
+    waxs = [org.data(s, "waxs1d")[1][0] for s in done]
 
-    for index, sample_id in enumerate(("CuAu01", "CuAu05", "CuAu08")):
-        e, Y, _ = load_curve_set(wb.measurement(sample_id, modality="eds"),
-                                 wb.resolver)
-        axes[0, 2].plot(e, Y[0], lw=1.5, color=plots.CATEGORICAL[index],
-                        label=f"{sample_id}  x={truth.loc[sample_id, 'x_Au']:.2f}")
-    axes[0, 2].set_xlim(0.5, 11.0)
-    axes[0, 2].set_yscale("log")
-    plots.style(axes[0, 2], "energy (keV)", "counts",
-                "EDS · Cu Kα 8.05, Au Lα 9.71 keV")
-    axes[0, 2].legend(frameon=False, fontsize=8.5)
+    eds, g2 = [], []
+    for s in ("CuAu01", "CuAu05", "CuAu08"):
+        energy, counts, _ = org.data(s, "eds")
+        eds.append((s, energy, counts[0]))
+    for s in ("CuAu01", "CuAu04", "CuAu08"):            # XPCS got three samples
+        tau, G, _ = org.data(s, "xpcs_g2")
+        g2.append((s, tau, G[0]))
 
-    m = wb.measurement("CuAu06", modality="ec", role="co2-rr-fe")
-    potential, efficiencies, info = load_curve_set(m, wb.resolver)
-    for label, values, colour in zip(info["labels"], efficiencies,
-                                     plots.CATEGORICAL):
-        name = label.replace("FE_", "").replace(".dat", "")
-        axes[0, 3].plot(potential, values, "o-", ms=5, lw=1.8, color=colour,
-                        label=name)
-    axes[0, 3].set_ylim(-6, 122)
-    plots.style(axes[0, 3], "potential (V vs RHE)", "Faradaic efficiency (%)",
-                "Electrochemistry · CuAu06 product split")
-    axes[0, 3].legend(frameon=False, fontsize=8.5, ncol=3, loc="upper center")
+    potential, FE, fe = org.data("CuAu06", "ec", role="co2-rr-fe")
+    products = [(name[3:-4], potential, row)
+                for name, row in zip(fe["labels"], FE)]
 
-    # -- images -------------------------------------------------------------
-    # The scale bars are drawn from each image's own calibration, which the
-    # demo writes into the micrograph the way an instrument would.
-    tem, meta = load_image(wb.measurement("CuAu05", modality="tem"), wb.resolver)
-    axes[1, 0].imshow(tem, cmap="gray")
-    axes[1, 0].set_xticks([]); axes[1, 0].set_yticks([])
-    scale_bar(axes[1, 0], meta["nm_per_pixel"], 50, "#0b0b0b", "#fcfcfb")
-    plots.style(axes[1, 0], title="TEM · primary particles, dark on film")
+    tem, tem_info = org.data("CuAu05", "tem", frame=0)
+    sem, sem_info = org.data("CuAu05", "sem", frame=0)
+    volume, _ = org.data("CuAu01", "tomo")
+    voxel = org.measurement("CuAu01", modality="tomo").meta["voxel_size_nm"]
+    slab, detail = project_volume(volume, projection="max projection", slab=16)
 
-    sem, meta = load_image(wb.measurement("CuAu05", modality="sem"), wb.resolver)
-    axes[1, 1].imshow(sem, cmap="gray")
-    axes[1, 1].set_xticks([]); axes[1, 1].set_yticks([])
-    scale_bar(axes[1, 1], meta["nm_per_pixel"], 200, "#fcfcfb", "#0b0b0b")
-    plots.style(axes[1, 1], title="SEM · agglomerates, bright on support")
+    tem_nm = tem.shape[0] * tem_info["nm_per_pixel"]    # square frames
+    sem_nm = sem.shape[0] * sem_info["nm_per_pixel"]
+    slab_nm = slab.shape[0] * voxel
 
-    # -- a volume -----------------------------------------------------------
-    # A single slice through a packed cluster is mostly gaps; a thin slab
-    # projection is what anyone actually looks at.
-    volume, _ = load_volume(wb.measurement("CuAu01", modality="tomo"),
-                            wb.resolver)
-    middle = volume.shape[0] // 2
-    slab = volume[middle - 8:middle + 8].max(axis=0)
-    axes[1, 2].imshow(slab, cmap="magma")
-    axes[1, 2].set_xticks([]); axes[1, 2].set_yticks([])
-    scale_bar(axes[1, 2], 2.0, 50, "#fcfcfb", "#0b0b0b")
-    plots.style(axes[1, 2],
-                title="Tomography · 16-voxel slab, maximum projection")
-
-    # -- correlation --------------------------------------------------------
-    for index, sample_id in enumerate(("CuAu01", "CuAu04", "CuAu08")):
-        tau, Y, _ = load_curve_set(wb.measurement(sample_id, modality="xpcs"),
-                                   wb.resolver)
-        axes[1, 3].semilogx(tau, Y[0], "o-", ms=4, lw=1.6,
-                            color=plots.CATEGORICAL[index], label=sample_id)
-    plots.style(axes[1, 3], "lag τ (s)", "g₂(τ)",
-                "XPCS · decay rate → hydrodynamic size")
-    axes[1, 3].legend(frameon=False, fontsize=8.5)
-
-    figure.tight_layout()
-    save(figure, "demo_gallery.png")
+    fig, axes = plt.subplots(2, 4, figsize=(21, 9))
+    plot_series(x, Y, info["t_s"], ax=axes[0, 0], xlabel="wavelength (nm)",
+                ylabel="absorbance", colorbar_label="time (s)",
+                title="UV-Vis · CuAu05 growth, coloured by time")
+    plot_series(q, waxs, x_nominal.values, ax=axes[0, 1], xlim=(2.5, 3.25),
+                xlabel="q (Å⁻¹)", ylabel="intensity", colorbar_label="x(Au)",
+                title="WAXS (111) · walks left as gold enters")
+    plot_curves(eds, ax=axes[0, 2], logy=True, xlim=(0.5, 11.0),
+                xlabel="energy (keV)", ylabel="counts",
+                title="EDS · Cu Kα 8.05, Au Lα 9.71 keV")
+    plot_curves(products, ax=axes[0, 3], marker="o", markersize=5,
+                xlabel="potential (V vs RHE)",
+                ylabel="Faradaic efficiency (%)",
+                title="CO₂RR · CuAu06, where the charge goes")
+    plot_image(tem, ax=axes[1, 0], cmap="gray", colorbar=False,
+               extent=(0, tem_nm, tem_nm, 0), xlabel="nm", ylabel="nm",
+               title="TEM · primary particles, dark on film")
+    plot_image(sem, ax=axes[1, 1], cmap="gray", colorbar=False,
+               extent=(0, sem_nm, sem_nm, 0), xlabel="nm", ylabel="nm",
+               title="SEM · agglomerates, bright on support")
+    plot_image(slab, ax=axes[1, 2], cmap="magma", colorbar=False,
+               extent=(0, slab_nm, slab_nm, 0), xlabel="nm", ylabel="nm",
+               title=f"Tomography · CuAu01, {detail}")
+    plot_curves(g2, ax=axes[1, 3], logx=True, marker="o", markersize=4,
+                xlabel="lag τ (s)", ylabel="g₂(τ)",
+                title="XPCS · decay rate → aggregate size")
+    fig.tight_layout()
+    # -----------------------------------------------------------------------
+    save(fig, "campaign_gallery.png")
 
 
 # ---------------------------------------------------------------------------
-# 2. Independent techniques, brought back together
+# Step D — the kernel on arrays, then the segmentation check
 # ---------------------------------------------------------------------------
 
-def agreement(wb, truth) -> None:
-    table = wb.table().set_index("sample_id").reindex(truth.index)
+def fit_and_segment(org) -> None:
+    from NanoOrganizer.analysis import fit_peaks, segment_micrograph
+    from NanoOrganizer.demo import materials as mat
+    from NanoOrganizer.viz.plots import plot_fit, plot_segmentation
 
-    gold = table["derived.eds_au_area"] / EDS_K_FACTOR_AU_CU
-    x_eds = gold / (gold + table["derived.eds_cu_area"])
-    lattice = 2 * np.pi * np.sqrt(3) / table["derived.waxs1d_peak1_center"]
-    x_waxs = (lattice - mat.A_CU) / (mat.A_AU - mat.A_CU)
-    surface_au = table["derived.xps_au_area"] / XPS_RSF["Au 4f7/2"]
-    surface_cu = table["derived.xps_cu_area"] / XPS_RSF["Cu 2p3/2"]
-    x_xps = surface_au / (surface_au + surface_cu)
+    q, W, _ = org.data("CuAu05", "waxs1d")
 
-    figure, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
+    # -- the README's step D, verbatim --------------------------------------
+    fit = fit_peaks(q, W[0], n_peaks=2, x_range=(2.5, 3.6),
+                    shape="pseudo_voigt", background="linear")
+    lattice = mat.lattice_from_q(fit.params["peak1_center"])
+    x_au = mat.fraction_from_lattice(lattice)
 
-    axes[0].plot([0, 1], [0, 1], "--", lw=1.5, color="0.65", label="generator")
-    for name, values, colour, marker in (
-            ("EDS (Cliff–Lorimer)", x_eds, plots.CATEGORICAL[0], "o"),
-            ("WAXS (Vegard)", x_waxs, plots.CATEGORICAL[1], "s")):
-        axes[0].plot(truth["x_Au"], values, marker, ms=9, color=colour,
-                     label=name)
-    plots.style(axes[0], "x(Au) the generator used", "x(Au) recovered",
-                "Two instruments, one answer")
-    axes[0].legend(frameon=False, fontsize=9, loc="upper left")
+    seg = segment_micrograph(org.measurement("CuAu05", modality="tem"),
+                             org.resolver)
 
-    axes[1].plot(truth["x_Au"], truth["true_lspr_nm"], "--", lw=1.5,
-                 color="0.65", label="generator")
-    axes[1].plot(truth["x_Au"], table["derived.uvvis_peak1_center"], "o", ms=9,
-                 color=plots.CATEGORICAL[2], label="fitted band")
-    plots.style(axes[1], "x(Au)", "plasmon band (nm)",
-                "One band that moves — so it is an alloy")
-    axes[1].legend(frameon=False, fontsize=9)
-
-    axes[2].plot(truth["x_Au"], table["derived.tem_d_mean"], "o", ms=9,
-                 color=plots.CATEGORICAL[0], label="TEM · primary")
-    axes[2].plot(truth["x_Au"], table["derived.dls_x_at_max"], "s", ms=9,
-                 color=plots.CATEGORICAL[1], label="DLS · hydrodynamic")
-    axes[2].plot(truth["x_Au"], table["derived.sem_d_mean"], "^", ms=9,
-                 color=plots.CATEGORICAL[2], label="SEM · agglomerate")
-    axes[2].set_yscale("log")
-    plots.style(axes[2], "x(Au)", "diameter (nm)",
-                "Three sizes, all of them correct")
-    axes[2].legend(frameon=False, fontsize=9, loc="center left")
-
-    figure.tight_layout()
-    save(figure, "demo_agreement.png")
-    return x_eds, x_xps
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.6),
+                             gridspec_kw={"width_ratios": [1.35, 1]})
+    plot_fit(fit.x, fit.y, fit.y_fit, fit.residual, ax=axes[0],
+             xlabel="q (Å⁻¹)", ylabel="intensity",
+             title=f"CuAu05 · R² = {fit.r2:.4f} → x(Au) = {x_au:.3f}")
+    plot_segmentation(seg, ax=axes[1])
+    # -----------------------------------------------------------------------
+    save(fig, "campaign_fit.png")
 
 
 # ---------------------------------------------------------------------------
-# 3. The structure–property chain
+# Step D (batch) and E — the table, against the answer key
 # ---------------------------------------------------------------------------
 
-def volcano(wb, truth, x_eds, x_xps) -> None:
-    table = wb.table().set_index("sample_id").reindex(truth.index)
-    figure, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
+def batch(org) -> None:
+    quiet = dict(verbose=False)
+    org.batch("peak_fit", modality="waxs1d", link=True, x_range=(2.5, 3.6),
+              n_peaks=2, shape="pseudo_voigt", background="linear", **quiet)
+    org.batch("peak_fit", modality="uvvis", link=True, x_range=(470.0, 800.0),
+              reduce="last_decile", background="linear", **quiet)
+    org.batch("curve_metrics", modality="eds", prefix="eds_cu_",
+              x_min=7.7, x_max=8.4, **quiet)
+    org.batch("curve_metrics", modality="eds", prefix="eds_au_",
+              x_min=9.4, x_max=10.0, **quiet)
+    org.batch("curve_metrics", modality="xps", role="cu2p", prefix="xps_cu_",
+              x_min=929, x_max=937, **quiet)
+    org.batch("curve_metrics", modality="xps", role="au4f", prefix="xps_au_",
+              x_min=81.5, x_max=86.0, **quiet)
+    org.batch("particle_sizing", modality="tem", **quiet)
+    org.batch("particle_sizing", modality="sem", max_diameter_nm=500,
+              min_circularity=0.5, **quiet)
+    org.batch("curve_metrics", modality="dls", x_min=5, x_max=120, **quiet)
+    org.save()
 
-    axes[0].plot([0, 1], [0, 1], "--", lw=1.5, color="0.65",
-                 label="no segregation")
-    axes[0].plot(truth["x_Au"], x_eds, "o", ms=9, color=plots.CATEGORICAL[0],
-                 label="EDS · bulk")
-    # Slots 0–5 are spoken for by the six products in the middle panel, so the
-    # two panels either side take hues from outside that set.
-    axes[0].plot(truth["x_Au"], x_xps, "s", ms=9, color=plots.CATEGORICAL[7],
-                 label="XPS · surface")
-    plots.style(axes[0], "x(Au) bulk", "x(Au) measured",
-                "Gold segregates — the gap is the information")
-    axes[0].legend(frameon=False, fontsize=9, loc="upper left")
 
-    products = ("H2", "CO", "HCOO-", "CH4", "C2H4", "EtOH")
-    bottom = np.zeros(len(truth))
-    for index, product in enumerate(products):
-        values = np.array([mat.faradaic_efficiency(x)[product]
-                           for x in truth["x_Au"]])
-        axes[1].bar(np.arange(len(truth)), values, bottom=bottom, width=0.72,
-                    color=plots.CATEGORICAL[index], label=product,
-                    edgecolor=SURFACE, linewidth=2)
-        bottom += values
-    axes[1].set_xticks(np.arange(len(truth)))
-    axes[1].set_xticklabels([f"{x:.2f}" for x in truth["x_Au"]], fontsize=8.5)
-    plots.style(axes[1], "x(Au)", "Faradaic efficiency (%)",
-                "Selectivity switches: hydrocarbons → CO")
-    axes[1].set_title("Selectivity switches: hydrocarbons → CO",
-                      color=plots.INK, fontsize=11, loc="left", pad=26)
-    axes[1].grid(False, axis="x")
-    axes[1].legend(frameon=False, fontsize=8.5, ncol=6, loc="lower center",
-                   bbox_to_anchor=(0.5, 1.0), columnspacing=1.1,
-                   handlelength=1.1, handletextpad=0.5)
+def compare(org, ROOT: Path) -> None:
+    from NanoOrganizer.demo import materials as mat
+    from NanoOrganizer.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
+    from NanoOrganizer.viz.plots import plot_compare
 
-    binding = table["computation.descriptors.E_ads_CO_eV"]
-    current = table["testing.performance.j_CO_mA_cm2"]
-    order = np.argsort(binding.values)
-    axes[2].plot(binding.values[order], current.values[order], "o-", ms=10,
-                 lw=2, color=plots.CATEGORICAL[6])
-    best = current.idxmax()
-    axes[2].annotate(f"{best} · x(Au) = {truth.loc[best, 'x_Au']:.2f}",
-                     xy=(binding[best], current[best]),
-                     xytext=(-118, -14), textcoords="offset points", fontsize=9,
-                     color=plots.INK_SOFT,
-                     arrowprops=dict(arrowstyle="->", color="0.45"))
-    plots.style(axes[2], "ΔE(CO) from DFT (eV)",
-                "CO partial current (mA cm⁻²)",
-                "Sabatier volcano — too weak, or too strong")
+    table = org.table(sample_ids=org.ids("`synthesis.status` == 'done'"))
+    truth = pd.read_csv(ROOT / "truth.csv").set_index("sample_id")
 
-    figure.tight_layout()
-    save(figure, "demo_volcano.png")
+    check = pd.DataFrame({
+        "x_true": truth["x_Au"],
+        "EDS (bulk)": mat.fraction_from_signals(
+            table["derived.eds_au_area"], table["derived.eds_cu_area"],
+            gold_factor=EDS_K_FACTOR_AU_CU),
+        "WAXS (Vegard)": mat.fraction_from_lattice(
+            mat.lattice_from_q(table["derived.waxs1d_peak1_center"])),
+        "XPS (surface)": mat.fraction_from_signals(
+            table["derived.xps_au_area"], table["derived.xps_cu_area"],
+            gold_factor=XPS_RSF["Au 4f7/2"], copper_factor=XPS_RSF["Cu 2p3/2"]),
+        "band_true_nm": truth["true_lspr_nm"],
+        "band_fitted_nm": table["derived.uvvis_peak1_center"],
+        "TEM": table["derived.tem_d_mean"],
+        "DLS": table["derived.dls_x_at_max"],
+        "SEM": table["derived.sem_d_mean"],
+    }).reset_index()
+
+    composition = check.melt(
+        id_vars=["sample_id", "x_true"], var_name="technique",
+        value_vars=["EDS (bulk)", "WAXS (Vegard)", "XPS (surface)"],
+        value_name="x_measured")
+    sizes = check.melt(id_vars=["sample_id", "x_true"], var_name="technique",
+                       value_vars=["TEM", "DLS", "SEM"],
+                       value_name="diameter_nm")
+
+    # -- the README's step E, verbatim -------------------------------------
+    fig, axes = plt.subplots(1, 4, figsize=(22, 5))
+    plot_compare(composition, "x_true", "x_measured", color_by="technique",
+                 label_points=False, ax=axes[0],
+                 xlabel="x(Au) the generator used", ylabel="x(Au) measured",
+                 title="Composition three ways — XPS sits above: Au segregates")
+    axes[0].axline((0, 0), slope=1, linestyle="--", color="0.6")
+    plot_compare(check, "band_true_nm", "band_fitted_nm", ax=axes[1],
+                 xlabel="band the generator used (nm)", ylabel="fitted band (nm)",
+                 title="One plasmon band that moves — an alloy")
+    axes[1].axline((550, 550), slope=1, linestyle="--", color="0.6")
+    plot_compare(sizes, "x_true", "diameter_nm", color_by="technique",
+                 label_points=False, logy=True, ax=axes[2],
+                 xlabel="x(Au)", ylabel="diameter (nm)",
+                 title="Three sizes, all of them right")
+    plot_compare(org.table(), "computation.descriptors.E_ads_CO_eV",
+                 "testing.performance.j_CO_mA_cm2", ax=axes[3],
+                 xlabel="ΔE(CO) from DFT (eV)", ylabel="CO partial current (mA cm⁻²)",
+                 title="Sabatier volcano, straight off the table")
+    fig.tight_layout()
+    save(fig, "campaign_compare.png")
+
+    errors = {
+        "max |x_EDS - x|": (check["EDS (bulk)"] - check.x_true).abs().max(),
+        "max |x_WAXS - x|": (check["WAXS (Vegard)"] - check.x_true).abs().max(),
+        "max |band error| nm": (check.band_fitted_nm
+                                - check.band_true_nm).abs().max(),
+        "max |x_XPS - surface|": (check["XPS (surface)"]
+                                  - truth["true_surface_x_Au"].values).abs().max(),
+    }
+    for name, value in errors.items():
+        print(f"  {name:24s} {value:.3f}")
 
 
 # ---------------------------------------------------------------------------
-# 4. The tomogram, as the interactive viewer draws it
+# The tomogram, as the interactive viewer draws it
 # ---------------------------------------------------------------------------
 
-def tomogram(wb) -> None:
+def tomogram(org) -> None:
     try:
         from NanoOrganizer.viz import interactive as iv
+        volume, _ = org.data("CuAu01", "tomo")
+        # `volume` rather than `isosurface`: the aggregate is only ~3% solid
+        # by voxel, and after striding an isosurface of it fragments.
+        figure = iv.volume_figure(volume, mode="volume", level=130,
+                                  voxel_size=2.0, unit="nm",
+                                  colorscale="Viridis", opacity=0.9,
+                                  width=760, height=700)
     except ImportError as error:        # plotly is an optional extra
         print(f"  skipping the tomogram: {error}")
         return
 
-    volume, _ = load_volume(wb.measurement("CuAu01", modality="tomo"),
-                            wb.resolver)
-    # `volume` rather than `isosurface`: the aggregate is only ~3% solid by
-    # voxel, and after striding an isosurface of it fragments into speckle.
-    figure = iv.volume_figure(volume, mode="volume", level=130,
-                              voxel_size=2.0, unit="nm", colorscale="Viridis",
-                              opacity=0.9, width=760, height=700)
     figure.update_layout(paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
                          margin=dict(l=20, r=10, t=34, b=20),
                          scene_camera=dict(eye=dict(x=1.45, y=1.35, z=0.95)))
@@ -349,181 +342,27 @@ def tomogram(wb) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. The README walkthrough: simulate → build → use, on the lab data
-# ---------------------------------------------------------------------------
-
-def lab_figures(base: Path) -> None:
-    """The three walkthrough figures, built with the README's own calls."""
-    from NanoOrganizer.demo.lab import simulate_lab
-
-    LAB = simulate_lab(base / "Lab").root
-    RAW = LAB / "RawData"
-
-    # 1 · build — exactly as the README does it
-    org = Organizer(LAB / "lab.json", name="lab demo")
-    synthesis = json.loads((LAB / "Meta" / "synthesis_dict.json").read_text())
-    org.ingest(synthesis=synthesis)
-    synthesis["S07"] = {
-        "sample_id": "S07",
-        "synthesis_batch": {"status": "error",
-                            "error": "precursor precipitated"},
-        "conditions": {"temperature_C": 120.0},
-    }
-    org.ingest(synthesis=synthesis, replace=True)
-    for sample in org.ids():
-        scope = RAW / "microscope_share" / sample
-        waxs = RAW / "xrd_rig" / f"{sample}_waxs.dat"
-        if scope.is_dir():
-            org.link(sample, "tem", str(scope), stage="characterization",
-                     nm_per_pixel=0.5)
-        if waxs.exists():
-            org.link(sample, "waxs1d", str(waxs), stage="characterization")
-    org.save()
-
-    # 2C · visualise from arrays
-    x, Y, info = org.data("S01", "uvvis")
-    image, meta = org.data("S01", "tem", lazy=True)[1]
-    height, width = image.shape
-    scale = meta["nm_per_pixel"]
-    curves = []
-    for sample in ["S01", "S03", "S06"]:
-        q, W, _ = org.data(sample, "waxs1d")
-        curves.append((sample, q, W[0]))
-
-    figure, axes = plt.subplots(1, 3, figsize=(16.5, 4.4))
-    plots.plot_series(x, Y, info["t_s"], ax=axes[0],
-                      xlabel="wavelength (nm)", ylabel="absorbance",
-                      colorbar_label="time (s)",
-                      title="S01 · UV-Vis, coloured by time")
-    plots.plot_curves(curves, ax=axes[1], xlabel="q (Å⁻¹)",
-                      ylabel="intensity", xlim=(2.3, 3.3),
-                      title="WAXS (111) · narrower when hotter")
-    plots.plot_image(image, ax=axes[2], cmap="gray",
-                     extent=(0, width * scale, height * scale, 0),
-                     xlabel="nm", ylabel="nm",
-                     title="S01 · TEM frame 1, on nm axes")
-    figure.tight_layout()
-    save(figure, "lab_visualize.png")
-
-    # 2D · fit arrays: a good window and a bad one, each with its residual
-    q, W, _ = org.data("S01", "waxs1d")
-    good = fit_peaks(q, W[0], n_peaks=1, x_range=(2.3, 3.0),
-                     background="linear")
-    bad = fit_peaks(q, W[0], n_peaks=1, x_range=(2.3, 4.5),
-                    background="constant")
-    figure, axes = plt.subplots(1, 2, figsize=(13.5, 5.0))
-    plots.plot_fit(good.x, good.y, good.y_fit, good.residual, ax=axes[0],
-                   xlabel="q (Å⁻¹)", ylabel="intensity",
-                   title=f"window 2.3–3.0, R² = {good.r2:.4f}")
-    plots.plot_fit(bad.x, bad.y, bad.y_fit, bad.residual, ax=axes[1],
-                   xlabel="q (Å⁻¹)", ylabel="intensity",
-                   title=f"window 2.3–4.5, R² = {bad.r2:.4f} · residual has shape")
-    save(figure, "lab_fit.png")
-
-    # 2E · batch, then compare with the answer key
-    params = dict(x_range=(2.3, 3.0), n_peaks=1, background="linear")
-    org.batch("peak_fit", modality="waxs1d", link=True, verbose=False,
-              **params)
-    org.batch("peak_fit", modality="uvvis", link=True, verbose=False,
-              x_range=(450, 700), n_peaks=1, background="linear")
-    ids = org.ids("`synthesis.status` == 'done'")
-    table = org.table(sample_ids=ids)
-    truth = pd.read_csv(LAB / "Meta" / "truth.csv").set_index("sample_id")
-    check = pd.DataFrame({
-        "fitted_band_nm": table["derived.uvvis_peak1_center"],
-        "waxs_fwhm_invA": table["derived.waxs1d_peak1_width"] * 2.3548,
-    }).join(truth).reset_index()
-    check["inverse_d"] = 1.0 / check["true_diameter_nm"]
-    slope, intercept = np.polyfit(check["inverse_d"],
-                                  check["waxs_fwhm_invA"], 1)
-
-    figure, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
-    plots.plot_compare(check, "true_band_nm", "fitted_band_nm", ax=axes[0])
-    axes[0].axline((520, 520), slope=1, linestyle="--", color="0.6")
-    axes[0].set_title("UV-Vis band · fitted against the answer key",
-                      color=plots.INK, fontsize=11, loc="left")
-    plots.plot_compare(check, "inverse_d", "waxs_fwhm_invA", ax=axes[1])
-    axes[1].axline((0, intercept), slope=slope, linestyle="--", color="0.6")
-    axes[1].set_title(f"WAXS width ∝ 1/D · Scherrer slope {slope:.3f} "
-                      f"(true {0.9 * 2 * np.pi / 10:.3f})",
-                      color=plots.INK, fontsize=11, loc="left")
-    plots.plot_compare(org.table(), "synthesis.conditions.temperature_C",
-                       "derived.uvvis_peak1_center", ax=axes[2])
-    axes[2].set_title("Structure–property, straight off the table",
-                      color=plots.INK, fontsize=11, loc="left")
-    figure.tight_layout()
-    save(figure, "lab_compare.png")
-
-
-# ---------------------------------------------------------------------------
-
-def showcase_figures(root: str) -> None:
-    print(f"building {root} …")
-    build_showcase_project(root)
-    wb = open_project(root)
-
-    print("running the analyses the figures read …")
-    wb.batch("curve_metrics", modality="eds", prefix="eds_cu_",
-             x_min=7.7, x_max=8.4)
-    wb.batch("curve_metrics", modality="eds", prefix="eds_au_",
-             x_min=9.4, x_max=10.0)
-    wb.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), n_peaks=2,
-             shape="pseudo_voigt", background="linear")
-    wb.batch("peak_fit", modality="uvvis", x_range=(470.0, 800.0),
-             reduce="last_decile", background="linear")
-    wb.batch("particle_sizing", modality="tem")
-    wb.batch("particle_sizing", modality="sem", max_diameter_nm=500,
-             min_circularity=0.5)
-    wb.batch("curve_metrics", modality="dls", x_min=5, x_max=120)
-    wb.batch("curve_metrics", modality="xps", role="cu2p", prefix="xps_cu_",
-             x_min=929, x_max=937)
-    wb.batch("curve_metrics", modality="xps", role="au4f", prefix="xps_au_",
-             x_min=81.5, x_max=86.0)
-
-    truth = showcase_truth().set_index("sample_id")
-
-    print("drawing …")
-    gallery(wb, truth)
-    x_eds, x_xps = agreement(wb, truth)
-    volcano(wb, truth, x_eds, x_xps)
-    tomogram(wb)
-
-    # Two listings, because they show different things: the folder layout, and
-    # the descent *into* a file, which is the part `ls` cannot do.
-    layout = structure.tree(root, depth=1, limit=20)
-    module = Path(root).expanduser() / "MetaData" / "Characterization_dict.py"
-    inside = structure.tree(
-        f"{module}::Characterization_dict/CuAu05", depth=2, limit=4)
-    # The demo records absolute paths, as an instrument would. Whose machine
-    # built the documentation is not part of the example.
-    home = str(Path.home())
-    layout, inside = (text.replace(home, "~") for text in (layout, inside))
-
-    (OUT / "structure_layout.txt").write_text(layout + "\n")
-    (OUT / "structure_inside.txt").write_text(inside + "\n")
-    print("  wrote docs/images/structure_layout.txt, structure_inside.txt")
-    print(layout)
-    print()
-    print(inside)
-
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("root", nargs="?", default=None,
-                        help="where to build the showcase "
-                             "(default: demo_root('Showcase'))")
-    parser.add_argument("--only", choices=("lab", "showcase"), default=None,
+    parser.add_argument("--only", choices=("campaign", "tomogram"),
+                        default=None,
                         help="draw one set of figures instead of both")
     args = parser.parse_args(argv)
 
-    if args.only in (None, "lab"):
-        # The walkthrough data goes in a scratch folder: the README figures
-        # must not depend on, or disturb, a lab someone is working in.
-        with tempfile.TemporaryDirectory(prefix="nano_readme_") as scratch:
-            print(f"lab walkthrough in {scratch} …")
-            lab_figures(Path(scratch))
-    if args.only in (None, "showcase"):
-        showcase_figures(args.root or str(demo_root("Showcase")))
+    # A scratch folder: the README figures must not depend on, or disturb, a
+    # campaign someone is working in under ~/Repos/OrgDemo.
+    with tempfile.TemporaryDirectory(prefix="nano_readme_") as scratch:
+        print(f"building the campaign in {scratch} …")
+        org, ROOT = build(Path(scratch))
+        if args.only in (None, "campaign"):
+            gallery(org)
+            fit_and_segment(org)
+            print("running the batches …")
+            batch(org)
+            compare(org, ROOT)
+        if args.only in (None, "tomogram"):
+            tomogram(org)
     return 0
 
 

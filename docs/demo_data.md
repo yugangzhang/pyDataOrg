@@ -4,13 +4,32 @@ Two projects ship as generators rather than as files. Nothing is committed,
 nothing is downloaded, and either can be deleted freely.
 
 ```bash
-python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase      # the showcase
-python -m NanoOrganizer.demo ~/Repos/OrgDemo/Quick --quick  # the small one
-python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase --no-images
+python -m NanoOrganizer.demo --campaign     # the showcase as raw data → ~/Repos/OrgDemo/CuAu
+python -m NanoOrganizer.demo                # the showcase as a project → ~/Repos/OrgDemo/Showcase
+python -m NanoOrganizer.demo --quick        # the small one            → ~/Repos/OrgDemo/Quick
+python -m NanoOrganizer.demo ~/elsewhere/Showcase --no-images
 ```
 
 Both refuse to overwrite a directory that does not carry their own marker
 file, so pointing one at real data cannot destroy it.
+
+**The showcase is the workflow's data.** Notebooks `10` → `11` → `12`, the web
+app's **🎓 Demo** page and the README walkthrough all run on it, laid out like
+this — the campaign as its instruments left it, and beside it the organizer
+built from it and the answer key:
+
+```
+~/Repos/OrgDemo/CuAu/
+├── Campaign/      build_showcase_project() — data and MetaData/*_dict.py
+├── truth.csv      showcase_truth(), the answer key
+├── cuau.json      the organizer: four dicts ingested, four folders linked by hand
+└── results/       stored fits, linked back onto their samples
+```
+
+`--campaign` writes the first two and stops, because building the organizer
+is the lesson. Without it the same campaign goes to `Showcase/` and is opened
+with folder conventions — what **Project → Generate an example one** does, and
+what `notebook/legacy/05_multimodal_demo` tours.
 
 | | `build_demo_project` | `build_showcase_project` |
 |---|---|---|
@@ -19,7 +38,7 @@ file, so pointing one at real data cannot destroy it.
 | stages | 1 | 4 |
 | groups | curve, image | all four |
 | size on disk | ~1 MB | ~16 MB |
-| build time | ~2 s | ~10 s |
+| build time | ~2 s | ~1 s |
 
 ## The showcase: a Cu–Au alloy library for CO₂ reduction
 
@@ -65,18 +84,19 @@ available at once:
 | 2D SAXS | image | the detector frame the 1D curve came from | — |
 | XPCS | correlation | g₂ of the aggregates in a viscous medium | diffusion → size |
 
-![Eight panels from the demo project: a UV-Vis growth series, a WAXS stack whose fcc peaks shift with composition, EDS spectra, Faradaic efficiency against potential, a TEM micrograph, an SEM micrograph, a tomography slab projection, and XPCS correlation functions](images/demo_gallery.png)
+![Eight panels from the campaign: a UV-Vis growth series coloured by time, the WAXS (111) peak of all eight alloys walking left as gold is added, EDS spectra, Faradaic efficiency against potential, a TEM and an SEM micrograph on nanometre axes, a tomography slab projection, and XPCS correlation functions](images/campaign_gallery.png)
 
-Eight of the fifteen, covering all four visualisation groups. The scale bars on
-the micrographs are drawn from each image's own calibration — the generator
-writes it into the TEM banner the way a microscope would, and
-`particle_sizing` reads it back from there rather than being told.
+Eight of the fifteen, covering all four visualisation groups. The micrographs
+are on nanometre axes drawn from each image's own calibration — the generator
+writes it into the TIFF the way a microscope would, and `particle_sizing`
+reads it back from there rather than being told.
 
 ### Things that are in it on purpose
 
 **Two routes in.** Most measurements are declared in `MetaData/*.py`; TEM, SEM,
 tomography and DLS arrive as `<Modality>Data/<SampleID>/` folders with no
-record at all.
+record at all. The workflow links those four by hand, one `org.link` per
+sample and technique; the project route picks them up by folder convention.
 
 **A sparse matrix.** XAS is on four samples, tomography on two, XPCS and 2D
 SAXS on three. Beamtime is finite, and `Project.availability()` exists to show
@@ -91,17 +111,15 @@ object weighted by the sixth power of diameter, SEM the agglomerates. EDS
 measures the bulk, XPS the surface. All five are right; the gaps between them
 are the information.
 
-![Three panels: gold fraction recovered from EDS and from WAXS plotted against the generator's value on a parity line; the fitted plasmon band tracking its true position; and TEM, DLS and SEM diameters separated by an order of magnitude on a log axis](images/demo_agreement.png)
+![Four panels: gold fraction recovered from EDS and from WAXS on the parity line with XPS sitting above it; the fitted plasmon band against the generator's; TEM, DLS and SEM diameters an order of magnitude apart on a log axis; and the CO partial current against the DFT CO binding energy, peaking at CuAu05](images/campaign_compare.png)
 
 The first two panels are the check that the project is self-consistent: two
-instruments that never met land on the same composition. The third is the
-disagreement, and it spans an order of magnitude.
-
-![Three panels: EDS bulk composition against XPS surface composition showing gold segregation; a stacked bar chart of Faradaic efficiency per product across the composition series; and CO partial current against the DFT CO binding energy, peaking at an intermediate composition](images/demo_volcano.png)
-
-The right-hand panel is what the whole project exists to produce: a Sabatier
-volcano whose descriptor — the CO binding energy — came from a different
-stage of the campaign than the current that it predicts.
+instruments that never met land on the same composition, and one plasmon band
+moves the way an alloy's does. XPS sitting above the parity line is the
+segregation, and the three sizes span an order of magnitude. The right-hand
+panel is what the whole project exists to produce: a Sabatier volcano whose
+descriptor — the CO binding energy — came from a different stage of the
+campaign than the current that it predicts.
 
 **A measurement with no story.** Oxygen evolution was run on every sample and
 the trend across the series is ~60 mV. It is in the project to be looked at and
@@ -140,7 +158,7 @@ whole project follows.
 ## Layout on disk
 
 ```
-CuAuDemo/
+Campaign/            (or Showcase/)
   MetaData/            Synthesis_dict.py, Characterization_dict.py,
                        Testing_dict.py, Computation_dict.py
   RawSpectra/          UV-Vis growth series, one .npy per frame + the axis
@@ -167,12 +185,13 @@ thing to turn down.
 The figures on this page and in the README are rebuilt by
 
 ```bash
-python scripts/make_readme_figures.py [project_root]
+python scripts/make_readme_figures.py
 ```
 
-which goes through the same `Workbench`, loaders and house style a notebook
-would. Nothing in them is special-cased for the documentation, so a figure that
-stops reproducing means the pipeline changed.
+which writes the campaign into a scratch folder and draws it with the README
+walkthrough's own calls — the same organizer, loaders and plot functions a
+notebook uses. Nothing in them is special-cased for the documentation, so a
+figure that stops reproducing means the pipeline changed.
 
 To change the science rather than the size, edit
 `NanoOrganizer/demo/materials.py`: every property is one function of *x*, and

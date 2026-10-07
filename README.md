@@ -4,14 +4,21 @@ Organise experimental metadata, visualise any measurement, analyse in batch,
 and compare across samples.
 
 A laboratory accumulates data faster than it accumulates structure: a folder of
-spectra here, a drive of micrographs there, and the conditions that produced
-them in a notebook or a script. NanoOrganizer gives that material one
-sample-centric model, so a question like *does the band shift with synthesis
-temperature?* is a filter and a plot rather than an afternoon.
+spectra here, a drive of micrographs there, a beamline mount, a potentiostat's
+export folder, and the conditions that produced all of it in a notebook or a
+script. NanoOrganizer gives that material one sample-centric model, so a
+question like *which composition is the best CO₂-reduction catalyst, and why?*
+is a filter, a batch and a plot rather than a week.
 
 **The loop is the point: filter → analyse → new columns → filter again.**
 
-This page walks the whole loop on generated data, in the order the three
+![Eight panels from the Cu–Au campaign, all drawn by the package's own plot functions: a UV-Vis growth series coloured by time; the WAXS (111) peak of all eight alloys walking to lower q as gold is added; EDS spectra with the Cu and Au lines; the Faradaic efficiency of six CO₂-reduction products against potential; a TEM micrograph and an SEM micrograph on nanometre axes; a slab projection of a porous tomogram; and XPCS correlation functions](docs/images/campaign_gallery.png)
+
+*Eight of the fifteen techniques in the walkthrough below — curves, images, a
+volume and a correlation function — each drawn by one call into a figure the
+reader made (step C).*
+
+This page walks the whole loop on a generated campaign, in the order the three
 workflow notebooks do — [`10_simulate_data`](notebook/10_simulate_data.ipynb)
 → [`11_build_organizer`](notebook/11_build_organizer.ipynb) →
 [`12_use_organizer`](notebook/12_use_organizer.ipynb) — using only the
@@ -42,54 +49,83 @@ folder you started it in, your home directory, and any extra roots you
 configure — the mode for a shared machine.
 
 **First thing to click: 🎓 Demo.** Six tabs — *Simulate, Build, Look,
-Visualize, Analyze, Compare* — do everything in the walkthrough below with
-buttons, and show the Python each button runs. When it is built, the organizer
-opens in the workflow pages (**Project → Structure → Explore & Filter →
-Visualize → Analyze → Compare**), which drive the very same object a notebook
-does, so the two cannot drift apart.
+Visualize, Analyze, Compare* — run the walkthrough below on the same Cu–Au
+campaign with buttons, and show the Python each button runs. When it is built,
+the organizer opens in the workflow pages (**Project → Structure → Explore &
+Filter → Visualize → Analyze → Compare**), which drive the very same object a
+notebook does, so the two cannot drift apart.
 [`docs/gui_demo.md`](docs/gui_demo.md) is the guided tour, with screenshots;
 [`docs/web_app.md`](docs/web_app.md) describes every page.
 
 ---
 
-## Walkthrough: from scattered files to a compared campaign
+## Walkthrough: fifteen techniques, one hidden number
 
-### 0 · Get some data
+### The campaign
+
+A library of **Cu–Au alloy nanocatalysts for CO₂ electroreduction**, made and
+measured the way a real campaign is: eight compositions plus one synthesis that
+failed, **fifteen techniques across four stages** (synthesis,
+characterization, testing, computation), and a measurement matrix with holes
+in it because beamtime is finite.
+
+Everything in it follows from **one hidden number per sample — the gold
+fraction *x***. Cu and Au mix at every composition, so the textbook
+consequences all arrive together, each seen by a different instrument:
+
+| what *x* does | who sees it |
+|---|---|
+| the lattice swells (Vegard's law) | **WAXS** — the (111) peak walks to lower *q* |
+| one plasmon band moves 580 → 520 nm — an *alloy*, not a mixture, which would show two fixed bands | **UV-Vis** |
+| gold segregates to the surface | **XPS** (surface) reads more gold than **EDS** (bulk) |
+| particles grow with *x* | **TEM** (primaries), **DLS** (hydrated, intensity-weighted), **SEM** (agglomerates) — three sizes, all right |
+| the d-band shifts, so CO binds differently | **DFT**, and the C–O stretch in **IR** |
+| selectivity switches from hydrocarbons to CO | **electrochemistry** — and the CO current is a **Sabatier volcano** |
+
+Raman, XAS, SAXS (1D and 2D), XPCS and tomography fill in the rest. Because the
+generator knows *x*, the answer key comes with the data — the one thing real
+data never lets you check.
+
+### 0 · Get the data
 
 ```bash
-python -m NanoOrganizer.demo --lab      # writes ~/Repos/OrgDemo/Lab
+python -m NanoOrganizer.demo --campaign     # writes ~/Repos/OrgDemo/CuAu/Campaign + truth.csv
 ```
 
 (or run notebook `10_simulate_data`, or **Demo → 1 Simulate** in the GUI —
 all three call the same generator.) Generated data goes under one parent,
 `~/Repos/OrgDemo` by default; set `$NANOORGANIZER_DEMO_ROOT` to move it.
 
-What you get is a rig writing files the way rigs do — **three instruments,
-three folder trees, three naming conventions, none of them agreeing**:
+What lands on disk is a campaign as the groups that ran it left it — one tree
+per kind of instrument, none of them agreeing on a layout:
 
 ```
-📁 RawData  3 folders
-├── 📁 microscope_share  6 folders
-│   ├── 📁 S01  4 files · .tif 3, .txt 1         a folder per sample
-│   └── …
-├── 📁 spectrometer  1 folder
-│   └── 📁 2026-03-11  84 files · .csv 84       S01_t0090s.csv — one per frame
-└── 📁 xrd_rig  6 files · .dat 6                S01_waxs.dat — one per sample
+📁 Campaign  11 folders · 1 file · .txt 1 · 1 hidden
+├── 📁 Computation  8 folders            DFT projected density of states
+├── 📁 DLSData  8 folders                ← no record
+├── 📁 Dynamics  3 folders               XPCS — three samples got beamtime
+├── 📁 Electrochemistry  8 folders       LSVs, one Faradaic-efficiency file per product
+├── 📁 MetaData  4 files · .py 4         what the operators wrote down
+├── 📁 RawSpectra  1 folder              UV-Vis growth series, one file per frame
+├── 📁 Scattering  8 folders             SAXS, WAXS, 2D detector frames
+├── 📁 SEMData  8 folders                ← no record
+├── 📁 Spectroscopy  8 folders           EDS, XPS, Raman, IR, XAS
+├── 📁 TEMData  8 folders                ← no record
+├── 📁 TomoData  2 folders               ← no record
+└── 📄 README.txt  1.2 KB
 ```
 
-plus `Meta/synthesis_dict.json`, what the operator wrote down — the synthesis
-conditions and **the spectra only**. The micrographs and the diffraction came
-from other people on other days and nobody recorded them. That is the normal
-state of affairs, and it is why the next step links them by hand.
+*(The listing is `structure.tree(CAMPAIGN, depth=1)` — the same walk works on
+any folder, JSON record, HDF5 group or `.npz`, reading shapes from headers
+rather than loading data.)*
 
-One number is hidden on purpose: **the synthesis temperature** sets the
-particle size, which sets the plasmon band, the diffraction line width and what
-the micrographs show. `Meta/truth.csv` is the answer key, so step E can check
-what the pipeline recovers — the one thing real data never lets you do.
-
-*(The listing above is `structure.tree(LAB / "RawData", depth=2)` — the same
-walk works on any folder, JSON record, HDF5 group or `.npz`, reading shapes
-from headers rather than loading data.)*
+`MetaData/` holds **four dicts, one per stage**, keyed by sample id — the
+synthesis conditions, and for every other stage the blocks that name the files
+each technique wrote. Four techniques never made it into them: the TEM, SEM,
+DLS and tomography folders were dropped on the share by whoever ran the
+instrument that week. That is the normal state of affairs, and it is why the
+next step links them by hand. `truth.csv`, beside the campaign, is the answer
+key.
 
 ### 1 · Build the organizer — notebook 11
 
@@ -98,81 +134,82 @@ hidden folder — a document you can copy, diff, version and email. It records
 *where* things are; the data never moves.
 
 ```python
-import json
 from NanoOrganizer import Organizer
 from NanoOrganizer.demo import demo_root
 
-LAB = demo_root("Lab")                       # ~/Repos/OrgDemo/Lab
-RAW = LAB / "RawData"
+ROOT = demo_root("CuAu")                     # ~/Repos/OrgDemo/CuAu
+CAMPAIGN = ROOT / "Campaign"
 
-org = Organizer(LAB / "lab.json", name="lab demo")      # empty if the file is new
-
-synthesis = json.loads((LAB / "Meta" / "synthesis_dict.json").read_text())
-org.ingest(synthesis=synthesis)              # the dict itself; the keyword names the stage
-org.table()[["synthesis.conditions.temperature_C", "modalities"]]
+org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")   # empty if the file is new
+for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
+    org.ingest(CAMPAIGN / "MetaData" / f"{stage}_dict.py")       # the stage is named by the dict
+print(org.summary())                         # 9 samples, 118 measurements
 ```
 
-`ingest` takes **the dict, not a path to it** — what a notebook actually has.
-Any block of a record that names files becomes a measurement (here, the
-spectrum glob); everything else is kept as a parameter and flattens into a
-dotted, filterable column.
+`ingest` reads what somebody already wrote down. Any block of a record that
+names files becomes a measurement; everything else is kept as a parameter and
+flattens into a dotted, filterable column —
+`synthesis.composition.nominal_x_Au`, `testing.performance.FE_CO_pct`,
+`computation.descriptors.E_ads_CO_eV`.
 
-The dict stays live. Edit it and ingest again; `replace=True` makes it the
-whole truth for its stage, so a popped key is really gone rather than lingering
-as a merge artefact:
+`ingest` also takes **the dict itself**, which is what a notebook actually
+has. Edit it and ingest again; `replace=True` makes it the whole truth for its
+stage, so a popped key is really gone rather than lingering as a merge
+artefact:
 
 ```python
-# A seventh synthesis that failed: conditions and no data at all. Recording it
-# matters — leaving it out biases every later comparison.
-synthesis["S07"] = {"sample_id": "S07",
-                    "synthesis_batch": {"status": "error",
-                                        "error": "precursor precipitated"},
-                    "conditions": {"temperature_C": 120.0}}
-org.ingest(synthesis=synthesis, replace=True)
+import runpy
+
+Synthesis_dict = runpy.run_path(str(CAMPAIGN / "MetaData" / "Synthesis_dict.py"))["Synthesis_dict"]
+Synthesis_dict["CuAu04"]["conditions"]["hold_time_min"] = 75.0   # a transcription error, found later
+org.ingest(synthesis=Synthesis_dict, replace=True)               # the keyword names the stage
 ```
 
 Then **link what nobody wrote down** — one call per measurement, by hand,
 because that is the only thing that is true:
 
 ```python
+BY_HAND = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData", "tomo": "TomoData"}
+
 for sample in org.ids():
-    scope = RAW / "microscope_share" / sample          # a folder per sample
-    waxs = RAW / "xrd_rig" / f"{sample}_waxs.dat"      # one file per sample
-    if scope.is_dir():
-        org.link(sample, "tem", str(scope), stage="characterization",
-                 nm_per_pixel=0.5)
-    if waxs.exists():
-        org.link(sample, "waxs1d", str(waxs), stage="characterization")
+    for modality, folder in BY_HAND.items():
+        source = CAMPAIGN / folder / sample
+        if source.is_dir():                  # CuAu09 failed; tomography is on two samples
+            extra = {"voxel_size_nm": 2.0} if modality == "tomo" else {}   # the reconstruction's voxel
+            org.link(sample, modality, str(source), stage="characterization", **extra)
 ```
 
 `link` reads its third argument three ways:
 
 | | |
 |---|---|
-| a **folder** | listed now, filtered by the technique's extensions — a snapshot you can audit (`session.txt` beside the TIFFs is left out without being asked) |
+| a **folder** | listed now, filtered by the technique's extensions — a snapshot you can audit (`note.txt` beside the TIFFs is left out without being asked) |
 | a **glob** | kept live, re-expanded on every read, so frames written later appear |
 | a **path or list** | stored verbatim |
 
-Paths are recorded exactly as given — a rewritten store only works on the
-machine that wrote it. Each link instead registers the **mount** its data sits
-on as an alias, so moving to another machine is one line per mount, not one
-edit per record.
+Anything else you pass is kept with the link — the tomogram's voxel size here,
+which step C reads back. Paths are recorded exactly as given; each link
+registers the **mount** its data sits on as an alias, so moving to another
+machine is one line per mount, not one edit per record.
 
 ```python
-org.set_params("S01", stage="synthesis", batch_group="morning")  # anything else worth filtering on
-org.catalog()               # the sample × technique matrix — S07 is the empty row
+org.catalog()               # the sample × technique matrix: 9 × 16, 144 measurements
 org.save()                  # one file: links, parameters, aliases
 org.links_table().head()    # every link as a table; link_table(csv) reads it back
 ```
 
-The catalog's gaps are the point: a measurement matrix is always sparse, and
-seeing which comparisons exist beats finding out halfway through an argument.
-`links_table()` round-trips through `link_table()` unchanged, because a
-spreadsheet is a better editor than a form when forty rows need the same fix.
+The catalog's gaps are the point. CuAu09 is an empty row — the synthesis
+aborted, and it stays in the table because a filter that silently dropped it
+would hide that it exists. XAS is on four samples, 2D SAXS and XPCS on three,
+tomography on two; seeing which comparisons exist beats finding out halfway
+through an argument. `links_table()` round-trips through `link_table()`
+unchanged, because a spreadsheet is a better editor than a form when forty rows
+need the same fix.
 
 `attach_folders()` also exists, for data genuinely laid out as
-`<Modality>Data/<SampleID>/` under one root. It is the exception, not the
-route this page leads with, because almost no campaign is shaped that way.
+`<Modality>Data/<SampleID>/` under one root — which the four bare folders here
+happen to be. It is the exception, not the route this page leads with, because
+almost no campaign is shaped that way.
 
 ### 2 · Use it — notebook 12
 
@@ -183,148 +220,265 @@ stops fitting what a convenience call assumed, you carry on with your own code.
 **A · Look at it.** Reopening is the same call, and everything is back.
 
 ```python
-org = Organizer(LAB / "lab.json")
-org.describe()                               # samples, stages, techniques, what is readable here
+org = Organizer(ROOT / "cuau.json")
+org.describe()                               # samples, stages, techniques by group, what is readable here
 print(org.tree(depth=2, limit=5))            # the file's structure — of the live session, not the last save
-org.catalog()
 
-org.ids("`synthesis.conditions.temperature_C` >= 90")   # a question, without committing to it
-hot = org.subset(query="`synthesis.conditions.temperature_C` >= 90", name="hot")
+org.ids("`synthesis.composition.nominal_x_Au` >= 0.5")       # a question, without committing to it
+gold_rich = org.subset(query="`synthesis.composition.nominal_x_Au` >= 0.5 "
+                             "and `synthesis.status` == 'done'", name="gold-rich")
 ```
 
-A subset is a **deep copy**, not a view, so analysing it cannot write derived
-values back into the parent by accident. Nothing is written until you `save()`
-it. `org.filter(...)` instead makes the selection current for every later call
+The first question returns the failed CuAu09 too — its recipe said 0.5 — which
+is exactly why the subset asks for `status == 'done'` as well. A subset is a
+**deep copy**, not a view, so analysing it cannot write derived values back
+into the parent by accident; nothing is written until you `save()` it.
+`org.filter(...)` instead makes the selection current for every later call
 (`org.clear()` drops it).
 
 **B · Load data** — all of it, or one frame at a time.
 
 ```python
-x, Y, info = org.data("S01", "uvvis")         # Y is (14 frames, 401 points); info["t_s"] from the filenames
-_, Y600, _ = org.data("S01", "uvvis", t=600)  # the frame nearest 600 s
-org.frames("S01", "uvvis").head()             # one row per file: what each name admitted about time/temperature
+x, Y, info = org.data("CuAu05", "uvvis")             # 14 frames × 551 points; info["t_s"] from the filenames
+_, Y80, hot = org.data("CuAu05", "uvvis", T=80)      # the frame nearest 80 °C — the names carry both
+org.frames("CuAu05", "uvvis").head()                 # one row per file: what each name admitted (t_s, T_c)
 
-frames = org.data("S01", "tem", lazy=True)    # resolved, nothing read
-len(frames), frames.names                     # known before any file is opened
-image, meta = frames[1]                       # one file opened; meta["nm_per_pixel"] from the TIFF
-q, W, _ = org.data("S01", "waxs1d")
+frames = org.data("CuAu05", "tem", lazy=True)        # 3 files resolved, nothing read
+image, meta = frames[0]                              # one file opened; meta["nm_per_pixel"] from the TIFF
+planes = org.data("CuAu01", "tomo", lazy=True)       # 128 planes of one memory-mapped .npy
+plane, _ = planes[64]                                # one plane read, not the whole tomogram
+q, W, _ = org.data("CuAu05", "waxs1d")
 ```
 
-`lazy=True` is the difference between looking at the third of four hundred
-micrographs and reading twelve gigabytes to do it; a single file holding a
-volume is memory-mapped, so its frames are planes.
+What comes back follows what the data *is*: a curve is `(x, Y, info)`, an
+image `(array, info)`, a volume `(volume, info)`. `lazy=True` is the
+difference between looking at the third of four hundred micrographs and
+reading twelve gigabytes to do it.
 
 **C · Visualise** — the arrays from B, into a figure you made. Every plot
-function takes `ax=`, draws there, and returns what it drew on:
+function takes `ax=`, draws there, and returns what it drew on. This is the
+gallery at the top of the page:
 
 ```python
 import matplotlib.pyplot as plt
 from NanoOrganizer.viz.plots import plot_curves, plot_image, plot_series
+from NanoOrganizer.viz.show import project_volume
 
-curves = []
-for sample in ["S01", "S03", "S06"]:
-    q_s, W_s, _ = org.data(sample, "waxs1d")
-    curves.append((sample, q_s, W_s[0]))
+done = org.ids("`synthesis.status` == 'done'")
+x_nominal = org.table(sample_ids=done)["synthesis.composition.nominal_x_Au"]
 
-height, width = image.shape
-scale = meta["nm_per_pixel"]
+x, Y, info = org.data("CuAu05", "uvvis")
+q = org.data("CuAu01", "waxs1d")[0]                 # one q grid for all
+waxs = [org.data(s, "waxs1d")[1][0] for s in done]
 
-fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.4))
-plot_series(x, Y, info["t_s"], ax=axes[0], xlabel="wavelength (nm)",
-            ylabel="absorbance", colorbar_label="time (s)")
-plot_curves(curves, ax=axes[1], xlabel="q (Å⁻¹)", ylabel="intensity",
-            xlim=(2.3, 3.3))
-plot_image(image, ax=axes[2], cmap="gray",
-           extent=(0, width * scale, height * scale, 0), xlabel="nm", ylabel="nm")
+eds, g2 = [], []
+for s in ("CuAu01", "CuAu05", "CuAu08"):
+    energy, counts, _ = org.data(s, "eds")
+    eds.append((s, energy, counts[0]))
+for s in ("CuAu01", "CuAu04", "CuAu08"):            # XPCS got three samples
+    tau, G, _ = org.data(s, "xpcs_g2")
+    g2.append((s, tau, G[0]))
+
+potential, FE, fe = org.data("CuAu06", "ec", role="co2-rr-fe")
+products = [(name[3:-4], potential, row)
+            for name, row in zip(fe["labels"], FE)]
+
+tem, tem_info = org.data("CuAu05", "tem", frame=0)
+sem, sem_info = org.data("CuAu05", "sem", frame=0)
+volume, _ = org.data("CuAu01", "tomo")
+voxel = org.measurement("CuAu01", modality="tomo").meta["voxel_size_nm"]
+slab, detail = project_volume(volume, projection="max projection", slab=16)
+
+tem_nm = tem.shape[0] * tem_info["nm_per_pixel"]    # square frames
+sem_nm = sem.shape[0] * sem_info["nm_per_pixel"]
+slab_nm = slab.shape[0] * voxel
+
+fig, axes = plt.subplots(2, 4, figsize=(21, 9))
+plot_series(x, Y, info["t_s"], ax=axes[0, 0], xlabel="wavelength (nm)",
+            ylabel="absorbance", colorbar_label="time (s)",
+            title="UV-Vis · CuAu05 growth, coloured by time")
+plot_series(q, waxs, x_nominal.values, ax=axes[0, 1], xlim=(2.5, 3.25),
+            xlabel="q (Å⁻¹)", ylabel="intensity", colorbar_label="x(Au)",
+            title="WAXS (111) · walks left as gold enters")
+plot_curves(eds, ax=axes[0, 2], logy=True, xlim=(0.5, 11.0),
+            xlabel="energy (keV)", ylabel="counts",
+            title="EDS · Cu Kα 8.05, Au Lα 9.71 keV")
+plot_curves(products, ax=axes[0, 3], marker="o", markersize=5,
+            xlabel="potential (V vs RHE)",
+            ylabel="Faradaic efficiency (%)",
+            title="CO₂RR · CuAu06, where the charge goes")
+plot_image(tem, ax=axes[1, 0], cmap="gray", colorbar=False,
+           extent=(0, tem_nm, tem_nm, 0), xlabel="nm", ylabel="nm",
+           title="TEM · primary particles, dark on film")
+plot_image(sem, ax=axes[1, 1], cmap="gray", colorbar=False,
+           extent=(0, sem_nm, sem_nm, 0), xlabel="nm", ylabel="nm",
+           title="SEM · agglomerates, bright on support")
+plot_image(slab, ax=axes[1, 2], cmap="magma", colorbar=False,
+           extent=(0, slab_nm, slab_nm, 0), xlabel="nm", ylabel="nm",
+           title=f"Tomography · CuAu01, {detail}")
+plot_curves(g2, ax=axes[1, 3], logx=True, marker="o", markersize=4,
+            xlabel="lag τ (s)", ylabel="g₂(τ)",
+            title="XPCS · decay rate → aggregate size")
 fig.tight_layout()
 ```
 
-![Three panels from the lab demo: a UV-Vis growth series of fourteen spectra coloured light to dark by acquisition time; the WAXS (111) peak for samples S01, S03 and S06, narrowing as the synthesis gets hotter; and a TEM micrograph of dark particles drawn on nanometre axes](docs/images/lab_visualize.png)
+A series ordered by something continuous — time, composition — is coloured
+along **one hue**, with a colour bar instead of a legend of fourteen
+timestamps; categories get distinct hues. The micrographs are on nanometre
+axes because each TIFF carried its calibration, and the tomogram because its
+voxel size was recorded when it was linked. A slab projection is what anyone
+actually looks at: a single plane through a packed aggregate is mostly gaps.
 
-A growth series is coloured along **one hue by time**, with a colour bar
-instead of a legend of fourteen timestamps; the micrograph is on nanometre
-axes because the TIFF carried its calibration, so a distance read off it means
-something. Each panel is one call, and the figure is yours to annotate after.
-
-**D · Fit one, look at it, *then* batch.** The fit is a function of two arrays
-— no files, no project — and drawing it is a second, separate call:
+A projection says what is in there; only rotation says what shape it is. The
+same volume, as something you can turn around:
 
 ```python
-from NanoOrganizer.analysis import fit_peaks
-from NanoOrganizer.viz.plots import plot_fit
+from NanoOrganizer.viz import interactive as iv
 
-fit = fit_peaks(q, W[0], n_peaks=1, x_range=(2.3, 3.0), background="linear")
-fit                          # <PeakFitResult 1 peak(s) at [2.67], R² = 0.9993>
-fit.params, fit.errors       # centre, width, amplitude, background — and their 1σ
-
-fig, ax = plt.subplots(figsize=(7, 5))
-plot_fit(fit.x, fit.y, fit.y_fit, fit.residual, ax=ax, xlabel="q (Å⁻¹)",
-         title=f"S01, R² = {fit.r2:.4f}")    # residuals split off the bottom of ax
-
-for window in [(2.3, 3.0), (2.3, 3.6), (2.3, 4.5)]:
-    trial = fit_peaks(q, W[0], n_peaks=1, x_range=window, background="linear")
-    print(window, f"centre {trial.params['peak1_center']:.4f}  R² {trial.r2:.4f}")
+tomo = iv.volume_figure(volume, mode="volume", level=130, voxel_size=voxel, unit="nm")
+# tomo.show()   — drag to rotate; mode="isosurface", "points" or "slices" for the other views
 ```
 
-![Two fits of the S01 WAXS pattern, each with its residual panel beneath: on the 2.3–3.0 window the residual is flat noise and R² is 0.9993; on the 2.3–4.5 window two further reflections sit unfitted and the residual is two clear peaks, R² 0.79](docs/images/lab_fit.png)
+![A rotatable rendering of the CuAu01 tomogram: a roughly spherical aggregate about 150 nm across, its interior threaded with pores, on calibrated nanometre axes](docs/images/demo_tomogram.png)
+
+`level` is a control rather than a constant, because that one number decides
+what the structure appears to be. Large volumes are strided down before
+rendering and the title says by how much — a browser does not degrade
+gracefully on a 128³ translucent volume, it locks the tab.
+
+**D · Fit one, look at it, *then* batch.** The fit is a function of two arrays
+— no files, no project — and so is the composition it implies. Looking at
+either is a second, separate call:
+
+```python
+from NanoOrganizer.analysis import fit_peaks, segment_micrograph
+from NanoOrganizer.demo import materials as mat
+from NanoOrganizer.viz.plots import plot_fit, plot_segmentation
+
+fit = fit_peaks(q, W[0], n_peaks=2, x_range=(2.5, 3.6),
+                shape="pseudo_voigt", background="linear")
+fit                                                    # <PeakFitResult 2 peak(s) at [2.812, 3.247], R² = 0.9999>
+lattice = mat.lattice_from_q(fit.params["peak1_center"])    # (111): a = 2π√3 / q = 3.870 Å
+x_au = mat.fraction_from_lattice(lattice)              # Vegard backwards → 0.550; the generator used 0.55
+
+seg = segment_micrograph(org.measurement("CuAu05", modality="tem"), org.resolver)
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5.6), gridspec_kw={"width_ratios": [1.35, 1]})
+plot_fit(fit.x, fit.y, fit.y_fit, fit.residual, ax=axes[0], xlabel="q (Å⁻¹)",
+         ylabel="intensity", title=f"CuAu05 · R² = {fit.r2:.4f} → x(Au) = {x_au:.3f}")
+plot_segmentation(seg, ax=axes[1])                     # always look before trusting a size table
+```
+
+![Left: the CuAu05 WAXS pattern between 2.5 and 3.6 per ångström with the (111) and (200) peaks fitted as pseudo-Voigts on a linear background, R² 0.9999, and the residual panel split off beneath; right: the CuAu05 TEM micrograph with 58 particles outlined in red](docs/images/campaign_fit.png)
 
 The residual panel is where a bad fit shows: a fitted line over data is
 persuasive whatever it does, and residuals that stop being noise and start
-having shape are the thing to look at. Settling the parameters on one sample
-you can *see*, and only then spending them on the whole set, is the same work
-as batching first and reading the R² column afterwards — in the order that
-does not hide the mistake:
+having shape are the thing to look at. Even this one has a little shape under
+each peak — a pseudo-Voigt is not exactly the generator's line profile — but at
+under 1 % of the peak it moves the centre by nothing. Fit one peak across both
+reflections instead and the centre still lands, R² still reads 0.82, and the
+residual is nearly as tall as the (200) peak: the residual is the tell, not the
+headline number. The outlines are the same check for sizing — over-splitting
+and film texture both produce a plausible histogram.
+Settling the parameters on one sample you can *see*, and only then spending
+them on the whole set, is the same work as batching first and reading the R²
+column afterwards — in the order that does not hide the mistake:
 
 ```python
-params = dict(x_range=(2.3, 3.0), n_peaks=1, background="linear")
-org.batch("peak_fit", modality="waxs1d", link=True, **params)
-org.batch("peak_fit", modality="uvvis", link=True,
-          x_range=(450, 700), n_peaks=1, background="linear")
+org.batch("peak_fit", modality="waxs1d", link=True, x_range=(2.5, 3.6),
+          n_peaks=2, shape="pseudo_voigt", background="linear")
+org.batch("peak_fit", modality="uvvis", link=True, x_range=(470.0, 800.0),
+          reduce="last_decile", background="linear")      # the end of the growth series
+org.batch("curve_metrics", modality="eds", prefix="eds_cu_", x_min=7.7, x_max=8.4)
+org.batch("curve_metrics", modality="eds", prefix="eds_au_", x_min=9.4, x_max=10.0)
+org.batch("curve_metrics", modality="xps", role="cu2p", prefix="xps_cu_", x_min=929, x_max=937)
+org.batch("curve_metrics", modality="xps", role="au4f", prefix="xps_au_", x_min=81.5, x_max=86.0)
+org.batch("particle_sizing", modality="tem")
+org.batch("particle_sizing", modality="sem", max_diameter_nm=500, min_circularity=0.5)
+org.batch("curve_metrics", modality="dls", x_min=5, x_max=120)
 org.results()[["sample_id", "modality", "ok", "fit_r2"]]
 org.save()
 ```
 
-A batch writes each result's scalars back as columns — `derived.waxs1d_peak1_center`,
-`derived.uvvis_peak1_center`, prefixed by technique so two fits cannot
-overwrite each other — and reports its failures rather than skipping them.
-`link=True` also writes the fitted *curves* beside the organizer and links
-them onto their sample, which is what part F reads back.
+Each batch writes its scalars back as columns beside the authored parameters —
+`derived.waxs1d_peak1_center`, `derived.tem_d_mean`, `derived.eds_au_area` —
+and reports its failures rather than skipping them. Every line is a decision
+worth reading: `prefix=` keeps two windows on one spectrum in two columns;
+`background="linear"` because an EDS line sits on bremsstrahlung and a plasmon
+on an interband edge, and a flat background through a slope drags the centre
+up it; `reduce="last_decile"` fits the *product* rather than a particle that
+had not finished growing. `link=True` also writes the fitted *curves* beside
+the organizer and links them onto their sample, which is what part F reads
+back.
 
 **E · Compare: ids → table → plot.** Each step is a thing you can look at:
 
 ```python
-import numpy as np
 import pandas as pd
+from NanoOrganizer.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
 from NanoOrganizer.viz.plots import plot_compare
 
-ids = org.ids("`synthesis.status` == 'done'")          # S07 failed
-table = org.table(sample_ids=ids)
-truth = pd.read_csv(LAB / "Meta" / "truth.csv").set_index("sample_id")
+table = org.table(sample_ids=org.ids("`synthesis.status` == 'done'"))
+truth = pd.read_csv(ROOT / "truth.csv").set_index("sample_id")   # the answer key
 
 check = pd.DataFrame({
-    "fitted_band_nm": table["derived.uvvis_peak1_center"],
-    "waxs_fwhm_invA": table["derived.waxs1d_peak1_width"] * 2.3548,  # σ → FWHM
-}).join(truth).reset_index()
-check["inverse_d"] = 1.0 / check["true_diameter_nm"]
-slope, intercept = np.polyfit(check["inverse_d"], check["waxs_fwhm_invA"], 1)
+    "x_true": truth["x_Au"],
+    "EDS (bulk)": mat.fraction_from_signals(
+        table["derived.eds_au_area"], table["derived.eds_cu_area"],
+        gold_factor=EDS_K_FACTOR_AU_CU),                        # Cliff–Lorimer
+    "WAXS (Vegard)": mat.fraction_from_lattice(
+        mat.lattice_from_q(table["derived.waxs1d_peak1_center"])),
+    "XPS (surface)": mat.fraction_from_signals(
+        table["derived.xps_au_area"], table["derived.xps_cu_area"],
+        gold_factor=XPS_RSF["Au 4f7/2"], copper_factor=XPS_RSF["Cu 2p3/2"]),
+    "band_true_nm": truth["true_lspr_nm"],
+    "band_fitted_nm": table["derived.uvvis_peak1_center"],
+    "TEM": table["derived.tem_d_mean"],
+    "DLS": table["derived.dls_x_at_max"],
+    "SEM": table["derived.sem_d_mean"],
+}).reset_index()
 
-fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
-plot_compare(check, "true_band_nm", "fitted_band_nm", ax=axes[0])
-axes[0].axline((520, 520), slope=1, linestyle="--", color="0.6")      # parity
-plot_compare(check, "inverse_d", "waxs_fwhm_invA", ax=axes[1])
-axes[1].axline((0, intercept), slope=slope, linestyle="--", color="0.6")
-plot_compare(org.table(), "synthesis.conditions.temperature_C",
-             "derived.uvvis_peak1_center", ax=axes[2])
+composition = check.melt(id_vars=["sample_id", "x_true"], var_name="technique",
+                         value_vars=["EDS (bulk)", "WAXS (Vegard)", "XPS (surface)"],
+                         value_name="x_measured")
+sizes = check.melt(id_vars=["sample_id", "x_true"], var_name="technique",
+                   value_vars=["TEM", "DLS", "SEM"], value_name="diameter_nm")
+
+fig, axes = plt.subplots(1, 4, figsize=(22, 5))
+plot_compare(composition, "x_true", "x_measured", color_by="technique",
+             label_points=False, ax=axes[0],
+             xlabel="x(Au) the generator used", ylabel="x(Au) measured",
+             title="Composition three ways — XPS sits above: Au segregates")
+axes[0].axline((0, 0), slope=1, linestyle="--", color="0.6")
+plot_compare(check, "band_true_nm", "band_fitted_nm", ax=axes[1],
+             xlabel="band the generator used (nm)", ylabel="fitted band (nm)",
+             title="One plasmon band that moves — an alloy")
+axes[1].axline((550, 550), slope=1, linestyle="--", color="0.6")
+plot_compare(sizes, "x_true", "diameter_nm", color_by="technique",
+             label_points=False, logy=True, ax=axes[2],
+             xlabel="x(Au)", ylabel="diameter (nm)",
+             title="Three sizes, all of them right")
+plot_compare(org.table(), "computation.descriptors.E_ads_CO_eV",
+             "testing.performance.j_CO_mA_cm2", ax=axes[3],
+             xlabel="ΔE(CO) from DFT (eV)", ylabel="CO partial current (mA cm⁻²)",
+             title="Sabatier volcano, straight off the table")
 fig.tight_layout()
 ```
 
-![Three panels: the fitted UV-Vis band against the band the generator used, all six samples within 1.3 nm of the parity line; the fitted WAXS line width against one over the true diameter, a straight line through the origin with slope 0.561 against 0.565 expected; and the fitted band against synthesis temperature, rising steadily from 523 to 537 nm](docs/images/lab_compare.png)
+![Four panels: gold fraction recovered from EDS and from WAXS on the parity line with XPS sitting above it; the fitted plasmon band against the generator's on a parity line, 580 to 520 nm; TEM, DLS and SEM diameters an order of magnitude apart on a log axis; and the CO partial current against the DFT CO binding energy, rising to a peak at CuAu05 and falling again](docs/images/campaign_compare.png)
 
-Two techniques that never met recover the same hidden number from opposite
-directions: the plasmon band lands within **1.3 nm** of the generator's, and
-the diffraction line width is Scherrer — a straight line in 1/D through the
-origin, slope **0.561** against **0.565** expected. The last panel is the plot
-the whole pipeline exists to produce, read straight off the table.
+Instruments that never met recover the same hidden number: **EDS** lands
+within 0.021 of the generator's composition and **WAXS**, through Vegard's law,
+within 0.001; the plasmon band is within **0.95 nm**. Two disagreements are
+the information rather than error. **XPS** reads more gold than the bulk
+because gold segregates to the surface — it tracks the generator's surface
+composition to within 0.05. The **three sizes** span an order of magnitude and
+all are right: TEM resolves primary particles, DLS the hydrated object weighted
+by the sixth power of diameter, SEM at this magnification only the
+agglomerates. And the last panel is why anyone builds a composition series:
+DFT's CO binding energy, from a different stage of the campaign, predicts the
+CO partial current — too weak and CO leaves before anything happens to it, too
+strong and it never leaves — peaking at **CuAu05**, *x* = 0.55.
 
 **F · Reopen, and go round again.** Nothing is refitted: the stored curves come
 off disk.
@@ -332,9 +486,9 @@ off disk.
 ```python
 from NanoOrganizer.viz.plots import plot_peak_fit
 
-later = Organizer(LAB / "lab.json")
+later = Organizer(ROOT / "cuau.json")
 later.results()                                              # what has been analysed, and how
-result = later.result("S03", "peak_fit", modality="waxs1d")  # read back, not recomputed
+result = later.result("CuAu05", "peak_fit", modality="waxs1d")   # read back, not recomputed
 
 fig, ax = plt.subplots(figsize=(7, 5))
 plot_peak_fit(result, ax=ax)                                 # the fit over its data, residuals beneath
@@ -343,19 +497,19 @@ plot_peak_fit(result, ax=ax)                                 # the fit over its 
 A fit is a measurement of a measurement, so it needs no second mechanism: it
 sits on its sample as modality `fit`, shows in `catalog()`, and survives the
 organizer being reopened months later on another machine. `modality=` picks
-between two fits of one sample — the UV-Vis band and the diffraction peak are
+between two fits of one sample — the plasmon band and the diffraction peak are
 two results, not one.
 
 > Every step above also has a one-call shortcut on the organizer — draw a
 > measurement by sample and technique, overlay a technique across samples,
-> fit one sample, redraw a stored fit. Notebook 12 shows them; this page uses
-> the calls underneath, because those are the ones you keep when an analysis
-> stops fitting what a shortcut assumed.
+> fit one sample, segment one frame, redraw a stored fit. Notebook 12 shows
+> them; this page uses the calls underneath, because those are the ones you
+> keep when an analysis stops fitting what a shortcut assumed.
 
 **It scales.** Keying on `sample_id` is not a small-campaign idea: **10 000
 samples** ingest in 0.15 s, save in 0.9 s (13 MB), load in 0.4 s and filter in
 0.1 s on an ordinary laptop. A plate-based campaign uses the same calls as this
-six-sample one.
+nine-sample one.
 
 ---
 
@@ -379,14 +533,13 @@ an existing figure, at a cell of a subplot grid, and get it back:
 
 ```python
 from plotly.subplots import make_subplots
-from NanoOrganizer.viz import interactive as iv
 
-grid = make_subplots(rows=1, cols=2, subplot_titles=("S01", "S06"))
-for column, sample in enumerate(["S01", "S06"], start=1):
-    q_s, W_s, _ = org.data(sample, "waxs1d")
-    iv.curves_figure([(sample, q_s, W_s[0])], fig=grid, row=1, col=column,
-                     xlabel="q (Å⁻¹)", xlim=(2.3, 3.3))
-# grid.show() — zoom a shoulder, read a value under the cursor
+grid = make_subplots(rows=1, cols=2,
+                     subplot_titles=("CuAu06 · Faradaic efficiency", "CuAu05 · TEM"))
+iv.curves_figure(products, fig=grid, row=1, col=1, marker="circle",
+                 xlabel="potential (V vs RHE)", ylabel="FE (%)")
+iv.image_figure(tem, fig=grid, row=1, col=2, colorscale="Greys_r")
+# grid.show() — hover for the exact number, zoom into a particle
 ```
 
 [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md) states both rules
@@ -398,7 +551,7 @@ project as-is.
 ```
 Organizer / Project        one document (or folder): samples, path aliases, the store
  └── Sample(sample_id)     the thing that persists
-      ├── stages           one execution each — synthesis, characterization, … — with its parameters
+      ├── stages           one execution each — synthesis, characterization, testing, computation — with its parameters
       ├── measurements     one body of data each, referenced not loaded
       └── derived          computed values — filterable beside the authored ones
 ```
@@ -447,8 +600,10 @@ call on arrays and an adapter `batch` runs:
 `curve_metrics`' threshold crossing is the same operation as *the potential at
 10 mA cm⁻²*, *the onset of an absorption edge* and *the lag time at which a
 correlation function has half decayed* — writing it once is the argument for a
-modality registry in miniature. Results carry their own provenance: a fit
-window, an R² and a point count are part of a measurement, not decoration.
+modality registry in miniature. Above it measured line areas on EDS and XPS
+and the peak of a DLS distribution with no change. Results carry their own
+provenance: a fit window, an R² and a point count are part of a measurement,
+not decoration.
 
 Chemistry-specific analyses belong in a package of their own and register
 themselves on import — the same adapter shape, under a new key:
@@ -468,54 +623,32 @@ register_analysis(Analysis(key="pl_band", func=curve_metrics,
 | a metadata format | `register_adapter()` an `Adapter` |
 | a filename convention | `register_grammar()` a `FrameGrammar` |
 
-## A bigger example: the Cu–Au showcase
+## Other generated data
 
 ```bash
-python -m NanoOrganizer.demo            # writes ~/Repos/OrgDemo/Showcase
+python -m NanoOrganizer.demo            # the same campaign as a ready project → ~/Repos/OrgDemo/Showcase
+python -m NanoOrganizer.demo --quick    # a small two-technique project       → ~/Repos/OrgDemo/Quick
 ```
 
-A Cu–Au alloy nanocatalyst library for CO₂ electroreduction, characterised the
-way a real campaign would be: **fifteen techniques across four stages**, a
-sparse measurement matrix, and one synthesis that failed. Everything in it
-follows from one hidden number per sample — the gold fraction *x* — so
-techniques that never met can be checked against each other. Open it in the
-GUI (**Project → Open**), or read `notebook/legacy/05_multimodal_demo` for the
-full tour and [`docs/demo_data.md`](docs/demo_data.md) for what is in it on
-purpose.
-
-![Eight panels from the showcase: a UV-Vis growth series, a WAXS stack whose fcc peaks shift with composition, EDS spectra, Faradaic efficiency against potential, a TEM micrograph, an SEM micrograph, a tomography slab projection, and XPCS correlation functions](docs/images/demo_gallery.png)
-
-An electron microscope's X-ray detector and a diffractometer in another room
-land on the same composition to within a few percent; the sizes from TEM, DLS
-and SEM disagree by an order of magnitude and **all three are right**, because
-each sees a different object. The payoff is a structure–property chain — DFT
-d-band centre → CO binding → IR C–O stretch → selectivity — ending in a
-Sabatier volcano:
-
-![Three panels: gold fraction recovered from EDS and from WAXS against the generator's value; the fitted plasmon band tracking its true position; and TEM, DLS and SEM diameters separated by an order of magnitude](docs/images/demo_agreement.png)
-
-![Three panels: EDS bulk against XPS surface composition showing gold segregation; Faradaic efficiency per product across the composition series; and CO partial current against the DFT CO binding energy, peaking at an intermediate composition](docs/images/demo_volcano.png)
-
-Volumes are rendered interactively — isosurface, translucent volume, point
-cloud or orthogonal slices — with the threshold a control rather than a
-constant, because that one number decides what the structure appears to be:
-
-![A rotatable rendering of the showcase tomogram: a roughly spherical aggregate about 150 nm across, its interior threaded with pores, on calibrated nanometre axes](docs/images/demo_tomogram.png)
-
-`python -m NanoOrganizer.demo --quick` builds a smaller two-technique project;
-`notebook/legacy/00_quickstart` → `04_compare` walk it.
+The first opens the campaign with folder conventions instead of building an
+organizer by hand — what **Project → Generate an example one** in the GUI
+does, and what `notebook/legacy/05_multimodal_demo` tours. The second is the
+small project `notebook/legacy/00_quickstart` → `04_compare` walk.
+[`docs/demo_data.md`](docs/demo_data.md) records what is in the campaign on
+purpose — including the failed run, the sparse matrix, and the one technique
+with no story to tell.
 
 ## Documentation
 
 | | |
 |---|---|
 | [`notebook/README.md`](notebook/README.md) | which notebook to read, in what order |
-| [`docs/gui_demo.md`](docs/gui_demo.md) | the GUI, step by step, on the lab demo |
+| [`docs/gui_demo.md`](docs/gui_demo.md) | the GUI, step by step, on the Cu–Au campaign |
 | [`docs/web_app.md`](docs/web_app.md) | every page of the GUI, and how to extend it |
 | [`docs/sample_model.md`](docs/sample_model.md) | the data model, path aliases, ingest, linking, stored results |
 | [`docs/analysis.md`](docs/analysis.md) | analyses, the registry, and decisions that affect the numbers |
 | [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md) | the kernel/adapter and plotting rules every function follows |
-| [`docs/demo_data.md`](docs/demo_data.md) | the generated example projects, and what is in them on purpose |
+| [`docs/demo_data.md`](docs/demo_data.md) | the generated campaign, its physics, and what is in it on purpose |
 | [`CLAUDE.md`](CLAUDE.md) | the house rules for anyone — person or coding assistant — changing the code |
 | [`docs/archive/`](docs/archive/) | notes from earlier versions, kept for reference |
 
@@ -526,14 +659,14 @@ pytest
 ```
 
 The suite includes the kernels on synthetic data with known answers, and the
-Streamlit pages driven through `AppTest` against generated projects — the
-small one, and the fifteen-technique showcase that exercises all four
-visualisation groups at once. No test needs a data mount.
+Streamlit pages driven through `AppTest` against generated projects — including
+the fifteen-technique campaign that exercises all four visualisation groups at
+once. No test needs a data mount.
 
 The figures on this page are part of that: `python
-scripts/make_readme_figures.py` rebuilds every one of them — the walkthrough
-figures with the walkthrough's own calls — so a figure that stops reproducing
-means the pipeline changed.
+scripts/make_readme_figures.py` rebuilds every one of them with the
+walkthrough's own calls, in a scratch folder, so a figure that stops
+reproducing means the pipeline changed.
 
 ## License
 
