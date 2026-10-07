@@ -59,6 +59,8 @@ def tool(name: str, title: str, icon: str):
 sections = {
     "Workflow": [
         view("overview.py", "Overview", "🔬", default=True),
+        # Notebooks 10 → 11 → 12 with buttons: simulate, build, use.
+        view("demo.py", "Demo", "🎓"),
         view("project.py", "Project", "📁"),
         view("structure.py", "Structure", "🌳"),
         view("explore.py", "Explore & Filter", "🔎"),
