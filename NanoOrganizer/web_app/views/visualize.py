@@ -228,6 +228,9 @@ def render_curves():
 
     x_label = spec.x_label if spec else "x"
     y_label = spec.y_label if spec else "signal"
+    # The style widgets below are keyed by technique: a widget's value outlives
+    # its default, so one shared key would keep DLS's labels and log axis
+    # after switching to WAXS.
 
     if mode == "Compare samples":
         reduce = st.selectbox(
@@ -259,7 +262,7 @@ def render_curves():
             return
 
         style = controls.curve_controls(
-            "nano_curve_cmp", spec=spec,
+            f"nano_curve_cmp_{chosen}", spec=spec,
             data_range={"x": _range_of(np.concatenate([c[1] for c in curves])),
                         "y": _range_of(np.concatenate([c[2] for c in curves]))},
             default_labels=(x_label, y_label))
@@ -280,7 +283,7 @@ def render_curves():
                f"({info.get('source', '')})")
 
     style = controls.curve_controls(
-        "nano_curve_one_style", spec=spec,
+        f"nano_curve_one_style_{chosen}", spec=spec,
         data_range={"x": _range_of(x), "y": _range_of(matrix)},
         default_labels=(x_label, y_label))
 
@@ -558,7 +561,7 @@ def render_correlation():
         return
 
     style = controls.curve_controls(
-        "nano_corr_curve", spec=spec,
+        f"nano_corr_curve_{chosen}", spec=spec,
         data_range={"x": _range_of(np.concatenate([c[1] for c in curves])),
                     "y": _range_of(np.concatenate([c[2] for c in curves]))},
         default_labels=(spec.x_label if spec else "lag time",

@@ -118,8 +118,22 @@ def test_project_page_offers_to_generate_one_when_empty():
 # Plot controls and the interactive engine
 # ---------------------------------------------------------------------------
 
-INTERACTIVE_KEYS = ("nano_curve_cmp", "nano_curve_one_style",
-                    "nano_image_style", "nano_vol", "nano_corr_curve")
+def _style_keys(app):
+    """The plot-control keys on the page — curve and correlation styles are
+    keyed by the technique on show, so read which one that is."""
+    curve = app.session_state["nano_curve_modality"]
+    corr = app.session_state["nano_corr_modality"]
+    return (f"nano_curve_cmp_{curve}", f"nano_curve_one_style_{curve}",
+            "nano_image_style", "nano_vol", f"nano_corr_curve_{corr}")
+
+
+def _with_engine(workbench, engine):
+    app = page("visualize.py", workbench)
+    app.run()
+    for key in _style_keys(app):
+        app.session_state[f"{key}_engine"] = engine
+    app.run()
+    return app
 
 
 def test_volumes_are_interactive_by_default(workbench):
@@ -134,9 +148,7 @@ def test_volumes_are_interactive_by_default(workbench):
 def test_every_group_can_be_drawn_interactively(workbench):
     from NanoOrganizer.web_app.components.plot_controls import INTERACTIVE
 
-    state = {f"{key}_engine": INTERACTIVE for key in INTERACTIVE_KEYS}
-    app = page("visualize.py", workbench, **state)
-    app.run()
+    app = _with_engine(workbench, INTERACTIVE)
     assert not app.exception, _why(app)
     # curves, image, volume and correlation tabs all render at once.
     assert len(app.get("plotly_chart")) >= 4
@@ -154,18 +166,35 @@ def test_static_engine_draws_no_plotly_at_all(workbench):
     UnknownElement in AppTest, so the absence of Plotly is what to assert.)"""
     from NanoOrganizer.web_app.components.plot_controls import STATIC
 
-    state = {f"{key}_engine": STATIC for key in INTERACTIVE_KEYS}
-    app = page("visualize.py", workbench, **state)
-    app.run()
+    app = _with_engine(workbench, STATIC)
     assert not app.exception, _why(app)
     assert len(app.get("plotly_chart")) == 0
 
 
 def test_axis_limits_and_log_scales_are_offered(workbench):
-    app = page("visualize.py", workbench, nano_curve_cmp_logy=True)
+    app = page("visualize.py", workbench, nano_curve_modality="waxs1d",
+               nano_curve_cmp_waxs1d_logy=True)
     app.run()
     assert not app.exception, _why(app)
-    assert app.session_state["nano_curve_cmp_logy"] is True
+    assert app.session_state["nano_curve_cmp_waxs1d_logy"] is True
+
+
+def test_switching_technique_switches_the_axis_labels(workbench):
+    """A widget's value outlives its default: with one shared key, WAXS kept
+    the DLS labels and log axis it inherited."""
+    from NanoOrganizer.core import modality
+
+    app = page("visualize.py", workbench, nano_curve_modality="dls")
+    app.run()
+    assert app.session_state["nano_curve_cmp_dls_xlabel"] == \
+        modality.get("dls").x_label
+
+    app.session_state["nano_curve_modality"] = "waxs1d"
+    app.run()
+    assert not app.exception, _why(app)
+    waxs = modality.get("waxs1d")
+    assert app.session_state["nano_curve_cmp_waxs1d_xlabel"] == waxs.x_label
+    assert app.session_state["nano_curve_cmp_waxs1d_logx"] is bool(waxs.log_x)
 
 
 # ---------------------------------------------------------------------------
