@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""Render the figures the README shows, from the generated demo project.
+"""Render the figures the README shows, from the generated demo data.
 
 Nothing here is special-cased for the documentation: every panel goes through
-the same ``Workbench``, the same loaders and the same house style a notebook
+the same ``Organizer``, the same loaders and the same house style a notebook
 would use. If a figure stops reproducing, the pipeline changed.
 
-    python scripts/make_readme_figures.py [project_root]
+    python scripts/make_readme_figures.py [showcase_root]   # everything
+    python scripts/make_readme_figures.py --only lab        # the walkthrough
+    python scripts/make_readme_figures.py --only showcase   # the Cu–Au tour
+
+The **lab** figures (``lab_*.png``) are the README walkthrough: the lab data
+is simulated into a temporary folder and the organizer is built with the very
+calls the README shows, in the same order — so if the README's code changes,
+change :func:`lab_figures` with it. The **showcase** figures (``demo_*.png``)
+come from the fifteen-technique Cu–Au project.
 
 Writes PNGs into ``docs/images/`` along with the two structure listings the
 README quotes verbatim.
@@ -17,7 +25,9 @@ that one figure is skipped and the rest still build.
 
 from __future__ import annotations
 
-import sys
+import argparse
+import json
+import tempfile
 from pathlib import Path
 
 import matplotlib
@@ -25,8 +35,10 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
-from NanoOrganizer import open_project, structure
+from NanoOrganizer import Organizer, open_project, structure
+from NanoOrganizer.analysis import fit_peaks
 from NanoOrganizer.analysis.reading import load_curve_set, load_image, load_volume
 from NanoOrganizer.demo import (
     build_showcase_project, demo_root, materials as mat, showcase_truth,
@@ -337,10 +349,115 @@ def tomogram(wb) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 5. The README walkthrough: simulate → build → use, on the lab data
+# ---------------------------------------------------------------------------
 
-def main() -> int:
-    root = (sys.argv[1] if len(sys.argv) > 1
-            else str(demo_root("Showcase")))
+def lab_figures(base: Path) -> None:
+    """The three walkthrough figures, built with the README's own calls."""
+    from NanoOrganizer.demo.lab import simulate_lab
+
+    LAB = simulate_lab(base / "Lab").root
+    RAW = LAB / "RawData"
+
+    # 1 · build — exactly as the README does it
+    org = Organizer(LAB / "lab.json", name="lab demo")
+    synthesis = json.loads((LAB / "Meta" / "synthesis_dict.json").read_text())
+    org.ingest(synthesis=synthesis)
+    synthesis["S07"] = {
+        "sample_id": "S07",
+        "synthesis_batch": {"status": "error",
+                            "error": "precursor precipitated"},
+        "conditions": {"temperature_C": 120.0},
+    }
+    org.ingest(synthesis=synthesis, replace=True)
+    for sample in org.ids():
+        scope = RAW / "microscope_share" / sample
+        waxs = RAW / "xrd_rig" / f"{sample}_waxs.dat"
+        if scope.is_dir():
+            org.link(sample, "tem", str(scope), stage="characterization",
+                     nm_per_pixel=0.5)
+        if waxs.exists():
+            org.link(sample, "waxs1d", str(waxs), stage="characterization")
+    org.save()
+
+    # 2C · visualise from arrays
+    x, Y, info = org.data("S01", "uvvis")
+    image, meta = org.data("S01", "tem", lazy=True)[1]
+    height, width = image.shape
+    scale = meta["nm_per_pixel"]
+    curves = []
+    for sample in ["S01", "S03", "S06"]:
+        q, W, _ = org.data(sample, "waxs1d")
+        curves.append((sample, q, W[0]))
+
+    figure, axes = plt.subplots(1, 3, figsize=(16.5, 4.4))
+    plots.plot_series(x, Y, info["t_s"], ax=axes[0],
+                      xlabel="wavelength (nm)", ylabel="absorbance",
+                      colorbar_label="time (s)",
+                      title="S01 · UV-Vis, coloured by time")
+    plots.plot_curves(curves, ax=axes[1], xlabel="q (Å⁻¹)",
+                      ylabel="intensity", xlim=(2.3, 3.3),
+                      title="WAXS (111) · narrower when hotter")
+    plots.plot_image(image, ax=axes[2], cmap="gray",
+                     extent=(0, width * scale, height * scale, 0),
+                     xlabel="nm", ylabel="nm",
+                     title="S01 · TEM frame 1, on nm axes")
+    figure.tight_layout()
+    save(figure, "lab_visualize.png")
+
+    # 2D · fit arrays: a good window and a bad one, each with its residual
+    q, W, _ = org.data("S01", "waxs1d")
+    good = fit_peaks(q, W[0], n_peaks=1, x_range=(2.3, 3.0),
+                     background="linear")
+    bad = fit_peaks(q, W[0], n_peaks=1, x_range=(2.3, 4.5),
+                    background="constant")
+    figure, axes = plt.subplots(1, 2, figsize=(13.5, 5.0))
+    plots.plot_fit(good.x, good.y, good.y_fit, good.residual, ax=axes[0],
+                   xlabel="q (Å⁻¹)", ylabel="intensity",
+                   title=f"window 2.3–3.0, R² = {good.r2:.4f}")
+    plots.plot_fit(bad.x, bad.y, bad.y_fit, bad.residual, ax=axes[1],
+                   xlabel="q (Å⁻¹)", ylabel="intensity",
+                   title=f"window 2.3–4.5, R² = {bad.r2:.4f} · residual has shape")
+    save(figure, "lab_fit.png")
+
+    # 2E · batch, then compare with the answer key
+    params = dict(x_range=(2.3, 3.0), n_peaks=1, background="linear")
+    org.batch("peak_fit", modality="waxs1d", link=True, verbose=False,
+              **params)
+    org.batch("peak_fit", modality="uvvis", link=True, verbose=False,
+              x_range=(450, 700), n_peaks=1, background="linear")
+    ids = org.ids("`synthesis.status` == 'done'")
+    table = org.table(sample_ids=ids)
+    truth = pd.read_csv(LAB / "Meta" / "truth.csv").set_index("sample_id")
+    check = pd.DataFrame({
+        "fitted_band_nm": table["derived.uvvis_peak1_center"],
+        "waxs_fwhm_invA": table["derived.waxs1d_peak1_width"] * 2.3548,
+    }).join(truth).reset_index()
+    check["inverse_d"] = 1.0 / check["true_diameter_nm"]
+    slope, intercept = np.polyfit(check["inverse_d"],
+                                  check["waxs_fwhm_invA"], 1)
+
+    figure, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
+    plots.plot_compare(check, "true_band_nm", "fitted_band_nm", ax=axes[0])
+    axes[0].axline((520, 520), slope=1, linestyle="--", color="0.6")
+    axes[0].set_title("UV-Vis band · fitted against the answer key",
+                      color=plots.INK, fontsize=11, loc="left")
+    plots.plot_compare(check, "inverse_d", "waxs_fwhm_invA", ax=axes[1])
+    axes[1].axline((0, intercept), slope=slope, linestyle="--", color="0.6")
+    axes[1].set_title(f"WAXS width ∝ 1/D · Scherrer slope {slope:.3f} "
+                      f"(true {0.9 * 2 * np.pi / 10:.3f})",
+                      color=plots.INK, fontsize=11, loc="left")
+    plots.plot_compare(org.table(), "synthesis.conditions.temperature_C",
+                       "derived.uvvis_peak1_center", ax=axes[2])
+    axes[2].set_title("Structure–property, straight off the table",
+                      color=plots.INK, fontsize=11, loc="left")
+    figure.tight_layout()
+    save(figure, "lab_compare.png")
+
+
+# ---------------------------------------------------------------------------
+
+def showcase_figures(root: str) -> None:
     print(f"building {root} …")
     build_showcase_project(root)
     wb = open_project(root)
@@ -388,6 +505,25 @@ def main() -> int:
     print(layout)
     print()
     print(inside)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("root", nargs="?", default=None,
+                        help="where to build the showcase "
+                             "(default: demo_root('Showcase'))")
+    parser.add_argument("--only", choices=("lab", "showcase"), default=None,
+                        help="draw one set of figures instead of both")
+    args = parser.parse_args(argv)
+
+    if args.only in (None, "lab"):
+        # The walkthrough data goes in a scratch folder: the README figures
+        # must not depend on, or disturb, a lab someone is working in.
+        with tempfile.TemporaryDirectory(prefix="nano_readme_") as scratch:
+            print(f"lab walkthrough in {scratch} …")
+            lab_figures(Path(scratch))
+    if args.only in (None, "showcase"):
+        showcase_figures(args.root or str(demo_root("Showcase")))
     return 0
 
 
