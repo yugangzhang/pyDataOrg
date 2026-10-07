@@ -18,6 +18,15 @@ Resolution order for a recorded path:
 2. each alias whose prefix matches, in order, first existing candidate wins;
 3. give up – and say so, rather than raising.
 
+A **relative** recorded path is relative to the resolver's *base* — the
+project root, which for an :class:`~NanoOrganizer.Organizer` is the folder its
+JSON file sits in — never to wherever the process happens to be running.
+Recording paths that way is what makes an organizer and its data portable as
+one folder: move it, zip it, open it on another machine, and nothing needs an
+alias. :func:`display_path` is the matching half for showing a location to a
+person: relative to where they are, not as an absolute path that names
+somebody's home directory.
+
 A path that cannot be resolved is not an error.  Browsing metadata for data
 that is not currently mounted is a normal, supported state; callers use
 :meth:`PathResolver.status` to show that in the interface.
@@ -35,6 +44,41 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 LOCAL = "local"        # the recorded path exists as written
 ALIASED = "aliased"    # found through an alias
 MISSING = "missing"    # not found anywhere
+
+
+def is_relative(path: object) -> bool:
+    """True for a recorded path that is relative: not ``/…``, ``~…`` or ``C:…``."""
+    text = _normalise(path)
+    if not text:
+        return False
+    return not (text.startswith("/") or text.startswith("~")
+                or (len(text) > 1 and text[1] == ":"))
+
+
+def display_path(path: object, start: object = None, max_up: int = 3) -> str:
+    """A location as a person should see it: relative to where they are.
+
+    ``/home/you/Repos/OrgDemo/CuAu`` seen from ``/home/you/Repos/NanoOrganizer``
+    is ``../OrgDemo/CuAu``. Relative to *start* (the working directory by
+    default) when that takes at most *max_up* ``..`` steps; otherwise under
+    ``~`` when inside the home directory; otherwise as given. A relative path
+    is returned unchanged — it already says where it is relative to.
+    """
+    text = _normalise(path)
+    if not text or is_relative(text):
+        return text
+    absolute = os.path.abspath(os.path.expanduser(text))
+    origin = os.path.abspath(os.path.expanduser(str(start))) if start else os.getcwd()
+    try:
+        relative = os.path.relpath(absolute, origin)
+    except ValueError:                     # another drive on Windows
+        relative = ""
+    if relative and relative.replace("\\", "/").split("/").count("..") <= max_up:
+        return relative.replace("\\", "/")
+    home = os.path.expanduser("~")
+    if absolute == home or absolute.startswith(home + os.sep):
+        return "~" + absolute[len(home):].replace("\\", "/")
+    return absolute.replace("\\", "/")
 
 
 def _normalise(path: object) -> str:
@@ -106,14 +150,27 @@ class PathResolver:
         Directories searched by basename as a last resort for a *file* whose
         recorded directory cannot be mapped.  Off by default because it can be
         slow and ambiguous; pass explicitly when it helps.
+    base : path, optional
+        What a relative recorded path is relative to — the project root. Left
+        unset, a relative path is relative to the working directory, as a
+        bare ``open()`` would have it.
     """
 
-    def __init__(self, aliases: Sequence = (), extra_roots: Sequence[str] = ()):
+    def __init__(self, aliases: Sequence = (), extra_roots: Sequence[str] = (),
+                 base: object = None):
         self.aliases: List[PathAlias] = [self._coerce(a) for a in aliases]
         self.extra_roots: Tuple[str, ...] = tuple(
             _normalise(r) for r in extra_roots if _normalise(r)
         )
+        self.base: str = _normalise(base) if base else ""
         self._cache: Dict[str, Optional[str]] = {}
+
+    def anchor(self, path: object) -> str:
+        """*path* as an absolute string: a relative one joined onto :attr:`base`."""
+        recorded = _normalise(path)
+        if recorded and self.base and is_relative(recorded):
+            return _normalise(os.path.normpath(f"{self.base}/{recorded}"))
+        return recorded
 
     # ------------------------------------------------------------------
     # construction
@@ -149,7 +206,7 @@ class PathResolver:
         The recorded path comes first, followed by alias rewrites in order.
         Existence is not checked; see :meth:`resolve`.
         """
-        recorded = _normalise(path)
+        recorded = self.anchor(path)
         if not recorded:
             return []
         out = [recorded]
@@ -199,7 +256,7 @@ class PathResolver:
         resolved = self.resolve(recorded)
         if resolved is None:
             return MISSING
-        return LOCAL if _normalise(resolved) == recorded else ALIASED
+        return LOCAL if _normalise(resolved) == self.anchor(recorded) else ALIASED
 
     def exists(self, path: object) -> bool:
         """True if *path* resolves to something on this machine."""
@@ -322,6 +379,6 @@ def suggest_aliases(recorded_paths: Iterable[object],
 
 
 __all__ = [
-    "PathResolver", "PathAlias", "suggest_aliases",
-    "LOCAL", "ALIASED", "MISSING",
+    "PathResolver", "PathAlias", "suggest_aliases", "display_path",
+    "is_relative", "LOCAL", "ALIASED", "MISSING",
 ]

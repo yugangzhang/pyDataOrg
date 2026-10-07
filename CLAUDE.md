@@ -24,17 +24,23 @@ reasoning is in [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md).
 
 4. **Public, standalone, domain-neutral.** No dependency on a personal repo,
    project data, or beamline vocabulary — that belongs in `a project package`.
-5. **Generated data goes under `demo_root()`** (`~/Repos/OrgDemo`, or
-   `$NANOORGANIZER_DEMO_ROOT`). Nothing writes into the home directory itself.
-6. **Link, don't auto-attach.** `attach_folders()` is the exception for a tidy
+5. **Generated data goes under `demo_root()`** (`../OrgDemo` beside the
+   checkout, or `$NANOORGANIZER_DEMO_ROOT`). Nothing writes into the home
+   directory itself.
+6. **No absolute paths in anything published.** A relative path is relative
+   to the project root (the organizer's folder); generators, links and stored
+   fits record relative paths when the data is inside it. Show locations with
+   `core.pathmap.display_path` — in notebooks, the GUI and docs, a reader
+   should see `../OrgDemo/CuAu`, never `/home/<someone>/…`.
+7. **Link, don't auto-attach.** `attach_folders()` is the exception for a tidy
    `<Modality>Data/<SampleID>/` layout; documentation leads with `link()`.
-7. **One generator per demo.** Notebooks and the web app call the same
+8. **One generator per demo.** Notebooks and the web app call the same
    functions in `NanoOrganizer/demo/` — never a copy pasted into a cell.
 
 ## Web app
 
-8. Only `web_app/Home.py` calls `st.set_page_config()`.
-9. Pages drive the same `Workbench`/`Organizer` the notebooks use; a page
+9. Only `web_app/Home.py` calls `st.set_page_config()`.
+10. Pages drive the same `Workbench`/`Organizer` the notebooks use; a page
    composes analysis and plotting calls, it does not reimplement them.
 
 ## Tests

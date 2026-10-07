@@ -324,6 +324,15 @@ def ingest(path: Path, project=None, stage: str = "", dicts: Sequence[str] = (),
     """
     path = Path(path)
     found = pydict.find_sample_dicts(path)
+    # Provenance names the file relative to the project when it is inside
+    # it, like every other path the store keeps.
+    shown = path
+    root = getattr(project, "root", None)
+    if root is not None:
+        try:
+            shown = Path(path).absolute().relative_to(Path(root)).as_posix()
+        except ValueError:
+            pass
     if dicts:
         wanted = {d.lower() for d in dicts}
         found = {k: v for k, v in found.items() if k.lower() in wanted}
@@ -339,7 +348,7 @@ def ingest(path: Path, project=None, stage: str = "", dicts: Sequence[str] = (),
                 continue
             sample = record_to_sample(
                 sample_id, record, stage_id,
-                source=f"{path}::{dict_name}", modality_map=modality_map,
+                source=f"{shown}::{dict_name}", modality_map=modality_map,
             )
             existing = merged.get(sample_id)
             if existing is None:

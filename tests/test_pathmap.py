@@ -154,3 +154,35 @@ def test_suggest_aliases_finds_a_shared_directory_name(tmp_path):
 def test_trailing_slashes_do_not_defeat_matching():
     alias = PathAlias(prefix="/rec/", candidates=("/local/",))
     assert alias.rewrite("/rec/sub/f.npy") == ["/local/sub/f.npy"]
+
+
+# ---------------------------------------------------------------------------
+# Relative paths: relative to the project root, never the working directory
+# ---------------------------------------------------------------------------
+
+def test_a_relative_path_resolves_against_the_base_not_the_cwd(tmp_path,
+                                                                monkeypatch):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.dat").write_text("1 2\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert PathResolver().resolve("data/a.dat") is None          # cwd: not here
+    resolver = PathResolver(base=tmp_path)
+    assert resolver.resolve("data/a.dat") == tmp_path / "data" / "a.dat"
+    assert resolver.status("data/a.dat") == LOCAL
+    assert resolver.resolve_glob("data/*.dat") == [tmp_path / "data" / "a.dat"]
+    assert resolver.anchor("/abs/x") == "/abs/x"                  # untouched
+
+
+def test_display_path_says_where_from_here(tmp_path):
+    from NanoOrganizer.core.pathmap import display_path
+
+    repo = tmp_path / "Repos" / "NanoOrganizer"
+    target = tmp_path / "Repos" / "OrgDemo" / "CuAu"
+    assert display_path(target, start=repo) == "../OrgDemo/CuAu"
+    assert display_path(target, start=repo / "notebook") == "../../OrgDemo/CuAu"
+    assert display_path("TEMData/CuAu05") == "TEMData/CuAu05"     # already relative
+    far = display_path(target, start=tmp_path / "a" / "b" / "c" / "d")
+    assert ".." not in far                                        # too far: not relative

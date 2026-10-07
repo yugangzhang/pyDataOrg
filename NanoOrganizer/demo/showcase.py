@@ -97,6 +97,23 @@ filterable parameters.  The dict's own name gives the stage.
 '''
 
 
+def _relative(value: Any, root: Path) -> Any:
+    """Every path under *root* in *value*, rewritten relative to *root*.
+
+    The metadata names files relative to the campaign folder, so the folder
+    is portable as one piece — copy it anywhere, and an organizer saved in it
+    resolves without an alias — and nothing in it names a home directory.
+    """
+    prefix = str(root) + "/"
+    if isinstance(value, str) and value.startswith(prefix):
+        return value[len(prefix):]
+    if isinstance(value, dict):
+        return {k: _relative(v, root) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_relative(v, root) for v in value]
+    return value
+
+
 def _write_metadata(path: Path, dict_name: str, title: str,
                     records: Dict[str, Dict]) -> None:
     body = pprint.pformat(_clean(records), width=76, sort_dicts=False)
@@ -483,7 +500,7 @@ def build_showcase_project(root, *,
         carrying the generator's marker file, so pointing this at real data
         cannot delete it.
     """
-    root = Path(root).expanduser()
+    root = Path(root).expanduser().absolute()
     marker = root / MARKER
 
     if root.exists() and overwrite:
@@ -568,6 +585,10 @@ def build_showcase_project(root, *,
     if include_failed_run:
         failed = mat.sample_id(len(fractions) + 1)
         synthesis[failed] = _failed_record(failed, len(fractions) + 1)
+
+    synthesis, characterization, testing, computation = (
+        _relative(stage, root)
+        for stage in (synthesis, characterization, testing, computation))
 
     meta = root / "MetaData"
     meta.mkdir(exist_ok=True)

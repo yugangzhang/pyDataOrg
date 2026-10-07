@@ -34,6 +34,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from NanoOrganizer import analysis as _analysis
 from NanoOrganizer.core import modality as _modality
+from NanoOrganizer.core.pathmap import display_path, is_relative
 from NanoOrganizer.core.project import Project
 from NanoOrganizer.core.schema import Measurement, Sample
 
@@ -471,7 +472,7 @@ class Workbench:
     def describe(self) -> str:
         """A printable :meth:`overview` — the first cell of a session."""
         info = self.overview()
-        lines = [f"{info['name']}  ({info['store']})",
+        lines = [f"{info['name']}  ({display_path(info['store'])})",
                  f"  samples       {info['n_samples']}"]
 
         shown = info["sample_ids"][:8]
@@ -547,9 +548,12 @@ class Workbench:
         child.project.config.path_aliases = list(self.project.config.path_aliases)
         child.project.config.extra_roots = list(self.project.config.extra_roots)
         child.project._resolver = None
+        moved = child.project.root != self.project.root
         for sample_id in chosen:
-            child.project.add_sample(
-                copy.deepcopy(self.project.get_sample(sample_id)))
+            sample = copy.deepcopy(self.project.get_sample(sample_id))
+            if moved:
+                _rebase(sample, self.project.root, child.project.root)
+            child.project.add_sample(sample)
         return child
 
     def catalog(self, counts: bool = False, sample_ids: Sequence[str] = ()):
@@ -756,6 +760,13 @@ class Workbench:
             raise KeyError(f"unknown sample {result.sample_id!r}")
 
         path = _store.save_result(result, folder or self.results_dir)
+        # Beside the store, so record it relative: the fits travel with the
+        # organizer like everything else in its folder.
+        try:
+            recorded = Path(path).absolute().relative_to(
+                self.project.root).as_posix()
+        except ValueError:
+            recorded = str(path)
 
         source = sample.get_measurement(result.measurement_id)
         if write and result.ok:
@@ -776,7 +787,7 @@ class Workbench:
                 else result.analysis)
 
         return self.project.link(
-            result.sample_id, "fit", str(path), stage="analysis",
+            result.sample_id, "fit", recorded, stage="analysis",
             role=role, alias=False, check=False,
             label=f"{result.analysis} of {result.measurement_id}",
             meta={"analysis": result.analysis,
@@ -1154,6 +1165,26 @@ class Workbench:
                                  title=f"A({wavelength:.0f} nm) over time")
 
 
+def _rebase(sample: Sample, old_root: Path, new_root: Path) -> None:
+    """Keep *sample*'s relative paths pointing at the same files from *new_root*.
+
+    A relative path means "relative to the organizer's folder", so a copy
+    saved in another folder has to say the same thing from there.
+    """
+    import os
+
+    def move(path: str) -> str:
+        if not path or not is_relative(path):
+            return path
+        return Path(os.path.relpath(Path(old_root) / path, new_root)).as_posix()
+
+    for measurement in sample.measurements:
+        measurement.paths = [move(p) for p in measurement.paths]
+        measurement.pattern = move(measurement.pattern)
+        measurement.aux = {k: move(v) if isinstance(v, str) else v
+                           for k, v in measurement.aux.items()}
+
+
 class Organizer(Workbench):
     """One named file that knows where a campaign's data is.
 
@@ -1225,7 +1256,8 @@ class Organizer(Workbench):
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         chosen = f"{len(self._basket)} selected" if self._basket else "all"
         return (f"<Organizer {self.project.config.name!r}: "
-                f"{len(self.project)} samples, {chosen} — {self.path}>")
+                f"{len(self.project)} samples, {chosen} — "
+                f"{display_path(self.path)}>")
 
 
 __all__ = ["Workbench", "Organizer", "open_project", "new_organizer"]

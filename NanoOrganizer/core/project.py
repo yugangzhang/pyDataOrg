@@ -26,7 +26,7 @@ from typing import (
 )
 
 from NanoOrganizer.core import modality as _modality
-from NanoOrganizer.core.pathmap import PathAlias, PathResolver
+from NanoOrganizer.core.pathmap import PathAlias, PathResolver, display_path
 from NanoOrganizer.core.schema import Measurement, Sample, Stage
 
 CONFIG_DIR = ".nanoorganizer"
@@ -122,7 +122,9 @@ class Project:
 
     def __init__(self, root: Union[str, Path], name: str = "",
                  create: bool = True, store_file: Union[str, Path, None] = None):
-        self.root = Path(root).expanduser()
+        # Absolute, so a relative path recorded in the store means the same
+        # thing however the working directory moves afterwards.
+        self.root = Path(root).expanduser().absolute()
         if not self.root.exists():
             if not create:
                 raise FileNotFoundError(f"Project root does not exist: {self.root}")
@@ -135,7 +137,7 @@ class Project:
         # convention to remember.
         self.single_file = store_file is not None
         if self.single_file:
-            self.store_path = Path(store_file).expanduser()
+            self.store_path = Path(store_file).expanduser().absolute()
             self.config_dir = self.store_path.parent
             self.config_path = self.store_path
         else:
@@ -214,6 +216,7 @@ class Project:
             self._resolver = PathResolver(
                 aliases=list(self.config.path_aliases),
                 extra_roots=tuple(self.config.extra_roots),
+                base=self.root,
             )
         return self._resolver
 
@@ -369,7 +372,13 @@ class Project:
             touched.append(sample.sample_id)
 
         if record:
-            entry = {"path": str(path), "adapter": key, "kwargs": dict(kwargs)}
+            # Inside the project, remember it relative to the root, so the
+            # project still knows its sources after the folder moves.
+            try:
+                recorded = path.relative_to(self.root).as_posix()
+            except ValueError:
+                recorded = str(path)
+            entry = {"path": recorded, "adapter": key, "kwargs": dict(kwargs)}
             self.config.metadata_sources = [
                 s for s in self.config.metadata_sources
                 if s.get("path") != entry["path"]
@@ -416,7 +425,7 @@ class Project:
         out = {}
         for entry in list(self.config.metadata_sources):
             path = entry.get("path", "")
-            if not path or not Path(path).exists():
+            if not path or not self.resolver.resolve(path):
                 out[path] = []
                 continue
             out[path] = self.ingest(path, adapter=entry.get("adapter", "auto"),
@@ -731,7 +740,7 @@ class Project:
             f"({report['n_available']} readable here, "
             f"{report['n_unresolved']} not mounted).\n"
             f"Modalities: {modalities}\n"
-            f"Root: {self.root}"
+            f"Root: {display_path(self.root)}"
         )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

@@ -202,7 +202,7 @@ def build_demo_project(root, *, temperatures: Sequence[float] = DEFAULT_TEMPERAT
         carries the generator's own marker file, so pointing this at real data
         cannot delete it.
     """
-    root = Path(root).expanduser()
+    root = Path(root).expanduser().absolute()
     marker = root / ".nanoorganizer-demo"
 
     if root.exists() and overwrite:
@@ -250,8 +250,10 @@ def build_demo_project(root, *, temperatures: Sequence[float] = DEFAULT_TEMPERAT
             "stir_rate_rpm": 400 + 50 * (index % 3),
             "reductant_uL": 300.0 + 40.0 * index,
             "n_frames": n_frames,
-            "spectrum_glob": f"{spectra_root}/demo_{batch}_*.npy",
-            "wavelength_file": str(axis_path),
+            # Relative to the project root, so the project moves as a folder.
+            "spectrum_glob": (spectra_root / f"demo_{batch}_*.npy")
+                             .relative_to(root).as_posix(),
+            "wavelength_file": axis_path.relative_to(root).as_posix(),
         })
 
     meta_dir = root / "MetaData"

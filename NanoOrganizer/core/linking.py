@@ -37,6 +37,13 @@ data sits on (``/mnt/data → /mnt/data``), which is a no-op here and the one
 line to edit on the next machine::
 
     project.add_alias("/mnt/data", ["/facility/data"])    # elsewhere
+
+A **relative** path is relative to the project root — the folder the
+organizer's JSON sits in — and is recorded relative, so data kept beside the
+organizer needs no alias at all: the folder moves as one piece::
+
+    org.link("CuAu05", "tem", "TEMData/CuAu05")          # beside cuau.json
+    org.link("CuAu05", "dls", "../shared/DLS/CuAu05")    # one level up
 """
 
 from __future__ import annotations
@@ -49,6 +56,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 from NanoOrganizer.core import modality as _modality
 from NanoOrganizer.core.schema import Measurement, STAGE_CHARACTERIZATION
+from NanoOrganizer.core.pathmap import is_relative
 
 #: Characters that make a path a glob rather than a location.
 GLOB_CHARS = "*?["
@@ -159,12 +167,17 @@ def _check_modality(modality: str) -> str:
 
 def interpret_source(source: Source, key: str, *,
                      extensions: Optional[Sequence[str]] = None,
-                     recursive: bool = False) -> Dict[str, Any]:
+                     recursive: bool = False,
+                     base: Optional[PathLike] = None) -> Dict[str, Any]:
     """Turn *source* into ``{"paths": [...], "pattern": ""}``.
 
     *key* is a resolved modality key; its declared extensions filter a
     directory listing.  Pass *extensions* to override that, which is how a
     folder of ``.dat`` files joins a modality that never declared ``.dat``.
+
+    A relative *source* is relative to *base* (the project root), and the
+    files a relative folder lists are recorded relative to it too — a link
+    given relative stays relative, so it travels with the organizer.
     """
     spec = _modality.get(key)
     suffixes = tuple(e.lower() for e in
@@ -193,7 +206,8 @@ def interpret_source(source: Source, key: str, *,
             pattern = text
             continue
 
-        probe = Path(text).expanduser()
+        relative = base is not None and is_relative(text)
+        probe = (Path(base) / text) if relative else Path(text).expanduser()
         if probe.is_dir():
             if not single:
                 raise ValueError(
@@ -210,7 +224,8 @@ def interpret_source(source: Source, key: str, *,
                     f"No files{what} in {probe}. Pass extensions=[...] to "
                     f"widen it, or a glob such as {probe}/*.dat."
                 )
-            paths.extend(str(p) for p in chosen)
+            paths.extend(Path(os.path.relpath(p, base)).as_posix() if relative
+                         else str(p) for p in chosen)
             continue
 
         paths.append(text)
@@ -268,7 +283,7 @@ def link(project, sample_id: str, modality: str, source: Source, *,
     """
     key = _check_modality(modality)
     files = interpret_source(source, key, extensions=extensions,
-                             recursive=recursive)
+                             recursive=recursive, base=project.root)
 
     sample = project.get_sample(sample_id)
     if sample is None:
@@ -460,7 +475,7 @@ def links_table(project, sample_ids: Sequence[str] = ()) -> List[Dict[str, Any]]
             row: Dict[str, Any] = {
                 "sample_id": sample.sample_id,
                 "modality": measurement.modality,
-                "source": _export_source(measurement),
+                "source": _export_source(measurement, base=project.root),
                 "stage": measurement.stage,
                 "role": measurement.role,
             }
@@ -474,7 +489,7 @@ def links_table(project, sample_ids: Sequence[str] = ()) -> List[Dict[str, Any]]
     return rows
 
 
-def _export_source(measurement) -> str:
+def _export_source(measurement, base: Optional[PathLike] = None) -> str:
     """The shortest form of a measurement's files that re-imports identically."""
     if measurement.pattern:
         return measurement.pattern
@@ -487,7 +502,8 @@ def _export_source(measurement) -> str:
     if len(parents) == 1:
         folder = parents.pop()
         try:
-            listed = interpret_source(folder, measurement.modality)["paths"]
+            listed = interpret_source(folder, measurement.modality,
+                                      base=base)["paths"]
         except (FileNotFoundError, OSError):
             listed = []
         if listed == list(measurement.paths):

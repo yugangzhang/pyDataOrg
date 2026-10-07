@@ -16,6 +16,8 @@ Two of them, for two different questions:
     It is the data behind the workflow notebooks (``10`` → ``12``), the web
     app's **Demo** page and the README: four metadata dicts declare most of
     it, and four techniques arrive as bare folders that are linked by hand.
+    Every path it records is relative to its own folder, so the organizer
+    built from it sits beside it and the whole folder moves as one piece.
 
 Both are built from a hidden control variable the pipeline is meant to
 recover, and both refuse to overwrite a directory they did not create.
@@ -43,15 +45,29 @@ from typing import Union
 #: Environment variable that overrides where generated demo data is written.
 DEMO_ROOT_ENV = "NANOORGANIZER_DEMO_ROOT"
 
+def _default_demo_root() -> Path:
+    """``../OrgDemo`` beside the source checkout, else ``~/Repos/OrgDemo``.
+
+    Beside the checkout — a sibling of the repository folder — is where a
+    clone's demo data belongs: next to the code, outside it, and never loose
+    in a home directory. An installed (non-editable) package has no checkout
+    to sit beside, and falls back to ``~/Repos/OrgDemo``.
+    """
+    checkout = Path(__file__).resolve().parents[2]
+    if (checkout / "setup.py").exists() and (checkout / "NanoOrganizer").is_dir():
+        return checkout.parent / "OrgDemo"
+    return Path.home() / "Repos" / "OrgDemo"
+
+
 #: Default parent for generated data.  One directory, not one per project.
-DEFAULT_DEMO_ROOT = Path.home() / "Repos" / "OrgDemo"
+DEFAULT_DEMO_ROOT = _default_demo_root()
 
 
 def demo_root(*parts: Union[str, Path]) -> Path:
     """Return the demo data directory, optionally joined with *parts*.
 
     >>> demo_root()                      # doctest: +SKIP
-    PosixPath('/home/you/Repos/OrgDemo')
+    PosixPath('/home/you/Repos/OrgDemo')       # ../OrgDemo beside the checkout
     >>> demo_root("CuAu", "cuau.json")   # doctest: +SKIP
     PosixPath('/home/you/Repos/OrgDemo/CuAu/cuau.json')
 

@@ -191,7 +191,7 @@ that afternoon, and none of it is going to move.
 ```python
 from NanoOrganizer import Organizer
 
-org = Organizer("~/Repos/OrgDemo/cuau.json")     # the file is the store
+org = Organizer("../OrgDemo/cuau.json")          # the file is the store
 
 org.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
 org.link("CuAu05", "tem",   "/mnt/scope/session17/")
@@ -252,14 +252,30 @@ files. `aux` travels as JSON.
 
 ### Paths are not rewritten, and the store still moves
 
-A link records the path **exactly as given**. Nothing is made relative to the
-project, because a rewritten store only works on the machine that wrote it —
-the same reason ingest keeps instrument paths verbatim.
+A link records the path **exactly as given**. Nothing is silently made
+relative or absolute, because a rewritten store only works on the machine that
+wrote it — the same reason ingest keeps instrument paths verbatim.
 
-Portability is an alias instead. Each link registers the mount its data sits on
-(found by walking up to the first real mount point), mapping the prefix onto
-itself. That is a no-op where the data was linked, and the one line to edit
-anywhere else:
+**A relative path is relative to the project root** — for an organizer, the
+folder its JSON sits in; never the directory a notebook or the GUI happens to
+be running from. Keep data beside the organizer and link it relatively, and
+the folder is portable as one piece, with nothing to configure:
+
+```python
+org = Organizer("../OrgDemo/CuAu/cuau.json")
+org.ingest("MetaData/Testing_dict.py")              # relative to cuau.json
+org.link("CuAu05", "tem", "TEMData/CuAu05")         # recorded as TEMData/CuAu05/01.tif, …
+```
+
+A relative folder lists its files as relative paths, a `results/` fit is
+linked relative, and the provenance of ingested stages names the metadata file
+relative to the root — so a store built this way names nobody's home
+directory, and opens unchanged wherever the folder is copied.
+
+Data that lives elsewhere is linked by its absolute path. Portability is then
+an alias. Each such link registers the mount its data sits on (found by walking
+up to the first real mount point), mapping the prefix onto itself. That is a
+no-op where the data was linked, and the one line to edit anywhere else:
 
 ```python
 wb.project.add_alias("/mnt/data", ["/facility/data"])    # on the next machine
@@ -347,7 +363,7 @@ most of its value.
 org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), link=True)
 org.save()
 
-later = Organizer("~/Repos/OrgDemo/cuau.json")
+later = Organizer("../OrgDemo/cuau.json")
 later.results()                           # one row per stored result
 later.result("CuAu05", "peak_fit")        # the AnalysisResult back
 later.plot_result("CuAu05", "peak_fit")   # redrawn, not refitted
@@ -478,7 +494,7 @@ The whole loop, from an empty file to a fit you can read again next year.
 ```python
 from NanoOrganizer import Organizer
 
-org = Organizer("~/Repos/OrgDemo/cuau.json", name="Cu-Au CO2RR")
+org = Organizer("../OrgDemo/cuau.json", name="Cu-Au CO2RR")
 org.project.add_alias("/instrument/share", ["/mnt/instrument"])
 
 # 1. Metadata somebody already wrote — a live dict, or a *_dict.py.
@@ -506,7 +522,7 @@ org.save()
 Later, on another machine — one alias, and everything resolves:
 
 ```python
-org = Organizer("~/Repos/OrgDemo/cuau.json")
+org = Organizer("../OrgDemo/cuau.json")
 org.project.add_alias("/mnt/scope", ["/Volumes/scope"])
 
 org.table()[["synthesis.conditions.temperature_C",

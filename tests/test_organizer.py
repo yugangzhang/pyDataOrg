@@ -235,7 +235,9 @@ def test_link_result_attaches_the_fit_to_its_sample(org, data):
     # The role names the technique it ran on, so two fits of one analysis
     # cannot share an id.
     assert measurement.role == "peak_fit-waxs1d"
-    assert Path(measurement.paths[0]).exists()
+    # Recorded relative to the organizer's folder, and resolved from there.
+    assert not Path(measurement.paths[0]).is_absolute()
+    assert measurement.resolve(org.resolver)
     # The scalars reached the table too.
     assert org["S01"].get_derived("waxs1d_peak1_center") == pytest.approx(3.0,
                                                                          abs=0.05)
@@ -647,3 +649,49 @@ def test_ten_thousand_samples_stay_workable(tmp_path):
     assert len(hits) == 1800
     # Generous: this is about catching an O(n^2), not about timing a machine.
     assert elapsed < 60, f"save+load+table+filter took {elapsed:.1f}s"
+
+
+# ---------------------------------------------------------------------------
+# Relative paths travel with the organizer
+# ---------------------------------------------------------------------------
+
+def test_relative_links_ingest_and_fits_name_no_absolute_path(tmp_path,
+                                                               monkeypatch):
+    folder = tmp_path / "campaign"
+    (folder / "xrd").mkdir(parents=True)
+    q = np.linspace(2.0, 4.0, 400)
+    np.savetxt(folder / "xrd" / "S01.dat",
+               np.column_stack([q, 100 * np.exp(-0.5 * ((q - 3) / 0.05) ** 2) + 5]))
+    (folder / "MetaData").mkdir()
+    (folder / "MetaData" / "Synthesis_dict.py").write_text(
+        "Synthesis_dict = {'S01': {'sample_id': 'S01', 'c': {'T': 60.0}}}\n")
+    monkeypatch.chdir(tmp_path)                 # not the organizer's folder
+
+    org = Organizer(folder / "o.json")
+    org.ingest("MetaData/Synthesis_dict.py")
+    org.link("S01", "waxs1d", "xrd")
+    org.batch("peak_fit", modality="waxs1d", link=True, verbose=False,
+              x_range=(2.5, 3.5))
+    org.save()
+
+    text = (folder / "o.json").read_text()
+    assert str(tmp_path) not in text
+    assert org.measurement("S01", modality="waxs1d").paths == ["xrd/S01.dat"]
+    assert org.project.config.path_aliases == []
+
+
+def test_a_subset_saved_elsewhere_rebases_its_relative_paths(org, data,
+                                                              tmp_path):
+    rel = Path("rig/diffractometer/S01.dat")
+    org.link("S01", "waxs1d", rel.as_posix())          # relative to lab.json
+    child = org.subset(["S01"], path=tmp_path / "sub" / "child.json")
+
+    recorded = child.measurement("S01", modality="waxs1d").paths[0]
+    assert recorded == "../rig/diffractometer/S01.dat"
+    assert child.measurement("S01", modality="waxs1d").resolve(child.resolver)
+
+
+def test_summary_and_repr_show_where_from_here(org, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert "Root: ." in org.summary()
+    assert str(tmp_path) not in repr(org)

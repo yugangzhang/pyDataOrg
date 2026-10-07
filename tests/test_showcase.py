@@ -342,20 +342,21 @@ def test_line_intensities_give_the_composition_after_their_factors():
                                      np.array([1.0, 0.0])).tolist() == [0.0, 1.0]
 
 
-def test_the_hand_built_organizer_matches_the_attached_project(project_root,
-                                                               tmp_path):
+def test_the_hand_built_organizer_matches_the_attached_project(project_root):
     from NanoOrganizer import Organizer
 
-    org = Organizer(tmp_path / "cuau.json")
+    # Beside its data: the metadata names files relative to this folder, and
+    # the hand links below are relative too. Nothing is saved.
+    org = Organizer(project_root / "cuau.json")
     for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
-        org.ingest(project_root / "MetaData" / f"{stage}_dict.py")
+        org.ingest(f"MetaData/{stage}_dict.py")
     folders = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData",
                "tomo": "TomoData"}
     for sample in org.ids():
         for modality, folder in folders.items():
-            source = project_root / folder / sample
-            if source.is_dir():
-                org.link(sample, modality, str(source), stage="characterization")
+            if (project_root / folder / sample).is_dir():
+                org.link(sample, modality, f"{folder}/{sample}",
+                         stage="characterization")
 
     attached = open_project(project_root)
     assert (org.catalog(counts=True).sort_index(axis=1)
@@ -367,8 +368,7 @@ def test_the_campaign_command_writes_data_and_answer_key(tmp_path, monkeypatch):
 
     monkeypatch.setenv("NANOORGANIZER_DEMO_ROOT", str(tmp_path))
     assert main(["--campaign", "--no-images"]) == 0
-    assert (tmp_path / "CuAu" / "Campaign" / "MetaData" /
-            "Synthesis_dict.py").exists()
+    assert (tmp_path / "CuAu" / "MetaData" / "Synthesis_dict.py").exists()
     assert (tmp_path / "CuAu" / "truth.csv").exists()
     assert not (tmp_path / "CuAu" / "cuau.json").exists()   # building is yours
 
@@ -382,3 +382,32 @@ def test_ingesting_a_metadata_module_writes_nothing_beside_it(tmp_path):
         "Synthesis_dict = {'S1': {'sample_id': 'S1', 'c': {'T': 1.0}}}\n")
     Organizer(tmp_path / "o.json").ingest(meta / "Synthesis_dict.py")
     assert sorted(p.name for p in meta.iterdir()) == ["Synthesis_dict.py"]
+
+
+def test_the_campaign_records_no_absolute_path(project_root):
+    """Relative to the campaign folder throughout, so it is portable as one
+    piece and names nobody's home directory."""
+    for module in (project_root / "MetaData").glob("*_dict.py"):
+        assert str(project_root) not in module.read_text(), module.name
+
+
+def test_a_campaign_folder_moved_elsewhere_still_opens(project_root, tmp_path):
+    import shutil
+
+    from NanoOrganizer import Organizer
+
+    org = Organizer(project_root / "moved.json")
+    org.ingest("MetaData/Characterization_dict.py")
+    org.link("CuAu01", "tem", "TEMData/CuAu01")
+    org.save()
+    links = org.links_table().set_index("modality")
+    assert links.loc["tem", "source"].startswith("TEMData/CuAu01")   # relative
+
+    copy = tmp_path / "elsewhere"
+    shutil.copytree(project_root, copy)
+    (project_root / "moved.json").unlink()
+
+    reopened = Organizer(copy / "moved.json")
+    report = reopened.available()
+    assert report["n_available"] == report["n_measurements"] > 0
+    assert reopened.project.config.path_aliases == []      # none needed
