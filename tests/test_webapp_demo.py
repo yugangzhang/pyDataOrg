@@ -1,10 +1,12 @@
-"""Tests for the Demo page — notebooks 10 → 11 → 12 with buttons.
+"""Tests for the Demo page — notebooks 10 → 11 → 12 with buttons, on Cu–Au.
 
-Driven through ``AppTest`` against a lab simulated into ``tmp_path`` (via
-``$NANOORGANIZER_DEMO_ROOT``), so nothing is written outside the test's own
-folder. The buttons are clicked in the order a user would: simulate, create,
-ingest, link, save, batch, reload — and every click is checked for a clean
-page, not just the last one.
+Driven through ``AppTest`` against the showcase campaign generated into
+``tmp_path`` (via ``$NANOORGANIZER_DEMO_ROOT``), so nothing is written outside
+the test's own folder. One test clicks the whole walk in the order a user
+would — simulate, create, ingest, link, save, batch, reload, hand over — and
+checks every click for a clean page. The others start from an organizer built
+with the same package calls the page makes, which is faster than clicking and
+is itself a check that the page and the notebooks agree.
 """
 
 import json
@@ -18,13 +20,19 @@ AppTest = pytest.importorskip("streamlit.testing.v1").AppTest
 from pathlib import Path  # noqa: E402
 
 from NanoOrganizer import Organizer  # noqa: E402
+from NanoOrganizer.demo import (  # noqa: E402
+    build_showcase_project, showcase_truth,
+)
 
 VIEWS = Path(__file__).resolve().parents[1] / "NanoOrganizer" / "web_app" / "views"
 DEMO = VIEWS / "demo.py"
 HOME = VIEWS.parent / "Home.py"
 
-ORDER = ("nano_demo_simulate", "nano_demo_create", "nano_demo_ingest",
-         "nano_demo_link", "nano_demo_save")
+STAGES = ("Synthesis", "Characterization", "Testing", "Computation")
+BY_HAND = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData",
+           "tomo": "TomoData"}
+WALK = ("nano_demo_simulate", "nano_demo_create", "nano_demo_ingest",
+        "nano_demo_link", "nano_demo_save")
 
 
 def _why(app) -> str:
@@ -34,6 +42,8 @@ def _why(app) -> str:
 def _clean(app, step: str) -> None:
     assert not app.exception, f"{step}: {_why(app)}"
     assert not app.error, f"{step}: {[e.value for e in app.error]}"
+    # The gallery reports a panel it could not draw as a warning.
+    assert not app.warning, f"{step}: {[w.value for w in app.warning]}"
 
 
 def _click(app, key: str):
@@ -42,138 +52,164 @@ def _click(app, key: str):
     return app
 
 
+def _metrics(app) -> dict:
+    return {m.label: m.value for m in app.metric}
+
+
+def _page():
+    app = AppTest.from_file(str(DEMO), default_timeout=300)
+    app.run()
+    _clean(app, "first run")
+    return app
+
+
 @pytest.fixture
-def lab_root(tmp_path, monkeypatch):
+def demo_root(tmp_path, monkeypatch):
     """Point demo_root() at the test's own folder, and keep security off."""
     monkeypatch.setenv("NANOORGANIZER_DEMO_ROOT", str(tmp_path))
     for name in ("NANOORGANIZER_SECURE_MODE", "NANOORGANIZER_USER_MODE",
                  "NANOORGANIZER_ALLOWED_ROOTS", "NANOORGANIZER_CONFIG"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)             # no stray ./.config/pyViz.conf
-    return tmp_path / "Lab"
+    return tmp_path / "CuAu"
 
 
 @pytest.fixture
-def built(lab_root):
-    """The page after simulate → create → ingest → link → save."""
-    app = AppTest.from_file(str(DEMO), default_timeout=120)
-    app.run()
-    _clean(app, "first run")
-    for key in ORDER:
-        _click(app, key)
-    return app, lab_root
+def saved(demo_root):
+    """cuau.json built with the calls notebooks 10 and 11 make."""
+    campaign = demo_root / "Campaign"
+    build_showcase_project(campaign)
+    showcase_truth().to_csv(demo_root / "truth.csv", index=False)
+    org = Organizer(demo_root / "cuau.json", name="Cu-Au CO2RR library")
+    for stage in STAGES:
+        org.ingest(campaign / "MetaData" / f"{stage}_dict.py")
+    for sample in org.ids():
+        for modality, folder in BY_HAND.items():
+            source = campaign / folder / sample
+            if source.is_dir():
+                org.link(sample, modality, str(source),
+                         stage="characterization")
+    org.save()
+    return demo_root
 
 
-def test_every_tab_waits_for_its_prerequisite(lab_root):
+@pytest.fixture
+def reopened(saved):
+    """The page with the saved organizer reopened."""
+    app = _page()
+    _click(app, "nano_demo_create")
+    return app, saved
+
+
+def test_every_tab_waits_for_its_prerequisite(demo_root):
     """Nothing built yet: each tab points back to the step it needs."""
-    app = AppTest.from_file(str(DEMO), default_timeout=120)
-    app.run()
-    _clean(app, "empty")
+    app = _page()
 
     messages = " | ".join(item.value for item in app.info)
     assert "simulate the data first" in messages
     assert "Build the organizer first" in messages
-    assert "Link the diffraction first" in messages
-    assert "Run the batch first" in messages
-    assert not lab_root.exists(), "rendering must not write anything"
+    assert "Run the campaign's analyses first" in messages
+    assert not demo_root.exists(), "rendering must not write anything"
+    # The model is drawn before anything is written: it is the point.
+    assert _metrics(app)["Techniques"] == "15"
 
 
-def test_simulate_writes_the_lab_under_the_demo_root(lab_root):
-    app = AppTest.from_file(str(DEMO), default_timeout=120)
-    app.run()
-    assert app.text_input(key="nano_demo_root").value == str(lab_root)
+def test_simulate_writes_the_campaign_and_the_answer_key(demo_root):
+    app = _page()
+    assert app.text_input(key="nano_demo_root").value == str(demo_root)
 
     _click(app, "nano_demo_simulate")
-    assert (lab_root / "Meta" / "synthesis_dict.json").is_file()
-    assert len(list((lab_root / "RawData" / "spectrometer").rglob("*.csv"))) == 84
-    metrics = {m.label: m.value for m in app.metric}
-    assert metrics["Micrographs"] == "18" and metrics["Patterns"] == "6"
-    # The tree and the answer key are shown, not just written.
-    assert any("microscope_share" in block.value for block in app.code)
+    campaign = demo_root / "Campaign"
+    assert sorted(p.name for p in (campaign / "MetaData").glob("*_dict.py")) \
+        == [f"{s}_dict.py" for s in sorted(STAGES)]
+    assert (demo_root / "truth.csv").is_file()
+    assert len(list((campaign / "TEMData").rglob("*.tif"))) == 24
+
+    metrics = _metrics(app)
+    assert metrics["Metadata modules"] == "4"
+    assert metrics["Folders with no record"] == "4"
+    # The tree and a peek into one metadata module are shown, not just written.
+    shown = " ".join(block.value for block in app.code)
+    assert "TEMData" in shown and "UVVis" in shown
 
 
-def test_build_ingests_links_and_saves(built):
-    app, lab_root = built
-    store = lab_root / "lab.json"
-    assert store.is_file()
+def test_the_whole_walk_recovers_the_hidden_number(demo_root):
+    """Simulate → build → batch → compare → reload → hand over, by clicking."""
+    app = _page()
+    for key in WALK:
+        _click(app, key)
 
+    store = demo_root / "cuau.json"
     org = Organizer(store)
     catalog = org.catalog(counts=True)
-    assert list(org.project.sample_ids()) == [f"S0{i}" for i in range(1, 7)]
-    assert set(catalog.columns) >= {"uvvis", "tem", "waxs1d"}
-    assert (catalog["tem"] == 3).all(), "session.txt must not be linked"
-    assert (catalog["waxs1d"] == 1).all()
-
+    assert len(org.project) == 9 and len(org.project.measurements()) == 144
+    assert (catalog.loc["CuAu09"] == 0).all(), "the failed run has no data"
+    assert (catalog.loc["CuAu05", ["tem", "sem"]] == 3).all(), \
+        "note.txt must not be linked as a micrograph"
+    assert catalog["tomo"].sum() == 2, "tomography is on two samples only"
     # Paths are recorded exactly as linked, not rewritten.
     text = store.read_text()
-    assert str(lab_root / "RawData" / "xrd_rig" / "S01_waxs.dat") in text
-    assert json.loads(text), "lab.json is plain JSON"
+    assert str(demo_root / "Campaign" / "TEMData" / "CuAu05") in text
+    assert json.loads(text), "cuau.json is plain JSON"
 
-    # Every later tab can now render its content instead of an info box.
-    remaining = " | ".join(item.value for item in app.info)
-    assert "Build the organizer first" not in remaining
-    assert "Link the diffraction first" not in remaining
-
-
-def test_fit_batch_compare_and_reload(built):
-    app, lab_root = built
-
-    # The kernel ran on the default window and reported a good fit.
-    metrics = {m.label: m.value for m in app.metric}
-    assert float(metrics["R²"]) > 0.99
+    # The kernel ran on the default window: Vegard gives CuAu05's x back.
+    metrics = _metrics(app)
+    assert float(metrics["R²"]) > 0.999
+    assert abs(float(metrics["x(Au) from Vegard"]) - 0.55) < 0.01
+    assert int(metrics["Particles"]) > 20
 
     _click(app, "nano_demo_batch")
-    assert any("12/12" in item.value for item in app.success)
-    results = list((lab_root / "results").glob("*.result.npz"))
-    assert len(results) == 12
+    assert any("72/72" in item.value for item in app.success)
+    results = sorted((demo_root / "results").glob("*.result.npz"))
+    assert len(results) == 16, "two peak fits per sample, linked"
 
-    # Compare recovers the hidden numbers.
-    metrics = {m.label: m.value for m in app.metric}
-    assert float(metrics["Band recovered within"].split()[0]) < 3.0
-    slope = next(v for k, v in metrics.items() if k.startswith("Scherrer"))
-    assert abs(float(slope) - 0.565) < 0.05
+    # E: three techniques recover the composition; the volcano peaks mid-way.
+    metrics = _metrics(app)
+    assert float(metrics["EDS composition within"].split()[-1]) < 0.03
+    assert float(metrics["WAXS composition within"].split()[-1]) < 0.01
+    assert float(metrics["Plasmon band within"].split()[0]) < 2.0
+    assert metrics["Most CO"] == "CuAu05"
 
     # F: a fresh Organizer off disk, no refitting.
-    before = sorted(p.stat().st_mtime for p in results)
+    before = [p.stat().st_mtime for p in results]
     _click(app, "nano_demo_reload")
-    after = sorted(p.stat().st_mtime for p in results)
-    assert before == after, "reloading must not rewrite the stored fits"
+    assert [p.stat().st_mtime for p in results] == before, \
+        "reloading must not rewrite the stored fits"
+
+    _click(app, "nano_demo_handover")
+    assert app.session_state["nano_workbench"] is \
+        app.session_state["nano_demo_org"]
 
 
-def test_a_saved_organizer_reopens_in_a_new_session(built):
-    _, lab_root = built
-    app = AppTest.from_file(str(DEMO), default_timeout=120)
-    app.run()
+def test_a_saved_organizer_reopens_in_a_new_session(saved):
+    app = _page()
     button = app.button(key="nano_demo_create")
-    assert button.label == "Reopen lab.json"
+    assert button.label == "Reopen cuau.json"
     button.click().run()
     _clean(app, "reopen")
     org = app.session_state["nano_demo_org"]
-    assert len(org.project.measurements(modality="tem")) == 6
+    assert len(org.project.measurements(modality="tem")) == 8
+    assert "Build the organizer first" not in " ".join(i.value for i in app.info)
 
 
-def test_start_over_removes_only_the_organizer(built):
-    app, lab_root = built
-    _click(app, "nano_demo_batch")
-    assert (lab_root / "results").is_dir()
+def test_start_over_removes_only_the_organizer(reopened):
+    app, root = reopened
+    (root / "results").mkdir()
+    (root / "results" / "x.result.npz").write_bytes(b"")
+    app.run()
 
     app.checkbox(key="nano_demo_sure").check().run()
     _click(app, "nano_demo_reset")
-    assert not (lab_root / "lab.json").exists()
-    assert not (lab_root / "results").exists()
-    # The raw data and the dict are untouched.
-    assert (lab_root / "Meta" / "synthesis_dict.json").is_file()
-    assert len(list((lab_root / "RawData").rglob("*.tif"))) == 18
+    assert not (root / "cuau.json").exists()
+    assert not (root / "results").exists()
+    # The campaign and the answer key are untouched.
+    assert (root / "Campaign" / "MetaData" / "Synthesis_dict.py").is_file()
+    assert (root / "truth.csv").is_file()
+    assert len(list((root / "Campaign").rglob("*.tif"))) == 48
     assert "nano_demo_org" not in app.session_state
 
 
-def test_handover_puts_the_organizer_in_the_workflow(built):
-    app, _ = built
-    _click(app, "nano_demo_handover")
-    assert app.session_state["nano_workbench"] is app.session_state["nano_demo_org"]
-
-
-def test_restricted_mode_refuses_a_root_outside_the_fence(lab_root, tmp_path,
+def test_restricted_mode_refuses_a_root_outside_the_fence(demo_root, tmp_path,
                                                          monkeypatch):
     fence = tmp_path / "allowed"
     fence.mkdir()
@@ -187,7 +223,7 @@ def test_restricted_mode_refuses_a_root_outside_the_fence(lab_root, tmp_path,
     assert not app.button, "nothing may be clickable outside the fence"
 
 
-def test_navigation_reaches_the_demo_page(lab_root):
+def test_navigation_reaches_the_demo_page(demo_root):
     app = AppTest.from_file(str(HOME), default_timeout=300)
     app.run()
     assert not app.exception, _why(app)
@@ -196,20 +232,30 @@ def test_navigation_reaches_the_demo_page(lab_root):
     assert [t.value for t in app.title] == ["🎓 Demo"]
 
 
-def test_every_technique_and_both_engines_draw(built):
-    app, _ = built
-    for modality in ("uvvis", "tem", "waxs1d"):
-        app.selectbox(key="nano_demo_vis_m").select(modality).run()
-        _clean(app, f"static {modality}")
+def test_each_group_draws_and_the_tomogram_turns(reopened):
+    """The gallery draws all four groups statically on every run (a panel
+    that fails is a warning, which ``_clean`` refuses); here the free picker
+    shows the volume interactive in two modes, and a log-scaled 2D image."""
+    app, _ = reopened
+    assert app.selectbox(key="nano_demo_vis_s").value == "CuAu01"
+    assert app.selectbox(key="nano_demo_vis_m").value == "tomo"
+
     app.radio(key="nano_demo_vis_engine").set_value("interactive").run()
-    _clean(app, "interactive")
+    _clean(app, "interactive tomo")
+    app.selectbox(key="nano_demo_vis_mode").select("slices").run()
+    _clean(app, "interactive slices")
+    app.selectbox(key="nano_demo_vis_m").select("saxs2d").run()
+    _clean(app, "interactive saxs2d")
 
 
-def test_a_wider_window_is_visibly_worse(built):
-    """The lesson of part D: a window reaching the next reflection drops R²."""
-    app, _ = built
-    good = float(next(m.value for m in app.metric if m.label == "R²"))
-    app.slider(key="nano_demo_fit_window").set_range(2.3, 4.5).run()
-    _clean(app, "wide window")
-    bad = float(next(m.value for m in app.metric if m.label == "R²"))
-    assert bad < good - 0.1
+def test_a_worse_model_shows_in_the_residual_not_the_headline(reopened):
+    """The lesson of part D: one peak across two reflections drops R², while
+    the sharp (111) still pins the centre — the residual is the tell."""
+    app, _ = reopened
+    good = _metrics(app)
+    app.number_input(key="nano_demo_fit_n").set_value(1).run()
+    _clean(app, "one peak")
+    bad = _metrics(app)
+    assert float(bad["R²"]) < float(good["R²"]) - 0.1
+    assert abs(float(bad["x(Au) from Vegard"])
+               - float(good["x(Au) from Vegard"])) < 0.02

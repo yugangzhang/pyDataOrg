@@ -14,7 +14,7 @@ buttons; [`gui_demo.md`](gui_demo.md) is the illustrated tour.
 
 | | |
 |---|---|
-| **🎓 Demo** | Notebooks 10 → 11 → 12 with buttons: simulate a lab's raw files, build an organizer from them, look, plot, fit, batch and compare — each step showing the Python it ran |
+| **🎓 Demo** | Notebooks 10 → 11 → 12 with buttons, on a Cu–Au catalyst campaign of fifteen techniques: simulate it, build an organizer from it, look, plot every group, fit, batch and compare against the answer key — each step showing the Python it ran |
 | **📁 Project** | Open a folder, map recorded paths onto this machine, read the metadata dicts, attach data folders, **link data from anywhere**, save — or generate an example project to explore |
 | **🌳 Structure** | Drill into a folder, a metadata file or an archive, one layer at a time |
 | **🔎 Explore & Filter** | Filter the sample table; this sets the **selection** every later page uses |
@@ -30,31 +30,41 @@ exists, when the question is still "what is in this directory".
 ## Demo: the three notebooks, with buttons
 
 The fastest way to learn the app, and the package under it. Six tabs walk one
-small campaign from raw files to a structure–property plot, calling the same
+campaign from raw files to a structure–property plot, calling the same
 functions as `notebook/10_simulate_data` → `11_build_organizer` →
-`12_use_organizer`, in the same order:
+`12_use_organizer`, in the same order.
+
+The campaign is the **Cu–Au showcase**: an alloy nanocatalyst library for CO₂
+electroreduction — eight alloys and one failed run, fifteen techniques across
+four stages (synthesis, characterization, testing, computation), all following
+from one hidden number, the gold fraction. Four techniques are declared in
+metadata dicts; four more (TEM, SEM, DLS, tomography) arrive as bare folders
+nobody wrote a record for, which is the case the page links by hand.
 
 | tab | mirrors | does |
 |---|---|---|
-| **1 · Simulate** | notebook 10 | `simulate_lab()` writes spectra, micrographs and diffraction into three folder trees that do not agree, plus a metadata dict naming only the spectra |
-| **2 · Build** | notebook 11 | `Organizer(lab.json)`, `ingest(synthesis=dict)`, `link()` the rest by hand, `save()` |
-| **3 · Look** | notebook 12 A–B | `describe()`, `tree()`, `ids(query)`, `frames()`, `data()` eager and lazy |
-| **4 · Visualize** | notebook 12 C | `plot(s, m, ax=ax)`, `overlay("waxs1d", sample_ids=…, ax=ax)` |
-| **5 · Analyze** | notebook 12 D | `fit_peaks(x, y)` on arrays, then `plot_fit(…, ax=ax)` as a separate call, then `batch(…, link=True)` |
-| **6 · Compare** | notebook 12 E–F | the answer-key check, Scherrer, `plot_compare`, and a stored fit reloaded off disk without refitting |
+| **1 · Simulate** | notebook 10 | draws the model (one number, fifteen shadows), then `build_showcase_project(Campaign)` writes the files and four metadata dicts, and `showcase_truth()` the answer key |
+| **2 · Build** | notebook 11 | `Organizer(cuau.json)`, `ingest()` the four `*_dict.py` modules, `link()` the four folder techniques by hand, `catalog()`, `save()` |
+| **3 · Look** | notebook 12 A–B | `describe()`, `tree()`, `ids(query)`, `frames()` with time and temperature from the filenames, `data()` eager and lazy — a tomogram memory-mapped one plane at a time |
+| **4 · Visualize** | notebook 12 C | a 2×4 gallery of all four groups from `plot(s, m, ax=ax)`; any technique static or interactive (the tomogram as a rotatable isosurface); `overlay("waxs1d", …)` showing the (111) walk with composition |
+| **5 · Analyze** | notebook 12 D | `fit_peaks(q, I)` on arrays, then `plot_fit(…, ax=ax)` as a separate call, the lattice parameter and Vegard's composition; a segmentation check with `segment()` then `plot_segmentation()`; then nine `batch()` calls |
+| **6 · Compare** | notebook 12 E–F | composition three ways (EDS, WAXS, XPS) against the answer key, the plasmon band, three sizes, the CO volcano via `plot_compare`, and a stored fit reloaded off disk without refitting |
 
 Every tab ends with **The same in Python** — the calls it just made, using
 only the package's own functions — so nothing on the page is a GUI-only path.
 A tab whose prerequisite is missing says which tab to go back to rather than
-failing.
+failing. No helper on the page both computes and draws: it calls an analysis,
+then a plot.
 
-The raw data goes to `demo_root("Lab")` (`~/Repos/OrgDemo/Lab`, or under
-`$NANOORGANIZER_DEMO_ROOT`) and the organizer is saved beside it as
-`lab.json`, the same file notebook 11 writes — so a notebook and the page can
-take turns on it. *Start over* removes only `lab.json` and its `results/`
-folder, never the raw data. The page holds its organizer separately from the
-workflow pages until **Use this organizer in the workflow pages** hands it
-over. In restricted mode a lab folder outside the allowed roots is refused.
+Everything goes under `demo_root("CuAu")` (`~/Repos/OrgDemo/CuAu`, or under
+`$NANOORGANIZER_DEMO_ROOT`): the campaign in `Campaign/`, the answer key as
+`truth.csv`, the organizer as `cuau.json` and stored fits in `results/` — the
+same files notebooks 10–12 write, so a notebook and the page can take turns on
+them. Simulating again rebuilds `Campaign/` only. *Start over* removes only
+`cuau.json` and `results/`, never the campaign. The page holds its organizer
+separately from the workflow pages until **Use this organizer in the workflow
+pages** hands it over. In restricted mode a demo folder outside the allowed
+roots is refused.
 
 [`gui_demo.md`](gui_demo.md) is the walkthrough, with screenshots.
 
@@ -271,8 +281,10 @@ against a synthetic project, so it needs no data mount. It clicks through the
 interactions that matter rather than only checking that pages render.
 
 `tests/test_webapp_demo.py` clicks through the Demo page — simulate, build,
-fit, batch, compare, reload, start over — against a lab written into the
-test's own temporary folder.
+fit, batch, compare, reload, hand over, start over — against the Cu–Au
+campaign written into the test's own temporary folder, and checks that the
+page recovers the hidden composition. A gallery panel that cannot be drawn is
+reported as a warning, and the tests refuse warnings.
 
 `tests/test_webapp_showcase.py` repeats the render checks against the
 fifteen-technique demo project. That is the case the generalisation was for —
