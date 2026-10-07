@@ -951,6 +951,19 @@ class Workbench:
 
         Returns the :class:`AnalysisResult`; with *show*, returns
         ``(result, axes)`` so the check is one call.
+
+        This is still a convenience: it finds the measurement for you. When
+        the fit itself is what needs attention, skip it and call the kernel on
+        the arrays, which takes no project and no files::
+
+            from NanoOrganizer.analysis import fit_peaks
+            from NanoOrganizer.viz.plots import plot_fit
+
+            x, Y, info = org.data("S01", "waxs1d")
+            fit = fit_peaks(x, Y[0], n_peaks=2, x_range=(2.5, 3.6))
+            plot_fit(fit.x, fit.y, fit.y_fit, fit.residual)
+
+        See ``docs/kernel_adapter_rule.md``.
         """
         where = {k: v for k, v in (("modality", modality), ("stage", stage),
                                    ("role", role)) if v}

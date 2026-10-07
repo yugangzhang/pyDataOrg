@@ -241,8 +241,16 @@ register_analysis(Analysis(
                 "no model fitted.",
 ))
 
+# Kernels, re-exported so the numeric half of every analysis is one import
+# away without having to know which module it lives in. See
+# ``docs/kernel_adapter_rule.md`` for why the split exists at all.
+from NanoOrganizer.analysis.curves import CurveMetrics, measure_curve  # noqa: E402
+from NanoOrganizer.analysis.peaks import PeakFitResult, fit_peaks      # noqa: E402
+
 __all__ = [
     "Analysis", "ANALYSIS_REGISTRY", "AnalysisResult",
     "register_analysis", "get_analysis", "list_analyses", "analyses_for",
     "run", "batch", "batch_report",
+    # kernels: arrays in, result out — no files, no project
+    "fit_peaks", "PeakFitResult", "measure_curve", "CurveMetrics",
 ]

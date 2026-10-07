@@ -12,10 +12,24 @@ plus *n* Gaussian, Lorentzian or pseudo-Voigt peaks. Initial guesses come from
 the data (the *n* highest well-separated maxima), because a multi-peak fit
 started at an arbitrary point converges to nonsense far more often than it
 fails outright.
+
+This module follows the kernel/adapter rule (``docs/kernel_adapter_rule.md``):
+
+``fit_peaks(x, y, ...)``
+    the **kernel** — arrays in, :class:`PeakFitResult` out.  No files, no
+    project, no registry.  This is the one to call when a fit is misbehaving
+    and you want to change one number and look again.
+
+``peak_fit(measurement, resolver, ...)``
+    the **adapter** — finds the curve, calls the kernel, labels the axes from
+    the modality registry and packages the answer as an
+    :class:`AnalysisResult`.  This is the one the analysis registry knows
+    about and the one ``wb.batch("peak_fit")`` runs.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -155,6 +169,209 @@ def _curve_from_file(measurement, resolver, crop, *, index: int = -1,
 # The fit
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Kernel: the fit itself, on arrays
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PeakFitResult:
+    """Everything one peak fit computed.
+
+    Returned by :func:`fit_peaks`.  It carries the model curve and the
+    residual as well as the parameters, because a caller that has to recompute
+    them to draw the fit will get the model subtly wrong sooner or later.
+
+    Attributes
+    ----------
+    x, y : ndarray
+        The data actually fitted, after any windowing and NaN removal.
+    y_fit, residual : ndarray
+        The model on *x*, and ``y - y_fit``.
+    params, errors : dict
+        ``{"baseline": ..., "peak1_center": ..., ...}`` and the matching 1σ
+        uncertainties.  An undetermined parameter is absent from *errors*
+        rather than present as zero.
+    r2, rmse : float
+        Goodness of fit.  Whether that is *good enough* is the caller's
+        decision, not this function's.
+    settings : dict
+        What was actually used: shape, background, peak count, window, point
+        count.
+    popt, pcov : ndarray
+        The raw ``curve_fit`` output, for anyone who wants the covariance.
+    """
+
+    x: np.ndarray
+    y: np.ndarray
+    y_fit: np.ndarray
+    residual: np.ndarray
+    params: Dict[str, float] = field(default_factory=dict)
+    errors: Dict[str, float] = field(default_factory=dict)
+    r2: float = float("nan")
+    rmse: float = float("nan")
+    settings: Dict[str, Any] = field(default_factory=dict)
+    popt: Optional[np.ndarray] = None
+    pcov: Optional[np.ndarray] = None
+
+    @property
+    def centers(self) -> List[float]:
+        """Fitted peak positions, in x order."""
+        return [self.params[k] for k in sorted(self.params)
+                if k.endswith("_center")]
+
+    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+        peaks = ", ".join(f"{c:.4g}" for c in self.centers)
+        return (f"<PeakFitResult {self.settings.get('n_peaks', '?')} peak(s) "
+                f"at [{peaks}], R² = {self.r2:.4f}>")
+
+
+def fit_peaks(x, y, *, n_peaks: int = 1, shape: str = "gaussian",
+              background: str = "constant",
+              x_range: Optional[Tuple[float, float]] = None,
+              initial_guess: Optional[Sequence[float]] = None,
+              bounds: Optional[Dict[str, tuple]] = None,
+              maxfev: int = 20000) -> PeakFitResult:
+    """Fit *n_peaks* peaks plus a background to ``(x, y)``. **The kernel.**
+
+    Takes two arrays and nothing else — no measurement, no resolver, no
+    project — so it can be called on data from anywhere::
+
+        x, Y, info = org.data("S01", "waxs1d")
+        fit = fit_peaks(x, Y[0], n_peaks=2, x_range=(2.5, 3.6),
+                        background="linear")
+        fit.params["peak1_center"], fit.r2
+
+    Parameters
+    ----------
+    x, y : array-like
+        The curve.  Non-finite points are dropped.
+    n_peaks : int
+        How many components.  Initial positions come from the *n* highest
+        well-separated maxima, because a multi-peak fit started at an
+        arbitrary point converges to nonsense more often than it fails.
+    shape : {"gaussian", "lorentzian", "pseudo_voigt"}
+        The line shape.  ``width`` is the Gaussian σ (not the FWHM) for
+        ``gaussian``, and the half-width at half-maximum for ``lorentzian``.
+    background : {"constant", "linear"}
+        A sloping background is the normal case away from UV-Vis — an XPS
+        inelastic tail, a Raman fluorescence ramp, an interband edge under a
+        plasmon — and fitting a flat one through it does not merely lower R²:
+        it drags the peak centre towards the high side of the slope.  If a
+        fitted position looks systematically off, this is the first thing to
+        try.
+    x_range : (float, float), optional
+        Fit only this window.
+    initial_guess : sequence, optional
+        Raw parameter vector, in model order.  Omitted, it is estimated from
+        the data.
+    bounds : dict, optional
+        Overrides for the automatic physical bounds, by parameter name.
+
+    Returns
+    -------
+    PeakFitResult
+
+    Raises
+    ------
+    ValueError
+        For an unknown *shape* or *background*, or too few usable points to
+        determine the parameters.  The kernel raises; the adapter is what
+        turns a failure into a row in a results table.
+    RuntimeError
+        If the optimiser does not converge.
+    """
+    if shape not in SHAPES:
+        raise ValueError(f"shape must be one of {SHAPES}, got {shape!r}")
+    if background not in BACKGROUNDS:
+        raise ValueError(
+            f"background must be one of {BACKGROUNDS}, got {background!r}")
+    if n_peaks < 1:
+        raise ValueError(f"n_peaks must be at least 1, got {n_peaks}")
+
+    x = np.asarray(x, dtype=float).ravel()
+    y = np.asarray(y, dtype=float).ravel()
+    if x.shape != y.shape:
+        raise ValueError(f"x and y must match: {x.shape} vs {y.shape}")
+
+    if x_range is not None:
+        keep = (x >= x_range[0]) & (x <= x_range[1])
+        x, y = x[keep], y[keep]
+
+    good = np.isfinite(x) & np.isfinite(y)
+    x, y = x[good], y[good]
+
+    needed = 4 * n_peaks + 2
+    if x.size < needed:
+        raise ValueError(
+            f"only {x.size} usable points for {n_peaks} peak(s); "
+            f"{needed} are needed"
+            + (f" — is the x_range {x_range} right for this axis?"
+               if x_range is not None else ""))
+
+    order = np.argsort(x)
+    x, y = x[order], y[order]
+
+    guess = list(initial_guess) if initial_guess is not None else \
+        _initial_guess(x, y, n_peaks, background)
+    lower, upper = _bounds(x, y, n_peaks, bounds, background)
+    model = _peak_model(shape, n_peaks, background)
+
+    try:
+        from scipy.optimize import curve_fit
+
+        popt, pcov = curve_fit(model, x, y, p0=guess, bounds=(lower, upper),
+                               maxfev=maxfev)
+    except Exception as exc:                        # noqa: BLE001
+        raise RuntimeError(f"{type(exc).__name__}: {exc}") from exc
+
+    y_fit = model(x, *popt)
+    residual = y - y_fit
+    ss_res = float((residual ** 2).sum())
+    ss_tot = float(((y - y.mean()) ** 2).sum())
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+    # curve_fit scales the covariance by the residual variance. A non-finite
+    # entry means that parameter was not actually determined, so it is left
+    # out rather than reported as zero.
+    raw_errors = (np.sqrt(np.diag(pcov)) if pcov is not None
+                  else np.full(len(popt), np.nan))
+
+    params: Dict[str, float] = {}
+    errors: Dict[str, float] = {}
+    n_background = _N_BACKGROUND[background]
+
+    def record(name: str, index: int) -> None:
+        params[name] = float(popt[index])
+        error = _as_error(raw_errors[index])
+        if error is not None:
+            errors[name] = error
+
+    record("baseline", 0)
+    if background == "linear":
+        record("baseline_slope", 1)
+    for peak in range(n_peaks):
+        base = n_background + 3 * peak
+        record(f"peak{peak + 1}_amplitude", base + 0)
+        record(f"peak{peak + 1}_center", base + 1)
+        record(f"peak{peak + 1}_width", base + 2)
+
+    return PeakFitResult(
+        x=x, y=y, y_fit=y_fit, residual=residual,
+        params=params, errors=errors,
+        r2=float(r2), rmse=float(np.sqrt(ss_res / x.size)),
+        settings={"n_peaks": n_peaks, "shape": shape,
+                  "background": background,
+                  "x_range": (float(x[0]), float(x[-1])),
+                  "n_points": int(x.size)},
+        popt=popt, pcov=pcov,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Adapter: the same fit, found and filed
+# ---------------------------------------------------------------------------
+
 def peak_fit(measurement, resolver, *, n_peaks: int = 1,
              shape: str = "gaussian",
              background: str = "constant",
@@ -162,43 +379,34 @@ def peak_fit(measurement, resolver, *, n_peaks: int = 1,
              index: int = -1,
              reduce: str = "last_decile",
              crop: Optional[Tuple[float, float]] = None,
-             initial_guess: Optional[Dict[str, float]] = None,
+             initial_guess: Optional[Sequence[float]] = None,
              bounds: Optional[Dict[str, tuple]] = None,
              min_r2: float = 0.9,
              **_ignored) -> AnalysisResult:
-    """Fit *n_peaks* peaks plus a constant baseline to a 1D curve.
+    """Fit peaks to a measurement's curve. **The adapter over** :func:`fit_peaks`.
+
+    Everything numerical happens in the kernel; this reads the curve, supplies
+    the axis unit from the modality registry, applies the *min_r2* policy, and
+    packages the answer as an :class:`AnalysisResult` so it reaches the
+    results table.
 
     Derived values are named ``peak1_center``, ``peak1_amplitude``,
-    ``peak1_width`` and so on, with the x-axis unit taken from the modality so
-    a Raman shift never gets labelled in nanometres.
+    ``peak1_width`` and so on, with the unit taken from the modality so a
+    Raman shift never gets labelled in nanometres.
 
-    ``background`` is ``"constant"`` or ``"linear"``.  A sloping background is
-    the normal case away from UV-Vis — an XPS inelastic tail, a Raman
-    fluorescence ramp, an interband edge under a plasmon — and fitting a flat
-    one through it does not merely lower R²: it drags the peak centre towards
-    the high side of the slope.  If a fitted position looks systematically
-    off, this is the first thing to try.
+    ``index``, ``reduce`` and ``crop`` decide *which* curve is fitted when the
+    measurement holds many frames — see :func:`load_curve`. They are the only
+    arguments here that the kernel does not take, because they are about
+    finding the data rather than fitting it.
 
-    ``min_r2`` is a floor, not a target: a fit below it is returned with
-    ``ok = False`` so the batch table shows it rather than quietly contributing
-    a meaningless peak position to the results.
+    ``min_r2`` is a floor, not a target: a fit below it comes back with
+    ``ok = False`` so the batch table shows it rather than quietly
+    contributing a meaningless peak position. The kernel reports R² and takes
+    no view on it.
     """
-    result = AnalysisResult(
-        analysis="peak_fit",
-        sample_id=measurement.sample_id,
-        measurement_id=measurement.measurement_id,
-    )
-
-    if shape not in SHAPES:
+    def failure(message: str) -> AnalysisResult:
         return AnalysisResult.failure(
-            "peak_fit", f"shape must be one of {SHAPES}, got {shape!r}",
-            sample_id=measurement.sample_id,
-            measurement_id=measurement.measurement_id,
-        )
-    if background not in BACKGROUNDS:
-        return AnalysisResult.failure(
-            "peak_fit",
-            f"background must be one of {BACKGROUNDS}, got {background!r}",
+            "peak_fit", message,
             sample_id=measurement.sample_id,
             measurement_id=measurement.measurement_id,
         )
@@ -207,91 +415,46 @@ def peak_fit(measurement, resolver, *, n_peaks: int = 1,
         x, y, info = load_curve(measurement, resolver, index=index,
                                 reduce=reduce, crop=crop)
     except (FileNotFoundError, ValueError, ImportError) as exc:
-        return AnalysisResult.failure(
-            "peak_fit", str(exc),
-            sample_id=measurement.sample_id,
-            measurement_id=measurement.measurement_id,
-        )
-
-    if x_range is not None:
-        keep = (x >= x_range[0]) & (x <= x_range[1])
-        x, y = x[keep], y[keep]
-
-    good = np.isfinite(x) & np.isfinite(y)
-    x, y = x[good], y[good]
-    if x.size < 4 * n_peaks + 2:
-        return AnalysisResult.failure(
-            "peak_fit",
-            f"only {x.size} usable points for {n_peaks} peak(s)",
-            sample_id=measurement.sample_id,
-            measurement_id=measurement.measurement_id,
-        )
-
-    guess = initial_guess or _initial_guess(x, y, n_peaks, background)
-    lower, upper = _bounds(x, y, n_peaks, bounds, background)
-    model = _peak_model(shape, n_peaks, background)
-    n_background = _N_BACKGROUND[background]
+        return failure(str(exc))
 
     try:
-        from scipy.optimize import curve_fit
-
-        popt, pcov = curve_fit(model, x, y, p0=guess, bounds=(lower, upper),
-                               maxfev=20000)
-    except Exception as exc:
-        return AnalysisResult.failure(
-            "peak_fit", f"{type(exc).__name__}: {exc}",
-            sample_id=measurement.sample_id,
-            measurement_id=measurement.measurement_id,
-        )
-
-    y_fit = model(x, *popt)
-    residual = y - y_fit
-    ss_res = float((residual ** 2).sum())
-    ss_tot = float(((y - y.mean()) ** 2).sum())
-    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-
-    # Parameter errors from the covariance, which curve_fit scales by the
-    # residual variance. A non-finite entry means that parameter was not
-    # actually determined, so it is reported as absent rather than as zero.
-    errors = np.sqrt(np.diag(pcov)) if pcov is not None else \
-        np.full(len(popt), np.nan)
+        fit = fit_peaks(x, y, n_peaks=n_peaks, shape=shape,
+                        background=background, x_range=x_range,
+                        initial_guess=initial_guess, bounds=bounds)
+    except (ValueError, RuntimeError) as exc:
+        return failure(str(exc))
 
     spec = measurement.spec
     unit = _axis_unit(spec)
 
-    result.set("baseline", float(popt[0]), error=_as_error(errors[0]))
-    if background == "linear":
-        result.set("baseline_slope", float(popt[1]), error=_as_error(errors[1]))
-    for peak in range(n_peaks):
-        base = n_background + 3 * peak
-        for offset, name, value_unit in (
-            (1, "center", unit), (0, "amplitude", ""), (2, "width", unit),
-        ):
-            result.set(f"peak{peak + 1}_{name}", float(popt[base + offset]),
-                       unit=value_unit,
-                       error=_as_error(errors[base + offset]))
-    result.set("fit_r2", float(r2))
+    result = AnalysisResult(
+        analysis="peak_fit",
+        sample_id=measurement.sample_id,
+        measurement_id=measurement.measurement_id,
+    )
+    for name, value in fit.params.items():
+        result.set(name, value,
+                   unit="" if name.endswith("_amplitude") else unit,
+                   error=fit.errors.get(name))
+    result.set("fit_r2", fit.r2)
 
+    result.diagnostics.update(fit.settings)
     result.diagnostics.update({
-        "n_peaks": n_peaks,
-        "shape": shape,
-        "background": background,
         "modality": measurement.modality,
         "x_unit": unit,
-        "x_range": (float(x[0]), float(x[-1])),
-        "n_points": int(x.size),
+        "x_label": spec.x_label if spec else "",
+        "y_label": spec.y_label if spec else "",
         "curve_source": info.get("source", ""),
         "reduce": reduce,
-        "rmse": float(np.sqrt(ss_res / x.size)),
+        "rmse": fit.rmse,
     })
-    result.curves.update({
-        "x": x, "y": y, "y_fit": y_fit, "residual": residual,
-    })
+    result.curves.update({"x": fit.x, "y": fit.y, "y_fit": fit.y_fit,
+                          "residual": fit.residual})
 
-    if not np.isfinite(r2) or r2 < min_r2:
+    if not np.isfinite(fit.r2) or fit.r2 < min_r2:
         result.ok = False
-        result.message = f"fit quality R\u00b2 = {r2:.4g} is below the {min_r2} floor"
-
+        result.message = (f"fit quality R\u00b2 = {fit.r2:.4g} is below the "
+                          f"{min_r2} floor")
     return result
 
 
@@ -457,4 +620,10 @@ def _as_error(value) -> Optional[float]:
     return number if np.isfinite(number) else None
 
 
-__all__ = ["peak_fit", "load_curve", "SHAPES"]
+__all__ = [
+    # kernel
+    "fit_peaks", "PeakFitResult",
+    # adapter
+    "peak_fit", "load_curve",
+    "SHAPES", "BACKGROUNDS",
+]

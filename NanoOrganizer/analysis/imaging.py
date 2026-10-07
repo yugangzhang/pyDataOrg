@@ -22,6 +22,17 @@ transform to split particles that touch. Gold on a carbon film is a
 high-contrast, nearly bimodal image, which is the case classical thresholding
 handles well and where a learned model would add a dependency and an unaudited
 failure mode for nothing.
+
+Kernels and adapter (``docs/kernel_adapter_rule.md``) — four of the five
+functions here take arrays:
+
+``segment_particles(image, ...)``   label map from one image
+``measure_particles(labels, ...)``  diameters from one label map
+``size_from_image(image, ...)``     the two above, in one call
+``size_statistics(diameters)``      the pooled numbers
+``particle_sizing(measurement, resolver, ...)``
+    the **adapter** — reads every frame, calls the kernels, pools, and files
+    the answer as an :class:`AnalysisResult`.
 """
 
 from __future__ import annotations
@@ -316,6 +327,84 @@ def measure_particles(labels: np.ndarray, nm_per_pixel: Optional[float], *,
 # Analysis entry point
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Kernels: one image in, sizes out
+# ---------------------------------------------------------------------------
+
+def size_from_image(image: np.ndarray, nm_per_pixel: Optional[float] = None, *,
+                    min_diameter: float = 2.0, max_diameter: float = 200.0,
+                    min_circularity: float = 0.6,
+                    border_margin_px: int = 2,
+                    **segment_options) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """Segment one image and measure its particles. **Kernel.**
+
+    Returns ``(diameters, info)``. With *nm_per_pixel* the diameters are in
+    nanometres and the size filters are applied in nanometres; without it they
+    are in pixels and the nm limits are **not** applied, because filtering in
+    the wrong units silently discards the wrong particles.
+
+    >>> diameters, info = size_from_image(array, 0.4)      # doctest: +SKIP
+    """
+    calibrated = nm_per_pixel is not None
+    if calibrated:
+        low, high = min_diameter, max_diameter
+        min_area = np.pi * (0.5 * low / nm_per_pixel) ** 2
+    else:
+        low, high = 0.0, np.inf
+        min_area = 20.0
+
+    labels, seg_info = segment_particles(
+        image, min_area_px=int(max(min_area, 4)), **segment_options)
+    diameters, rejected = measure_particles(
+        labels, nm_per_pixel, min_diameter=low, max_diameter=high,
+        min_circularity=min_circularity, border_margin_px=border_margin_px)
+
+    info = dict(seg_info)
+    info.update({"n_particles": int(diameters.size),
+                 "calibrated": calibrated,
+                 "nm_per_pixel": nm_per_pixel,
+                 "rejected": rejected,
+                 "labels": labels})
+    return diameters, info
+
+
+def size_statistics(diameters, unit: str = "nm") -> Dict[str, Any]:
+    """Pooled numbers from a set of diameters. **Kernel.**
+
+    Mean, standard deviation, median, the 10th and 90th percentiles, the
+    coefficient of variation, and the count. The standard error of the mean
+    comes back as ``d_mean_err``.
+
+    An empty input returns an empty dict rather than a row of NaNs: no
+    particles is the absence of a measurement, and reporting it as one makes
+    the table lie.
+    """
+    values = np.asarray(diameters, dtype=float).ravel()
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return {}
+
+    spread = float(values.std(ddof=1)) if values.size > 1 else 0.0
+    mean = float(values.mean())
+    return {
+        "d_mean": mean,
+        "d_mean_err": (spread / np.sqrt(values.size)) if values.size > 1
+                      else None,
+        "d_std": spread,
+        "d_median": float(np.median(values)),
+        "d_p10": float(np.percentile(values, 10)),
+        "d_p90": float(np.percentile(values, 90)),
+        "d_cv": (spread / mean) if mean > 0 else float("nan"),
+        "n_particles": int(values.size),
+        "unit": unit,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Adapter: every frame of a measurement, pooled
+# ---------------------------------------------------------------------------
+
 def particle_sizing(measurement, resolver, *,
                     dark_particles: Optional[bool] = None,
                     nm_per_pixel: Optional[float] = None,
@@ -384,23 +473,16 @@ def particle_sizing(measurement, resolver, *,
         calibrated = scale is not None
         if calibrated:
             scales.append(float(scale))
-            lo, hi = min_diameter_nm, max_diameter_nm
-            min_area = np.pi * (0.5 * lo / scale) ** 2
-        else:
-            # Uncalibrated: the nm limits are meaningless, so do not apply them.
-            lo, hi = 0.0, np.inf
-            min_area = 20.0
 
-        labels, seg_info = segment_particles(
-            image, dark_particles=dark_particles, smooth_sigma=smooth_sigma,
-            min_area_px=int(max(min_area, 4)), split_touching=split_touching,
-            min_distance_px=min_distance_px, min_contrast_frac=min_contrast_frac,
+        diameters, seg_info = size_from_image(
+            image, scale, min_diameter=min_diameter_nm,
+            max_diameter=max_diameter_nm, min_circularity=min_circularity,
+            border_margin_px=border_margin_px,
+            dark_particles=dark_particles, smooth_sigma=smooth_sigma,
+            split_touching=split_touching, min_distance_px=min_distance_px,
+            min_contrast_frac=min_contrast_frac,
         )
-        diameters, rejected = measure_particles(
-            labels, scale, min_diameter=lo, max_diameter=hi,
-            min_circularity=min_circularity, border_margin_px=border_margin_px,
-        )
-        for key, value in rejected.items():
+        for key, value in seg_info["rejected"].items():
             rejected_total[key] += value
         rejected_total["contrast"] += seg_info.get("n_rejected_contrast", 0)
 
@@ -429,26 +511,22 @@ def particle_sizing(measurement, resolver, *,
     calibrated = bool(scales)
     unit = "nm" if calibrated else "px"
 
-    if pooled.size == 0:
+    statistics = size_statistics(pooled, unit=unit)
+    if not statistics:
         result.ok = False
         result.message = (
             "no particles survived the filters; check the diameter range, "
             "and set dark_particles explicitly if the contrast was misread"
         )
     else:
-        result.set("d_mean", float(pooled.mean()), unit=unit,
-                   error=float(pooled.std(ddof=1) / np.sqrt(pooled.size))
-                   if pooled.size > 1 else None)
-        result.set("d_std", float(pooled.std(ddof=1)) if pooled.size > 1 else 0.0,
-                   unit=unit)
-        result.set("d_median", float(np.median(pooled)), unit=unit)
-        result.set("d_p10", float(np.percentile(pooled, 10)), unit=unit)
-        result.set("d_p90", float(np.percentile(pooled, 90)), unit=unit)
-        result.set("n_particles", int(pooled.size))
+        error = statistics.pop("d_mean_err", None)
+        statistics.pop("unit", None)
+        for name, value in statistics.items():
+            result.set(name, value,
+                       unit=unit if name.startswith("d_") and
+                       name != "d_cv" else "",
+                       error=error if name == "d_mean" else None)
         result.set("n_images", len(per_image))
-        if pooled.mean() > 0:
-            result.set("d_cv", float(pooled.std(ddof=1) / pooled.mean())
-                       if pooled.size > 1 else 0.0)
 
     result.diagnostics.update({
         "calibrated": calibrated,
@@ -495,6 +573,11 @@ def particle_sizing(measurement, resolver, *,
 
 
 __all__ = [
-    "particle_sizing", "read_micrograph", "pixel_size_nm",
-    "segment_particles", "measure_particles",
+    # kernels — arrays in
+    "segment_particles", "measure_particles", "size_from_image",
+    "size_statistics",
+    # adapter — a measurement in
+    "particle_sizing",
+    # readers
+    "read_micrograph", "pixel_size_nm",
 ]
