@@ -5,33 +5,49 @@ configure.
 
 ## The workflow: simulate → build → use
 
-Start here. It is the shape a real campaign actually has.
+Start here. It is the shape a real campaign actually has — on a campaign big
+enough to be worth organising: a **Cu–Au alloy nanocatalyst library for CO₂
+electroreduction**, eight alloys and one failed synthesis, **fifteen
+techniques across four stages**, all following from one hidden number per
+sample, the gold fraction *x*.
 
 | | |
 |---|---|
-| `10_simulate_data` | a rig writing files: three instruments, three folder trees, three naming conventions, none agreeing |
-| `11_build_organizer` | `Organizer("lab.json")` — `ingest` what was written down, `link` what was not |
+| `10_simulate_data` | the campaign on disk: four metadata dicts that describe most of it, four techniques in bare folders that nobody described, a sparse matrix, and the answer key |
+| `11_build_organizer` | `Organizer("cuau.json")` — `ingest` the four dicts, `link` the four folders by hand |
 | `12_use_organizer` | reopen it and work, in six parts |
 
 Run them in order; `11` and `12` use what `10` leaves in
-`~/Repos/OrgDemo/Lab`.
+`~/Repos/OrgDemo/CuAu`:
 
-`10` drives the generator in `NanoOrganizer/demo/lab.py` one instrument at a
-time. The same functions are behind `python -m NanoOrganizer.demo --lab` (all
-of `10` in one command) and the web app's **🎓 Demo** page, which walks
-`10` → `11` → `12` with buttons — so the three routes write identical files
-and cannot drift apart.
+```
+~/Repos/OrgDemo/CuAu/
+├── Campaign/      the data and MetaData/*_dict.py   (10)
+├── truth.csv      the answer key                     (10)
+├── cuau.json      the organizer                      (11)
+└── results/       stored fits                        (12)
+```
+
+`10` calls `NanoOrganizer.demo.build_showcase_project`. The same function is
+behind `python -m NanoOrganizer.demo --campaign` (all of `10` in one command)
+and the web app's **🎓 Demo** page, which walks `10` → `11` → `12` with
+buttons — so the three routes write identical files and cannot drift apart.
 
 `12` is laid out the way a session actually goes:
 
 | | |
 |---|---|
 | **A** | load it, look at it (`describe`, `tree`, `catalog`), carve out a `subset` |
-| **B** | load data — eager, or `lazy=True` one frame at a time |
-| **C** | visualise — the quick call, or your own figure from B |
-| **D** | `fit` one, check it, *then* `batch` the same parameters |
-| **E** | compare: ids → table → plot |
+| **B** | load data — curves, images, a memory-mapped tomogram — eager, or `lazy=True` one frame at a time |
+| **C** | visualise all four kinds of data — the quick call, your own figure from B, a rotatable tomogram |
+| **D** | fit one diffraction pattern on arrays, turn it into a composition, *then* batch nine analyses across the campaign |
+| **E** | compare: three routes to one composition, three sizes that disagree for a reason, and the Sabatier volcano straight off the table |
 | **F** | reload, read the stored fits back, go round again |
+
+Because the data is simulated, part E checks the answers: composition from
+diffraction and from EDS lands on the generator's value (within 0.02), the
+plasmon band within 1 nm, XPS reads the gold-rich *surface* rather than the
+bulk, and the CO current peaks at the intermediate composition.
 
 The through-line is that **nothing is a dead end**: every quick call has a
 lower-level one underneath handing you the arrays, because the moment an
@@ -49,18 +65,18 @@ sample's data is, what it was made from, and what the analyses found. The data
 itself never moves.
 
 ```python
-org = Organizer(demo_root("Lab", "lab.json"))
+org = Organizer(demo_root("CuAu", "cuau.json"))
 
-org.ingest(synthesis=Synthesis_dict)       # the live dict, not a path to it
-org.link("S03", "tem", "/mnt/scope/S03/")  # what nobody wrote down
+org.ingest(CAMPAIGN / "MetaData" / "Testing_dict.py")    # what somebody wrote down
+org.link("CuAu05", "tem", str(CAMPAIGN / "TEMData" / "CuAu05"))   # what nobody did
 org.save()
 ```
 
-**There is no auto-attach in this track, on purpose.** `attach_folders()`
-exists and works, but it needs `<Modality>Data/<SampleID>/` under one root —
-a layout almost nobody has. Teaching it as the normal route builds a habit
-that breaks on contact with a real campaign, so these notebooks link by hand,
-which is what you would actually do.
+**There is no auto-attach in this track, on purpose.** The four bare folders
+happen to be named `<Modality>Data/<SampleID>/`, so `attach_folders()` would
+find them — but almost no real campaign is laid out that way, and teaching it
+as the normal route builds a habit that breaks on contact with one. These
+notebooks link by hand, which is what you would actually do.
 
 ## Does this scale?
 
@@ -97,34 +113,28 @@ as a directory.
 Run `legacy/00`–`04` in order; they share one small project (UV-Vis and TEM, six
 samples) written to `~/Repos/OrgDemo/DemoProject`.
 
-`legacy/05` stands alone and is the one to read for what the framework is *for*. It
-builds a synthetic Cu–Au alloy nanocatalyst library for CO₂ reduction, with
-
-* fifteen techniques across all four visualisation groups — UV-Vis, IR, Raman,
-  XPS, XAS, EDS, SAXS (1D and 2D), WAXS, DLS, XPCS, electrochemistry, DFT,
-  TEM, SEM and tomography;
-* four stages — synthesis, characterization, testing, computation;
-* a sparse measurement matrix, because beamtime is finite;
-* one failed synthesis with no data at all.
+`legacy/05` is the same Cu–Au campaign `10`–`12` use, opened the older way —
+as a directory project with `open_project`, the four bare folders picked up by
+`attach_folders` — and with a few extra analyses (IR, the DFT d-band centre,
+oxygen evolution) worth reading once you have done `12`.
 
 ## Both tracks hide a number on purpose
 
 Each generated project has a control variable the pipeline is meant to
 recover, so the notebooks can check the answer — the one thing real data never
-lets you do. In `10`–`12` it is the synthesis temperature, recovered
-independently from a plasmon band and from a diffraction line width. In the
-showcase it is the gold fraction, and three techniques recover it to within a
-couple of percent.
+lets you do. In the Cu–Au campaign (`10`–`12`, `legacy/05`) it is the gold
+fraction, and diffraction and EDS recover it to within a couple of percent; in
+the small project (`legacy/00`–`04`) it is the synthesis temperature.
 
 ```python
 from NanoOrganizer.demo import showcase_truth
-showcase_truth()      # the answer key
+showcase_truth()      # the answer key; 10 also writes it to CuAu/truth.csv
 ```
 
 Or from a shell, without opening a notebook at all:
 
 ```bash
-python -m NanoOrganizer.demo ~/Repos/OrgDemo/Showcase
+python -m NanoOrganizer.demo --campaign       # what 10 writes
 ```
 
 ## Where generated data goes
@@ -136,9 +146,9 @@ home directory itself, so a few runs cannot leave a scatter of folders behind.
 
 ```
 ~/Repos/OrgDemo/
-├── Lab/            10 -> 12: scattered raw data + lab.json
-├── DemoProject/    00 -> 04: the small project
-└── Showcase/       05: the fifteen-technique campaign
+├── CuAu/           10 -> 12: the campaign, the answer key, cuau.json, results/
+├── DemoProject/    legacy 00 -> 04: the small project
+└── Showcase/       legacy 05: the same campaign, as a directory project
 ```
 
 ## The same objects, with buttons
