@@ -1,5 +1,21 @@
 # The analysis layer
 
+> **Every analysis here is a kernel plus an adapter.** `fit_peaks(x, y, …)`
+> does the arithmetic on arrays; `peak_fit(measurement, resolver, …)` finds the
+> curve, calls it, and files the answer. The kernel is importable on its own
+> and takes no files, no project and no registry — which is what makes a
+> misbehaving fit debuggable. The rule is stated in full in
+> [`kernel_adapter_rule.md`](kernel_adapter_rule.md); follow it for anything
+> you add.
+>
+> | kernel | adapter |
+> |---|---|
+> | `fit_peaks(x, y, …)` | `peak_fit(measurement, resolver, …)` |
+> | `measure_curve(x, y, …)` | `curve_metrics(measurement, resolver, …)` |
+> | `size_from_image(image, …)`, `size_statistics(d)` | `particle_sizing(measurement, resolver, …)` |
+> | `plot_fit`, `plot_distribution`, `plot_outlines`, `plot_series`, `plot_marked_curve` | `plot_peak_fit`, `plot_size_distribution`, `plot_segmentation`, `plot_spectra`, `plot_endpoint_spectrum` |
+
+
 Analyses turn measurements into **derived values** — scalars that land in the
 same table as the authored parameters and can be filtered, plotted and compared
 alongside them. That loop (filter → analyse → new columns → filter again) is
@@ -43,12 +59,38 @@ registers itself on import:
 ```python
 from NanoOrganizer.analysis import Analysis, register_analysis
 
+# KERNEL — the science. Arrays in, result out. No files, no project.
+def measure_my_assay(x, y, *, window=None):
+    ...
+    return MyAssayResult(...)
+
+# ADAPTER — the plumbing. Register this one.
+def my_assay(measurement, resolver, *, window=None, **io):
+    from NanoOrganizer.analysis.peaks import load_curve
+
+    try:
+        x, y, info = load_curve(measurement, resolver, **io)
+        found = measure_my_assay(x, y, window=window)
+    except (FileNotFoundError, ValueError) as exc:
+        return AnalysisResult.failure("my_assay", str(exc),
+                                      sample_id=measurement.sample_id)
+    result = AnalysisResult(analysis="my_assay",
+                            sample_id=measurement.sample_id,
+                            measurement_id=measurement.measurement_id)
+    ...
+    return result
+
 register_analysis(Analysis(
     key="my_assay", func=my_assay, label="My assay",
     modalities=("uvvis",), stages=("reaction",),
     description="…",
 ))
 ```
+
+Write the kernel first and test it on synthetic data with a known answer
+(`tests/test_kernels.py` is the pattern); the adapter's own test is then only
+about whether it finds the right file and reports a failure as a row rather
+than an exception.
 
 The registry is what lets a notebook and the GUI both ask "what can I run on
 this?" without either keeping a list — and what lets an external package extend

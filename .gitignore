@@ -5,6 +5,7 @@ users*.json
 tests
 Debug
 debug
+HANDOFF.md
 # Local access configuration contains machine paths and password hashes.
 .config/pyViz.conf
 .config/pyviz.conf
@@ -19,6 +20,9 @@ build/
 /pyDebye.egg-info/
 /pyDebye.egg-info/*
 pyDebye/__pycache__/*
+
+# Jupyter autosave shadows — they shadow real modules inside the package
+.ipynb_checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

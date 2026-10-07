@@ -398,11 +398,28 @@ than skipping them.
 |---|---|
 | [`docs/sample_model.md`](docs/sample_model.md) | the data model, path aliases, ingest, linking, stored results |
 | [`docs/analysis.md`](docs/analysis.md) | analyses, the registry, and decisions that affect the numbers |
+| [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md) | the kernel/adapter rule every analysis and plot follows |
 | [`docs/web_app.md`](docs/web_app.md) | the GUI, and how to extend it |
 | [`docs/demo_data.md`](docs/demo_data.md) | the generated example projects, and what is in them on purpose |
 | [`docs/archive/`](docs/archive/) | notes from earlier versions, kept for reference |
 
 ## Extending it
+
+Every analysis and every plot is written twice — a **kernel** that takes
+arrays and an **adapter** that finds the data and files the answer — so the
+numerical half is always callable on its own:
+
+```python
+from NanoOrganizer.analysis import fit_peaks
+from NanoOrganizer.viz.plots import plot_fit
+
+x, Y, info = org.data("S01", "waxs1d")
+fit = fit_peaks(x, Y[0], n_peaks=2, x_range=(2.5, 3.6))   # no files, no project
+plot_fit(fit.x, fit.y, fit.y_fit, fit.residual)
+```
+
+[`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md) states the rule in
+full and is written to be copied into another project as-is.
 
 | to add | do |
 |---|---|
@@ -417,7 +434,7 @@ than skipping them.
 pytest
 ```
 
-383 tests, including the Streamlit pages driven through `AppTest` against both
+411 tests, including the Streamlit pages driven through `AppTest` against both
 generated projects — the small one, and the fifteen-technique showcase that
 exercises all four visualisation groups at once. No test needs a data mount.
 
