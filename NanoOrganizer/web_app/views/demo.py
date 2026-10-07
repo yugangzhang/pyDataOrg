@@ -29,6 +29,12 @@ composes them; no helper on it does both.
 The organizer built here is the page's own (``nano_demo_org``), separate from
 the workflow pages' workbench until **Use this organizer in the workflow
 pages** hands it over.
+
+Everything lives in **one folder** — the campaign, the answer key, the
+organizer and its stored fits — and every path the organizer records is
+relative to that folder, so it moves as one piece. Locations are *shown*
+relative to where the app was started (``../OrgDemo/CuAu``), never as an
+absolute path naming somebody's home directory.
 """
 
 import contextlib
@@ -43,11 +49,14 @@ import streamlit as st
 
 from NanoOrganizer import Organizer, structure
 from NanoOrganizer.analysis import fit_peaks
+from NanoOrganizer.core import modality as modality_registry
+from NanoOrganizer.core.pathmap import display_path
 from NanoOrganizer.analysis.peaks import BACKGROUNDS, SHAPES
 from NanoOrganizer.demo import (
     build_showcase_project, demo_root, materials as mat, showcase_truth,
 )
 from NanoOrganizer.demo.images import TOMO_NM_PER_VOXEL
+from NanoOrganizer.demo.showcase import MARKER
 from NanoOrganizer.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
 from NanoOrganizer.viz import interactive, plots
 from NanoOrganizer.web_app.components.security import (
@@ -151,6 +160,21 @@ def techniques_of(org, sample_id: str) -> list:
              for m in org.project.get_sample(sample_id).measurements
              if m.modality != "fit"]
     return list(dict.fromkeys(found))
+
+
+def overlayable(org) -> list:
+    """(technique, role) pairs that overlay across samples: curves and
+    correlation functions — one curve per sample — not images or volumes."""
+    found = []
+    for sample in org.project.sorted_samples():
+        for m in sample.measurements:
+            if m.modality != "fit" and m.group in ("curve", "correlation"):
+                found.append((m.modality, m.role))
+    return sorted(dict.fromkeys(found))
+
+
+def pair_label(modality: str, role: str) -> str:
+    return f"{modality} · {role}" if role else modality
 
 
 def physics_curves(n: int = 101) -> dict:
@@ -322,22 +346,28 @@ st.caption(
     "*The same in Python*."
 )
 
+DEFAULT_ROOT = demo_root("CuAu").absolute()
 root_text = st.text_input(
-    "Demo folder", value=str(demo_root("CuAu")), key="nano_demo_root",
-    help="The campaign is written to Campaign/ inside it, the organizer "
-         "saved as cuau.json beside that, and the answer key as truth.csv. "
-         "Defaults under demo_root() — ~/Repos/OrgDemo — or "
+    "Demo folder", value=display_path(DEFAULT_ROOT), key="nano_demo_root",
+    help="One folder holds it all: the campaign, its answer key truth.csv, "
+         "the organizer cuau.json and its stored fits — and every path the "
+         "organizer records is relative to it, so the folder moves as one "
+         "piece. Relative to where the app was started; the default is "
+         "demo_root(\"CuAu\") — ../OrgDemo beside the source checkout, or "
          "$NANOORGANIZER_DEMO_ROOT.")
-ROOT = Path(root_text.strip() or demo_root("CuAu")).expanduser()
-CAMPAIGN = ROOT / "Campaign"
-META = CAMPAIGN / "MetaData"
+# Shown relative, used absolute: the working directory must not matter once
+# the organizer is open.
+ROOT = Path(root_text.strip() or DEFAULT_ROOT).expanduser().absolute()
+META = ROOT / "MetaData"
 STORE = ROOT / "cuau.json"
 TRUTH = ROOT / "truth.csv"
 RESULTS = ROOT / "results"
+ROOT_CODE = ('ROOT = demo_root("CuAu")' if ROOT == DEFAULT_ROOT
+             else f'ROOT = Path("{display_path(ROOT)}")')
 
 if not is_path_allowed(ROOT, allow_nonexistent=True):
-    st.error(f"{ROOT} is outside the folders this session may write "
-             f"to: {format_allowed_roots()}", icon="🚫")
+    st.error(f"{display_path(ROOT)} is outside the folders this session may "
+             f"write to: {format_allowed_roots()}", icon="🚫")
     st.stop()
 
 org = st.session_state.get(ORG)
@@ -379,26 +409,38 @@ with simulate:
     show_figure(figure, dpi=100)
 
     simulated = (META / "Synthesis_dict.py").exists() and TRUTH.exists()
+    built = org is not None or STORE.exists()
     left, right = st.columns([3, 1])
-    left.caption(f"Writes `{CAMPAIGN}` and `{TRUTH.name}` beside it. "
-                 f"Re-running rebuilds the same files with the same numbers; "
-                 f"an organizer saved in `{ROOT.name}/` is left alone.")
+    left.caption(f"Writes the campaign into `{display_path(ROOT)}`, and the "
+                 f"answer key `truth.csv` beside its data. Every path in its "
+                 f"metadata is relative to that folder.")
+    if simulated and built:
+        left.info("Simulating again rewrites the whole folder — the "
+                  "organizer built from it and its stored fits go too. The "
+                  "numbers come back the same.", icon="⚠️")
     if right.button("Simulate again" if simulated else "Simulate the campaign",
                     type="secondary" if simulated else "primary",
                     width="stretch", key="nano_demo_simulate"):
         try:
             with st.spinner("Writing fifteen techniques' worth of files…"):
-                build_showcase_project(CAMPAIGN)
+                build_showcase_project(ROOT)
                 showcase_truth().to_csv(TRUTH, index=False)
             simulated = True
-            st.success(f"Wrote the campaign under {CAMPAIGN}")
+            # The folder was rewritten: an organizer held from before it is
+            # no longer the one on disk.
+            st.session_state.pop(ORG, None)
+            st.session_state.pop(OUTCOMES, None)
+            org = None
+            st.success(f"Wrote the campaign to {display_path(ROOT)}")
         except Exception as exc:
             st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
 
     if simulated:
         # What the campaign wrote — not the marker, not a __pycache__ that
         # reading a metadata module can leave beside it.
-        files = [p for p in CAMPAIGN.rglob("*") if p.is_file()
+        own = {STORE, TRUTH}
+        files = [p for p in ROOT.rglob("*") if p.is_file()
+                 and p not in own and RESULTS not in p.parents
                  and "__pycache__" not in p.parts
                  and not p.name.startswith(".")]
         size_mb = sum(p.stat().st_size for p in files) / 1e6
@@ -412,7 +454,7 @@ with simulate:
         with tree_col:
             st.markdown("**What landed on disk** — `structure.tree`, which "
                         "reads layout, not data")
-            st.code(structure.tree(str(CAMPAIGN), depth=1), language=None)
+            st.code(structure.tree(str(ROOT), depth=1), language=None)
         with record_col:
             st.markdown("**What the operators wrote down** — one metadata "
                         "module per stage; any block naming files becomes a "
@@ -443,16 +485,14 @@ with simulate:
 
     same_in_python(f'''
 from pathlib import Path
-from NanoOrganizer.demo import build_showcase_project, showcase_truth
-
-ROOT = Path("{ROOT}")
-CAMPAIGN = ROOT / "Campaign"
-
-build_showcase_project(CAMPAIGN)                     # files + four metadata dicts
-showcase_truth().to_csv(ROOT / "truth.csv", index=False)   # the answer key
-
 from NanoOrganizer import structure
-print(structure.tree(CAMPAIGN, depth=1))
+from NanoOrganizer.demo import build_showcase_project, demo_root, showcase_truth
+
+{ROOT_CODE}                       # {display_path(ROOT)}
+
+build_showcase_project(ROOT)                         # files + four metadata dicts
+showcase_truth().to_csv(ROOT / "truth.csv", index=False)   # the answer key
+print(structure.tree(ROOT, depth=1))
 ''')
 
 # ---------------------------------------------------------------------------
@@ -484,16 +524,18 @@ with build:
                            f"it brings back its links, parameters and fits.")
 
     if org is not None:
-        st.caption(f"`{org.path}` — {len(org.project)} samples, "
-                   f"{len(org.project.measurements())} measurements")
+        st.caption(f"`{display_path(org.path)}` — {len(org.project)} "
+                   f"samples, {len(org.project.measurements())} measurements")
 
         st.markdown("**b · Ingest what was written down** — four modules, one "
-                    "per stage; the stage is read from the dict's name.")
+                    "per stage; the stage is read from the dict's name. The "
+                    "paths inside them are relative to this folder, which is "
+                    "why the organizer sits beside the data.")
         if st.button("Ingest the four metadata dicts", key="nano_demo_ingest",
                      type="primary" if not len(org.project) else "secondary"):
             try:
                 for stage in STAGES:
-                    org.ingest(META / f"{stage}_dict.py")
+                    org.ingest(f"MetaData/{stage}_dict.py")   # beside cuau.json
             except Exception as exc:
                 st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
         if len(org.project):
@@ -505,10 +547,10 @@ with build:
                          width="stretch")
 
         st.markdown("**c · Link what nobody wrote down** — TEM, SEM, DLS and "
-                    "tomography, one call per sample and technique. A folder "
-                    "is listed now and filtered by the technique's "
-                    "extensions, so the `note.txt` beside the micrographs is "
-                    "left out.")
+                    "tomography, one call per sample and technique, each a "
+                    "path relative to the organizer. A folder is listed now "
+                    "and filtered by the technique's extensions, so the "
+                    "`note.txt` beside the micrographs is left out.")
         linked = bool(samples_with(org, "tem"))
         if st.button("Link the four folder techniques by hand",
                      key="nano_demo_link", disabled=not len(org.project),
@@ -517,14 +559,13 @@ with build:
             try:
                 for sample in org.ids():
                     for modality, folder in BY_HAND.items():
-                        source = CAMPAIGN / folder / sample
                         # A link to nothing is a mistake, not a feature: skip
                         # it and let the gap show in the catalog.
-                        if not source.is_dir():
+                        if not (ROOT / folder / sample).is_dir():
                             continue
                         extra = ({"voxel_size_nm": TOMO_NM_PER_VOXEL}
                                  if modality == "tomo" else {})
-                        org.link(sample, modality, str(source),
+                        org.link(sample, modality, f"{folder}/{sample}",
                                  stage="characterization", **extra)
                 linked = True
             except Exception as exc:
@@ -544,22 +585,27 @@ with build:
                      disabled=not len(org.project)):
             try:
                 written = org.save()
-                st.success(f"Saved {written} "
+                st.success(f"Saved {display_path(written)} "
                            f"({written.stat().st_size / 1024:.0f} kB)")
             except Exception as exc:
                 st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
         if org.path.exists():
-            with st.expander("Links table — the re-importable export",
+            with st.expander("Links table — the re-importable export; "
+                             "every source relative to the organizer",
                              expanded=False):
                 st.dataframe(org.links_table(), hide_index=True,
                              width="stretch")
 
-    if META.exists() and (org is not None or STORE.exists()):
+    # Only in a folder the generator made: it carries the generator's marker
+    # beside MetaData/, so pointing the page at real data cannot delete it.
+    generated = META.exists() and (ROOT / MARKER).exists()
+    if generated and (org is not None or STORE.exists()):
         with st.expander("Start over", expanded=False):
             doomed = [p for p in (STORE, RESULTS) if p.exists()]
             st.caption("Removes only the organizer and the stored fits — the "
                        "simulated campaign stays. Would delete: "
-                       + (", ".join(f"`{p}`" for p in doomed) or "nothing"))
+                       + (", ".join(f"`{display_path(p)}`" for p in doomed)
+                          or "nothing"))
             sure = st.checkbox("Yes, delete those", key="nano_demo_sure")
             if st.button("Start over", key="nano_demo_reset",
                          disabled=not sure):
@@ -576,21 +622,21 @@ with build:
     same_in_python(f'''
 from NanoOrganizer import Organizer
 
-org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")
+org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")   # beside the data
 
 for stage in {STAGES}:            # what was written down
-    org.ingest(CAMPAIGN / "MetaData" / f"{{stage}}_dict.py")
+    org.ingest(f"MetaData/{{stage}}_dict.py")       # relative to the organizer
 
 BY_HAND = {BY_HAND}
 for sample in org.ids():                              # what was not
     for modality, folder in BY_HAND.items():
-        source = CAMPAIGN / folder / sample
-        if source.is_dir():
-            org.link(sample, modality, str(source), stage="characterization")
+        if (ROOT / folder / sample).is_dir():
+            org.link(sample, modality, f"{{folder}}/{{sample}}",   # relative too
+                     stage="characterization")
 
 org.catalog(counts=True)
 org.save()
-org.links_table()
+org.links_table()             # every source relative: the folder moves as one
 ''')
 
 ready = org is not None and len(org.project) > 0
@@ -788,22 +834,66 @@ with visualize:
         except Exception as exc:
             st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
 
-        with_waxs = samples_with(org, "waxs1d")
-        if with_waxs:
+        pairs_all = overlayable(org)
+        if pairs_all:
             st.divider()
-            st.markdown("**`overlay()`** — one curve per sample. The (111) "
-                        "reflection walks to lower q as gold opens the "
-                        "lattice: Vegard, by eye.")
+            st.markdown("**`overlay()`** — one curve per sample, for any curve "
+                        "or correlation technique. It follows the technique "
+                        "picked above when that one overlays; pick another "
+                        "here to compare something else.")
+            overlay_labels = [pair_label(m, r) for m, r in pairs_all]
+            if picked in overlay_labels:
+                follow = overlay_labels.index(picked)
+            elif "waxs1d" in overlay_labels:
+                follow = overlay_labels.index("waxs1d")
+            else:
+                follow = 0
+            top = st.columns([2, 2, 1])
+            # Keyed by the choice above: a widget's value outlives its
+            # default, so one fixed key would stop following the picker the
+            # first time it was drawn.
+            overlay_label = top[0].selectbox(
+                "Technique to overlay", overlay_labels, index=follow,
+                key=f"nano_demo_overlay_m::{picked}",
+                help="Starts as the technique chosen above, when it is a "
+                     "curve or a correlation function; images and volumes do "
+                     "not overlay.")
+            overlay_modality, overlay_role = pairs_all[
+                overlay_labels.index(overlay_label)]
+            having = samples_with(org, overlay_modality, overlay_role)
+            reduce_label = top[1].radio(
+                "Many-frame series reduced to", ["last frame", "mean",
+                                                 "first frame"],
+                horizontal=True, key="nano_demo_overlay_reduce",
+                help="A growth series is fourteen curves per sample; the "
+                     "comparison is between samples, so each is collapsed "
+                     "to one first.")
+            reduce = {"last frame": "last", "mean": "mean",
+                      "first frame": "first"}[reduce_label]
+            zoom = top[2].toggle("zoom x", value=False,
+                                 key=f"nano_demo_overlay_zoom::{overlay_label}")
             chosen = st.multiselect(
-                "Samples to overlay", with_waxs,
-                default=[s for s in ("CuAu01", "CuAu03", "CuAu05", "CuAu08")
-                         if s in with_waxs] or with_waxs[:4],
-                key="nano_demo_overlay")
+                "Samples to overlay", having, default=having,
+                key=f"nano_demo_overlay::{overlay_label}")
+            options = {}
+            if chosen and zoom:
+                try:
+                    x_all, _, _ = org.data(chosen[0], overlay_modality,
+                                           role=overlay_role)
+                    low, high = float(np.nanmin(x_all)), float(np.nanmax(x_all))
+                    options["xlim"] = st.slider(
+                        "x range", low, high, (low, high),
+                        key=f"nano_demo_overlay_x::{overlay_label}")
+                except Exception as exc:
+                    st.warning(f"No x range to zoom: {exc}", icon="⚠️")
             if chosen:
                 try:
                     figure, ax = plt.subplots(figsize=(8.5, 4.2))
-                    org.overlay("waxs1d", sample_ids=chosen, ax=ax,
-                                verbose=False, xlim=(2.6, 3.06))
+                    org.overlay(overlay_modality, sample_ids=chosen,
+                                role=overlay_role, reduce=reduce, ax=ax,
+                                verbose=False,
+                                title=f"{overlay_label} — one curve per sample",
+                                **options)
                     show_figure(figure)
                 except Exception as exc:
                     st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
@@ -826,7 +916,8 @@ org.plot("CuAu01", "tomo", engine="interactive", mode="isosurface",
 
 fig, ax = plt.subplots()
 org.overlay("waxs1d", sample_ids=["CuAu01", "CuAu03", "CuAu05", "CuAu08"],
-            ax=ax, xlim=(2.6, 3.06))                      # the (111), moving
+            reduce="last", ax=ax)                         # any curve technique
+org.overlay("uvvis", reduce="last", ax=ax)                # every sample that has it
 ''')
 
 # ---------------------------------------------------------------------------
@@ -978,7 +1069,8 @@ with analyze:
             total = sum(int(o["succeeded"].split("/")[0]) for o in outcomes)
             runs = sum(int(o["succeeded"].split("/")[1]) for o in outcomes)
             st.success(f"{total}/{runs} analyses succeeded across "
-                       f"{len(outcomes)} batches; saved to {STORE.name}")
+                       f"{len(outcomes)} batches; saved to "
+                       f"{display_path(STORE)}")
             st.dataframe(pd.DataFrame(outcomes), hide_index=True,
                          width="stretch")
 

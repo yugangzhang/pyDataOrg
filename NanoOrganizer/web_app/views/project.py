@@ -12,7 +12,7 @@ from pathlib import Path
 import streamlit as st
 
 from NanoOrganizer.core import modality as modality_registry
-from NanoOrganizer.core.pathmap import suggest_aliases
+from NanoOrganizer.core.pathmap import display_path, is_relative, suggest_aliases
 from NanoOrganizer.core.schema import flatten_dict
 from NanoOrganizer.web_app.components.folder_browser import folder_picker
 from NanoOrganizer.web_app.state import (
@@ -121,8 +121,8 @@ with st.expander("No project yet? Generate an example one", expanded=workbench i
 
     target = st.text_input(
         "Write it to",
-        value=str(demo_root("Showcase" if kind == "Multimodal showcase"
-                            else "QuickDemo")),
+        value=display_path(demo_root("Showcase" if kind == "Multimodal showcase"
+                                     else "QuickDemo")),
         key="nano_demo_root",
         help="Must be empty, or a demo project this button made earlier. "
              "Generated data goes under one parent so a few runs cannot "
@@ -187,8 +187,9 @@ with st.container(border=True):
 
     if project.config.path_aliases:
         st.dataframe(
-            [{"recorded prefix": alias.prefix,
-              "resolves to": ", ".join(alias.candidates),
+            [{"recorded prefix": display_path(alias.prefix, max_up=0),
+              "resolves to": ", ".join(display_path(c, max_up=0)
+                                       for c in alias.candidates),
               "note": alias.label}
              for alias in project.config.path_aliases],
             width="stretch", hide_index=True,
@@ -226,7 +227,8 @@ with st.container(border=True):
 
     for index, item in enumerate(st.session_state.get("nano_alias_suggestions", [])):
         row = st.columns([4, 1])
-        row[0].code(f"{item['prefix']}  →  {item['candidates'][0]}")
+        row[0].code(f"{display_path(item['prefix'], max_up=0)}  →  "
+                    f"{display_path(item['candidates'][0], max_up=0)}")
         if row[1].button("Use", key=f"nano_use_alias_{index}"):
             project.add_alias(item["prefix"], item["candidates"], item["label"])
             st.session_state.pop("nano_alias_suggestions", None)
@@ -244,9 +246,12 @@ with st.container(border=True):
     )
 
     if project.config.metadata_sources:
+        # A source inside the project is recorded relative to it; one
+        # outside is shown relative to where the app runs.
         st.dataframe(
             [{"file": Path(s["path"]).name, "adapter": s.get("adapter", ""),
-              "path": s["path"]} for s in project.config.metadata_sources],
+              "path": display_path(s["path"])}
+             for s in project.config.metadata_sources],
             width="stretch", hide_index=True,
         )
     else:
@@ -254,8 +259,9 @@ with st.container(border=True):
 
     meta_dir = project.root / "MetaData"
     found = sorted(meta_dir.glob("*.py")) if meta_dir.is_dir() else []
-    known = {s["path"] for s in project.config.metadata_sources}
-    new = [p for p in found if str(p) not in known]
+    known = {project.resolver.anchor(s["path"])
+             for s in project.config.metadata_sources}
+    new = [p for p in found if project.resolver.anchor(p) not in known]
 
     if new:
         st.caption(f"{len(new)} file(s) in MetaData/ not yet read:")
@@ -504,7 +510,10 @@ with st.container(border=True):
     else:
         source = st.text_input(
             "Path or glob", key="nano_link_pattern",
-            placeholder="/mnt/data/beamline/2024_3/CuAu05_*.dat").strip()
+            placeholder="/mnt/data/beamline/2024_3/CuAu05_*.dat",
+            help="Absolute, or relative to the project folder — a relative "
+                 "link travels with the project when the folder moves."
+        ).strip()
         folder, live, glob_pattern = "", False, ""
 
     columns = st.columns(3)
@@ -521,10 +530,21 @@ with st.container(border=True):
 
     # Say what will happen before it happens: a link that silently matches
     # nothing is the failure mode worth spending a preview on.
+    # Inside the project, record it relative to the project: the link then
+    # travels with the folder, and names nobody's home directory.
+    if source and not is_relative(source):
+        try:
+            source = Path(source).expanduser().relative_to(
+                project.root).as_posix()
+        except ValueError:
+            pass
+
     preview = []
     if source:
         try:
-            probe = Path(source).expanduser()
+            # A relative source means relative to the project, as link() reads it.
+            anchored = project.resolver.anchor(source)
+            probe = Path(anchored).expanduser()
             if source_kind == "Folder" and probe.is_dir():
                 if live:
                     preview = sorted(probe.glob(glob_pattern or "*"))
@@ -538,7 +558,7 @@ with st.container(border=True):
                                if p.is_file() and
                                (not suffixes or p.suffix.lower() in suffixes)]
             elif any(c in source for c in "*?["):
-                preview = sorted(_glob.glob(source))
+                preview = sorted(_glob.glob(anchored))
             elif probe.exists():
                 preview = [probe]
         except OSError:
@@ -583,7 +603,8 @@ with st.container(border=True):
                 [{"sample": m.sample_id, "technique": m.modality,
                   "stage": m.stage, "role": m.role,
                   "files": len(m.resolve(project.resolver)),
-                  "recorded": (m.pattern or (m.paths[0] if m.paths else "")),
+                  "recorded": display_path(m.pattern or
+                                           (m.paths[0] if m.paths else "")),
                   "live": bool(m.pattern)}
                  for m in links],
                 width="stretch", hide_index=True,
@@ -643,7 +664,8 @@ with st.container(border=True):
 
         with st.expander("Unreadable measurements", expanded=False):
             rows = [
-                {"measurement": m["measurement_id"], "missing": m["missing"][0]}
+                {"measurement": m["measurement_id"],
+                 "missing": display_path(m["missing"][0])}
                 for sample in report["samples"] for m in sample["measurements"]
                 if not m["available"] and m["missing"]
             ]
@@ -671,7 +693,7 @@ with st.container(border=True):
     if left.button("💾 Save project", type="primary", width="stretch"):
         try:
             path = project.save()
-            st.success(f"Saved to {path}")
+            st.success(f"Saved to {display_path(path)}")
         except Exception as exc:
             st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
     if right.button("Close project", width="stretch"):

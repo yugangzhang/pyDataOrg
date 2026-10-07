@@ -23,6 +23,7 @@ from pathlib import Path
 import streamlit as st
 
 from NanoOrganizer import structure as S
+from NanoOrganizer.core.pathmap import display_path
 from NanoOrganizer.web_app.components.folder_browser import folder_picker
 from NanoOrganizer.web_app.components.security import (
     is_path_allowed, is_restricted_mode,
@@ -119,7 +120,9 @@ if node.kind == "error":
 
 st.caption(f"{node.icon} **{node.name}** · {node.detail}" if node.detail
            else f"{node.icon} **{node.name}**")
-st.code(address, language=None)
+# Shown relative to where the app runs; the address itself stays absolute.
+inner = address.split("::", 1)[1] if "::" in address else ""
+st.code(display_path(outer) + (f"::{inner}" if inner else ""), language=None)
 
 if outer.suffix.lower() == ".py":
     st.warning(

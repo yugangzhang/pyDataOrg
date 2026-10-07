@@ -37,6 +37,7 @@ from NanoOrganizer.web_app.components.security import (            # noqa: E402
     current_user, format_allowed_roots, initialize_security_context,
     is_admin, require_authentication,
 )
+from NanoOrganizer.core.pathmap import display_path                # noqa: E402
 from NanoOrganizer.web_app.state import sidebar_status             # noqa: E402
 
 initialize_security_context()
@@ -97,7 +98,9 @@ with st.sidebar:
                 st.caption(f"Signed in as **{identity}** ({role})")
             st.caption(f"🔒 Secure mode — allowed: `{format_allowed_roots()}`")
         else:
-            st.caption(f"🔒 Restricted to `{st.session_state['user_start_dir']}`")
+            st.caption("🔒 Restricted to `"
+                       + display_path(st.session_state["user_start_dir"],
+                                      max_up=0) + "`")
 
 sidebar_status()
 floating_sidebar_toggle()

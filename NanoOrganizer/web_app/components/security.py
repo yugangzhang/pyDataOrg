@@ -177,10 +177,13 @@ def get_allowed_roots() -> List[Path]:
 
 
 def format_allowed_roots() -> str:
+    """The allowed roots for display — under ``~``, not naming a home directory."""
+    from NanoOrganizer.core.pathmap import display_path
+
     roots = get_allowed_roots()
     if not roots:
         return "(no restrictions)"
-    return ", ".join(str(root) for root in roots)
+    return ", ".join(display_path(root, max_up=0) for root in roots)
 
 
 def is_path_allowed(path: Union[str, Path], allow_nonexistent: bool = False) -> bool:
@@ -223,12 +226,16 @@ def assert_path_allowed(
     """Return resolved path if allowed, else raise PermissionError."""
     resolved = Path(path).expanduser().resolve(strict=False)
 
+    from NanoOrganizer.core.pathmap import display_path
+
     if not allow_nonexistent and not resolved.exists():
-        raise FileNotFoundError(f"{path_label} does not exist: {resolved}")
+        raise FileNotFoundError(
+            f"{path_label} does not exist: {display_path(resolved)}")
 
     if not is_path_allowed(resolved, allow_nonexistent=allow_nonexistent):
         raise PermissionError(
-            f"{path_label} is outside allowed folders: {resolved}\n"
+            f"{path_label} is outside allowed folders: "
+            f"{display_path(resolved)}\n"
             f"Allowed: {format_allowed_roots()}"
         )
     return resolved

@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import json
+
+from NanoOrganizer.core.pathmap import display_path
 import sys
 
 # Add parent directory to path for imports
@@ -38,7 +40,8 @@ with st.sidebar:
 
     output_dir = st.text_input(
         "Output directory",
-        value=str(Path.cwd() / "TestData"),
+        value="TestData",
+        # Relative to where the app runs: no absolute path on screen.
         help="Where to save generated data"
     )
     if output_dir and not is_path_allowed(output_dir, allow_nonexistent=True):
@@ -289,7 +292,7 @@ if st.button("🚀 Generate All Test Data", type="primary"):
         with open(summary_file, 'w') as f:
             json.dump(summary, f, indent=2)
 
-    st.success(f"✅ All test data generated in: {output_path}")
+    st.success(f"✅ All test data generated in: {display_path(output_path)}")
 
     # Show summary
     st.divider()
@@ -301,7 +304,7 @@ if st.button("🚀 Generate All Test Data", type="primary"):
     for data_type, files in summary.items():
         with st.expander(f"{data_type.upper()} - {len(files)} files"):
             for file in files[:10]:  # Show first 10
-                st.code(file, language=None)
+                st.code(display_path(file), language=None)
             if len(files) > 10:
                 st.text(f"... and {len(files) - 10} more files")
 
@@ -312,17 +315,17 @@ if st.button("🚀 Generate All Test Data", type="primary"):
 
     1. **Test CSV Plotter:**
        - Go to "CSV Plotter" page
-       - Browse to: `{output_path}/csv_data`
+       - Browse to: `{display_path(output_path)}/csv_data`
        - Load some CSV files
 
     2. **Test Image Viewer:**
        - Go to "Image Viewer" page
-       - Browse to: `{output_path}/image_stacks`
+       - Browse to: `{display_path(output_path)}/image_stacks`
        - Load a stack and browse frames
 
     3. **Test 3D Plotter:**
        - Go to "3D Plotter" page
-       - Browse to: `{output_path}/data_3d`
+       - Browse to: `{display_path(output_path)}/data_3d`
        - Load a 3D dataset
 
     4. **Test Multi-Axes:**

@@ -22,6 +22,7 @@ from NanoOrganizer import (  # noqa: E402
     save_time_series_to_csv
 )
 from NanoOrganizer.core.run import DEFAULT_LOADERS  # noqa: E402
+from NanoOrganizer.core.pathmap import display_path  # noqa: E402
 
 # Access-control helpers: restrict file browsing / project paths to the
 # logged-in user's allowed folders (no-op when standalone / unrestricted).
@@ -142,9 +143,13 @@ with st.sidebar:
     if project_action == "Create New Project":
         project_dir = st.text_input(
             "Project directory",
-            value=str(Path.cwd() / "MyNanoProject"),
-            help="Directory where project will be created"
+            value="MyNanoProject",
+            help="Directory where project will be created — relative to "
+                 "where the app was started, or absolute"
         )
+        # Shown relative; used absolute, because the legacy organiser stores
+        # the paths it is given and must not depend on the working directory.
+        project_dir = str(Path(project_dir).expanduser().absolute())
 
         if st.button("🆕 Create Project"):
             if _is_restricted_mode() and not _is_path_allowed(
@@ -156,16 +161,18 @@ with st.sidebar:
                     org = DataOrganizer(project_dir)
                     st.session_state['current_organizer'] = org
                     st.session_state['project_dir'] = project_dir
-                    st.success(f"✅ Created project at {project_dir}")
+                    st.success(f"✅ Created project at {display_path(project_dir)}")
                 except Exception as e:
                     st.error(f"Error creating project: {e}")
 
     else:  # Load existing
         project_dir = st.text_input(
             "Project directory",
-            value=str(Path.cwd() / "Demo"),
-            help="Directory containing .metadata/ folder"
+            value="Demo",
+            help="Directory containing .metadata/ folder — relative to where "
+                 "the app was started, or absolute"
         )
+        project_dir = str(Path(project_dir).expanduser().absolute())
 
         if st.button("📂 Load Project"):
             if _is_restricted_mode() and not _is_path_allowed(
@@ -438,9 +445,10 @@ with tab2:
     if file_source == "Browse server":
         base_dir = st.text_input(
             "Base directory",
-            value=str(Path(st.session_state.get('project_dir', Path.cwd()))),
+            value=display_path(st.session_state.get('project_dir', Path.cwd())),
             help="Directory to search for files"
         )
+        base_dir = str(Path(base_dir).expanduser().absolute())
 
         pattern = st.text_input(
             "File pattern",
@@ -459,6 +467,7 @@ with tab2:
                 selected_files = st.multiselect(
                     "Select files to link",
                     found_files,
+                    format_func=display_path,
                     default=found_files[:5],  # Select first 5 by default
                     help="Select which files to link to this run"
                 )

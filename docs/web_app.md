@@ -43,10 +43,10 @@ nobody wrote a record for, which is the case the page links by hand.
 
 | tab | mirrors | does |
 |---|---|---|
-| **1 · Simulate** | notebook 10 | draws the model (one number, fifteen shadows), then `build_showcase_project(Campaign)` writes the files and four metadata dicts, and `showcase_truth()` the answer key |
-| **2 · Build** | notebook 11 | `Organizer(cuau.json)`, `ingest()` the four `*_dict.py` modules, `link()` the four folder techniques by hand, `catalog()`, `save()` |
+| **1 · Simulate** | notebook 10 | draws the model (one number, fifteen shadows), then `build_showcase_project(ROOT)` writes the files and four metadata dicts, and `showcase_truth()` the answer key |
+| **2 · Build** | notebook 11 | `Organizer(cuau.json)` beside the data, `ingest("MetaData/…_dict.py")` the four modules, `link(s, m, "TEMData/CuAu05")` the four folder techniques by hand — every path relative to the organizer — then `catalog()`, `save()` |
 | **3 · Look** | notebook 12 A–B | `describe()`, `tree()`, `ids(query)`, `frames()` with time and temperature from the filenames, `data()` eager and lazy — a tomogram memory-mapped one plane at a time |
-| **4 · Visualize** | notebook 12 C | a 2×4 gallery of all four groups from `plot(s, m, ax=ax)`; any technique static or interactive (the tomogram as a rotatable isosurface); `overlay("waxs1d", …)` showing the (111) walk with composition |
+| **4 · Visualize** | notebook 12 C | a 2×4 gallery of all four groups from `plot(s, m, ax=ax)`; any technique static or interactive (the tomogram as a rotatable isosurface); `overlay(technique, …)` for any curve or correlation technique — it follows the one picked above, and can be changed on its own |
 | **5 · Analyze** | notebook 12 D | `fit_peaks(q, I)` on arrays, then `plot_fit(…, ax=ax)` as a separate call, the lattice parameter and Vegard's composition; a segmentation check with `segment()` then `plot_segmentation()`; then nine `batch()` calls |
 | **6 · Compare** | notebook 12 E–F | composition three ways (EDS, WAXS, XPS) against the answer key, the plasmon band, three sizes, the CO volcano via `plot_compare`, and a stored fit reloaded off disk without refitting |
 
@@ -56,15 +56,31 @@ A tab whose prerequisite is missing says which tab to go back to rather than
 failing. No helper on the page both computes and draws: it calls an analysis,
 then a plot.
 
-Everything goes under `demo_root("CuAu")` (`~/Repos/OrgDemo/CuAu`, or under
-`$NANOORGANIZER_DEMO_ROOT`): the campaign in `Campaign/`, the answer key as
-`truth.csv`, the organizer as `cuau.json` and stored fits in `results/` — the
-same files notebooks 10–12 write, so a notebook and the page can take turns on
-them. Simulating again rebuilds `Campaign/` only. *Start over* removes only
-`cuau.json` and `results/`, never the campaign. The page holds its organizer
-separately from the workflow pages until **Use this organizer in the workflow
-pages** hands it over. In restricted mode a demo folder outside the allowed
-roots is refused.
+Everything lives in **one folder**, `demo_root("CuAu")` — `../OrgDemo/CuAu`
+beside the source checkout, or under `$NANOORGANIZER_DEMO_ROOT`: the
+campaign's files and `MetaData/`, the answer key `truth.csv`, the organizer
+`cuau.json` and its stored fits in `results/` — the same files notebooks 10–12
+write, so a notebook and the page can take turns on them. Every path the
+organizer records is **relative to that folder**, so the folder moves, zips
+and opens elsewhere as one piece, and `cuau.json` names nobody's home
+directory. Simulating again rewrites the whole folder — the page says so
+first, and lets go of the organizer it held. *Start over* removes only
+`cuau.json` and `results/`, and only in a folder the generator made. The page
+holds its organizer separately from the workflow pages until **Use this
+organizer in the workflow pages** hands it over. In restricted mode a demo
+folder outside the allowed roots is refused.
+
+### Paths on screen are relative
+
+No page shows an absolute path. A location is displayed with
+`NanoOrganizer.core.pathmap.display_path` — relative to the folder the app was
+started in (`../OrgDemo/CuAu`), or under `~` when that would take more than
+three `..` — in captions, tables, code blocks and the default value of every
+path box. What you type may be relative too: it is read against the app's
+working directory and turned absolute before anything is opened, created or
+checked against the allowed roots, so the security rules see the same path
+they always did. A source linked on **Project** that sits inside the project
+folder is recorded relative to it, like the Demo page's links.
 
 [`gui_demo.md`](gui_demo.md) is the walkthrough, with screenshots.
 

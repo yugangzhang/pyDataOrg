@@ -7,6 +7,9 @@ Provides a visual folder navigation interface without text input.
 
 import streamlit as st
 from pathlib import Path
+
+from NanoOrganizer.core.pathmap import display_path
+
 from .security import (
     current_user,
     format_allowed_roots,
@@ -16,6 +19,11 @@ from .security import (
     is_path_allowed as security_is_path_allowed,
     is_restricted_mode,
 )
+
+
+def _shown_root(root: str) -> str:
+    """An allowed root as a person reads it: under ``~``, never ``../..``."""
+    return display_path(root, max_up=0)
 
 
 def _access_caption() -> str:
@@ -104,7 +112,7 @@ def _root_jump(key, secure_roots):
             continue
     picked = st.selectbox(
         "🗂️ Jump to allowed folder", root_strs, index=idx,
-        key=f"{key}_root_jump_sel",
+        key=f"{key}_root_jump_sel", format_func=_shown_root,
         help="Includes data roots whitelisted for secure mode.",
     )
     if st.button("↪️ Go to this folder", key=f"{key}_root_jump_go"):
@@ -133,7 +141,7 @@ def _path_jump(key, is_allowed):
     if target.is_file():
         target = target.parent
     if not target.is_dir():
-        st.error(f"❌ Not a folder: {target}")
+        st.error(f"❌ Not a folder: {display_path(target)}")
     elif not is_allowed(target):
         st.error("🔒 That folder is outside your allowed folders")
     elif str(target) != st.session_state.get(f'{key}_current_path'):
@@ -370,7 +378,7 @@ def folder_browser(
                         st.warning("🔒 That folder is outside the allowed area")
 
         # Show full path as text (copyable)
-        st.code(str(current_path), language="bash")
+        st.code(display_path(current_path), language="bash")
 
     st.divider()
 
@@ -559,7 +567,7 @@ def folder_browser_dialog(key="folder_browser_dialog"):
     _path_jump(key, is_path_allowed)
 
     # Current path
-    st.code(str(current_path), language="bash")
+    st.code(display_path(current_path), language="bash")
 
     # Show subdirectories as buttons
     try:
@@ -610,19 +618,27 @@ def folder_picker(key, label="Folder", default="", help=None):
     initialize_security_context()
     state_key = f"{key}_path"
     if state_key not in st.session_state:
-        st.session_state[state_key] = str(default or "")
+        # Shown relative to where the app runs — ../OrgDemo/CuAu, not a path
+        # that names somebody's home directory.
+        st.session_state[state_key] = display_path(default) if default else ""
 
     with st.expander("📂 Browse for folder", expanded=False):
         browsed = folder_browser_dialog(key=f"{key}_dialog")
         if st.button("✅ Use this folder", key=f"{key}_use"):
-            st.session_state[state_key] = browsed
+            st.session_state[state_key] = display_path(browsed)
             st.rerun()
 
     path = st.text_input(label, key=state_key, help=help)
+    if not path.strip():
+        return ""
 
-    if path and is_restricted_mode() and not security_is_path_allowed(
-        path, allow_nonexistent=True
+    # Shown relative, returned absolute: the caller must not depend on the
+    # working directory, and a relative path handed to link() would be read
+    # relative to the organizer's folder instead.
+    resolved = str(Path(path.strip()).expanduser().absolute())
+    if is_restricted_mode() and not security_is_path_allowed(
+        resolved, allow_nonexistent=True
     ):
         st.error(f"🔒 Folder outside your allowed folders: {format_allowed_roots()}")
         return ""
-    return path
+    return resolved

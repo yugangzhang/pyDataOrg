@@ -18,8 +18,11 @@ DFT. Everything in it follows from **one hidden number per sample, the gold
 fraction x**, so techniques that never met can be checked against each other —
 and against the answer key the generator keeps.
 
-All screenshots were taken from a fresh run with the demo data written to
-`/tmp/OrgDemo`.
+All screenshots were taken from a fresh run, with the app started from a
+folder beside the demo data — so every location on screen reads
+`../OrgDemo/CuAu`. The GUI never shows an absolute path: locations are shown
+relative to where the app was started, and what the organizer records is
+relative to its own folder.
 
 ---
 
@@ -40,7 +43,8 @@ viz 8900 s3cret      # port and password given
 
 Either way the server binds every interface so the app is reachable by
 hostname; set `NANOORGANIZER_HOST=127.0.0.1` to keep it local. Demo data goes
-under `~/Repos/OrgDemo` — set `NANOORGANIZER_DEMO_ROOT` to put it elsewhere.
+in `../OrgDemo`, beside the source checkout — set `NANOORGANIZER_DEMO_ROOT` to
+put it elsewhere.
 
 The sidebar lists the pages. **Workflow** is the part that matters:
 
@@ -64,15 +68,22 @@ another.
 ## 2. The Demo page, tab by tab
 
 Open **🎓 Demo**. The **Demo folder** at the top is where everything goes —
-`~/Repos/OrgDemo/CuAu` by default:
+`../OrgDemo/CuAu` by default, shown relative to where the app was started;
+type a relative or an absolute path to use another. It is **one folder**: the
+campaign, its answer key, the organizer and its fits, side by side:
 
 ```
 CuAu/
-├── Campaign/     the files the instruments wrote, and four metadata dicts
+├── MetaData/  RawSpectra/  Spectroscopy/  …  TEMData/  TomoData/
+│                 the files the instruments wrote, and four metadata dicts
 ├── truth.csv     the answer key
-├── cuau.json     the organizer (tab 2)
+├── cuau.json     the organizer (tab 2) — every path in it relative to CuAu/
 └── results/      stored fits (tab 5)
 ```
+
+Because every recorded path is relative to that folder, it moves as one
+piece: copy it, zip it, open it on another machine, and nothing needs an
+alias.
 
 Each tab starts with a caption saying which notebook part it mirrors, and ends
 with **The same in Python**: the exact calls it just made, ready to paste into
@@ -80,7 +91,7 @@ a notebook. A tab whose prerequisite is missing says which tab to go back to.
 
 ### 1 · Simulate — `notebook/10`
 
-![The Simulate tab: headline counts of 8 alloys plus one failed run, 15 techniques, 4 stages and 1 hidden number; six panels of the model against gold fraction — a straight Vegard lattice line, one plasmon band moving from 580 to 520 nm, three sizes an order of magnitude apart on a log axis, the surface richer in gold than the bulk, the d-band centre and CO binding energy, and a CO-current volcano; then after the button, 339 files and 15 MB on disk, the campaign's folder tree, CuAu05's characterization record, the sparse beamtime matrix and the answer-key table](images/gui_demo_simulate.png)
+![The Simulate tab: headline counts of 8 alloys plus one failed run, 15 techniques, 4 stages and 1 hidden number; six panels of the model against gold fraction — a straight Vegard lattice line, one plasmon band moving from 580 to 520 nm, three sizes an order of magnitude apart on a log axis, the surface richer in gold than the bulk, the d-band centre and CO binding energy, and a CO-current volcano; then after the button, the campaign written to ../OrgDemo/CuAu — 339 files and 15 MB on disk — its folder tree, CuAu05's characterization record, the sparse beamtime matrix and the answer-key table](images/gui_demo_simulate.png)
 
 Before anything is written, the tab draws **the model**: one number, fifteen
 shadows. Gold widens the lattice (Vegard's law, which WAXS reads), moves the
@@ -93,11 +104,16 @@ volcano.
 answer key beside it:
 
 ```python
-from NanoOrganizer.demo import build_showcase_project, showcase_truth
+from NanoOrganizer.demo import build_showcase_project, demo_root, showcase_truth
 
-build_showcase_project(ROOT / "Campaign")                 # files + four metadata dicts
+ROOT = demo_root("CuAu")                                  # ../OrgDemo/CuAu
+build_showcase_project(ROOT)                              # files + four metadata dicts
 showcase_truth().to_csv(ROOT / "truth.csv", index=False)  # what the generator used
 ```
+
+The metadata dicts name every file relative to the campaign folder. Simulating
+again rewrites the whole folder — the organizer built from it and its fits go
+too — and the tab says so before you click.
 
 What landed is shown three ways. The **tree** (`structure.tree`, which reads
 layout, not data) shows instrument folders that do not agree. The **record**
@@ -109,20 +125,22 @@ beamtime-limited techniques; a real campaign is never complete.
 
 ### 2 · Build — `notebook/11`
 
-![The Build tab: the organizer at /tmp/OrgDemo/CuAu/cuau.json with 9 samples and 144 measurements; the ingested table of nominal gold fraction, status, CO Faradaic efficiency and CO current, with CuAu09 marked error; the catalog as a shaded sample-by-technique matrix of file counts — 14 UV-Vis frames, 9 electrochemistry files, 3 TEM and 3 SEM images per sample, sparse XAS, XPCS, SAXS 2D and tomography, and an all-zero row for CuAu09; and a saved confirmation of 213 kB](images/gui_demo_build.png)
+![The Build tab: the organizer at ../OrgDemo/CuAu/cuau.json with 9 samples and 144 measurements; the ingested table of nominal gold fraction, status, CO Faradaic efficiency and CO current, with CuAu09 marked error; the catalog as a shaded sample-by-technique matrix of file counts — 14 UV-Vis frames, 9 electrochemistry files, 3 TEM and 3 SEM images per sample, sparse XAS, XPCS, SAXS 2D and tomography, and an all-zero row for CuAu09; a saved confirmation of 197 kB; and the links table, every source relative to the organizer — RawSpectra/uvvis_runs/uvvis_b01_*.npy, Spectroscopy/CuAu01/eds.dat and so on](images/gui_demo_build.png)
 
 Four buttons, in order:
 
 | button | call | what you see |
 |---|---|---|
 | **Create Organizer(cuau.json)** | `org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")` | an empty organizer — one JSON file you name |
-| **Ingest the four metadata dicts** | `org.ingest(CAMPAIGN / "MetaData" / f"{stage}_dict.py")` per stage | nine samples, their conditions, results and DFT descriptors; most measurements came in with the dicts |
-| **Link the four folder techniques by hand** | `org.link(sample, "tem", folder, stage="characterization")`, and the same for SEM, DLS, tomography | the catalog fills in: 144 measurements in all |
+| **Ingest the four metadata dicts** | `org.ingest(f"MetaData/{stage}_dict.py")` per stage — relative to the organizer | nine samples, their conditions, results and DFT descriptors; most measurements came in with the dicts |
+| **Link the four folder techniques by hand** | `org.link(sample, "tem", f"TEMData/{sample}", stage="characterization")`, and the same for SEM, DLS, tomography | the catalog fills in: 144 measurements in all |
 | **Save cuau.json** | `org.save()` | the file on disk, plus the re-importable links table |
 
 Linking a folder keeps only files matching the technique's extensions, so the
-`note.txt` beside each set of micrographs is left out. Paths are recorded
-exactly as given, and the data never moves. `CuAu09`, the failed synthesis,
+`note.txt` beside each set of micrographs is left out. Every path is recorded
+**relative to the organizer's folder** — the links table shows
+`TEMData/CuAu05/01.tif`, not where that folder happens to be — and the data
+never moves. `CuAu09`, the failed synthesis,
 stays in the catalog as an empty row: leaving it out would bias every later
 comparison.
 
@@ -152,7 +170,7 @@ What the organizer holds, without reading any data:
 
 ### 4 · Visualize — `notebook/12` part C
 
-![The Visualize tab for CuAu01: a two-by-four gallery — UV-Vis growth series coloured by time, WAXS on a log axis, SAXS log-log, Faradaic efficiency per product against potential, a TEM micrograph and an SEM micrograph in grey on nanometre axes, a tomogram slab projection, and an XPCS correlation function; below it the tomogram rendered as a rotatable 3D isosurface on nanometre axes; and an overlay of the WAXS (111) reflection for CuAu01, 03, 05 and 08 moving from 3.01 to 2.67 inverse ångström as gold is added](images/gui_demo_visualize.png)
+![The Visualize tab for CuAu01: a two-by-four gallery — UV-Vis growth series coloured by time, WAXS on a log axis, SAXS log-log, Faradaic efficiency per product against potential, a TEM micrograph and an SEM micrograph in grey on nanometre axes, a tomogram slab projection, and an XPCS correlation function; below it the tomogram rendered interactively as a translucent volume on nanometre axes, 128 cubed voxels of 2 nm subsampled 1:3; and the overlay — the technique picked above is the tomogram, which does not overlay, so it falls back to WAXS — with all eight samples' patterns on a log axis, every reflection walking to lower q as gold is added](images/gui_demo_visualize.png)
 
 **Four groups, one call each.** The gallery draws all four visualisation
 groups for one sample — curves, images, a volume, a correlation function —
@@ -179,13 +197,25 @@ the tomogram: an isosurface you can turn around, on the voxel size recorded
 when it was linked — or a translucent volume, a point cloud, or three
 orthogonal slices.
 
-**Overlay.** `org.overlay("waxs1d", sample_ids=…, ax=ax)` puts one curve per
-sample on a shared axis. Zoomed on the (111) reflection, it shows Vegard's law
-by eye: gold opens the lattice, and the peak walks to lower q.
+**Overlay.** `org.overlay(technique, sample_ids=…, ax=ax)` puts one curve per
+sample on a shared axis, for any curve or correlation technique. The
+**Technique to overlay** follows the one picked above whenever that one
+overlays — pick UV-Vis above and the overlay becomes UV-Vis — and falls back
+to WAXS when the pick above is an image or a volume. Change it on its own to
+compare something else. **Samples to overlay** offers only the samples that
+have that technique (the failed run never appears); a many-frame series is
+reduced to its last frame, its mean or its first frame; and **zoom x** narrows
+the axis — on WAXS, to the (111) reflection walking to lower q as gold opens
+the lattice.
+
+```python
+org.overlay("waxs1d", reduce="last", ax=ax)                  # every sample that has it
+org.overlay("uvvis", sample_ids=["CuAu01", "CuAu08"], ax=ax, xlim=(450, 700))
+```
 
 ### 5 · Analyze — `notebook/12` part D
 
-![The Analyze tab: fit controls set to CuAu05, window 2.50–3.60, two peaks, pseudo-Voigt, linear background; the two-peak fit drawn over the data with residuals beneath and R² 0.9999; the (111) at 2.8123 per ångström, lattice parameter 3.8698 Å and gold fraction 0.550 from Vegard, +0.000 against the answer key; a TEM frame of CuAu05 with 58 particles outlined in red; the nine batch calls listed; and 72 of 72 analyses succeeded across 9 batches](images/gui_demo_analyze.png)
+![The Analyze tab: fit controls set to CuAu05, window 2.50–3.60, two peaks, pseudo-Voigt, linear background; the two-peak fit drawn over the data with residuals beneath and R² 0.9999; the (111) at 2.8123 per ångström, lattice parameter 3.8698 Å and gold fraction 0.550 from Vegard, +0.000 against the answer key; a TEM frame of CuAu05 with 58 particles outlined in red; the nine batch calls listed; and 72 of 72 analyses succeeded across 9 batches, saved to ../OrgDemo/CuAu/cuau.json](images/gui_demo_analyze.png)
 
 **The kernel first.** The page takes CuAu05's WAXS arrays and fits them
 directly; the (111) position gives the lattice parameter, and Vegard's law run

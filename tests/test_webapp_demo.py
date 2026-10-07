@@ -2,7 +2,9 @@
 
 Driven through ``AppTest`` against the showcase campaign generated into
 ``tmp_path`` (via ``$NANOORGANIZER_DEMO_ROOT``), so nothing is written outside
-the test's own folder. One test clicks the whole walk in the order a user
+the test's own folder. The working directory is ``tmp_path`` too, so the page
+shows the demo folder as plain ``CuAu`` — and one test checks that no
+absolute path reaches the screen at all. One test clicks the whole walk in the order a user
 would — simulate, create, ingest, link, save, batch, reload, hand over — and
 checks every click for a clean page. The others start from an organizer built
 with the same package calls the page makes, which is faster than clicking and
@@ -76,21 +78,35 @@ def demo_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 def saved(demo_root):
-    """cuau.json built with the calls notebooks 10 and 11 make."""
-    campaign = demo_root / "Campaign"
-    build_showcase_project(campaign)
+    """cuau.json built with the calls notebooks 10 and 11 make: beside the
+    data, every path relative to it."""
+    build_showcase_project(demo_root)
     showcase_truth().to_csv(demo_root / "truth.csv", index=False)
     org = Organizer(demo_root / "cuau.json", name="Cu-Au CO2RR library")
     for stage in STAGES:
-        org.ingest(campaign / "MetaData" / f"{stage}_dict.py")
+        org.ingest(f"MetaData/{stage}_dict.py")
     for sample in org.ids():
         for modality, folder in BY_HAND.items():
-            source = campaign / folder / sample
-            if source.is_dir():
-                org.link(sample, modality, str(source),
+            if (demo_root / folder / sample).is_dir():
+                org.link(sample, modality, f"{folder}/{sample}",
                          stage="characterization")
     org.save()
     return demo_root
+
+
+def _shown(app) -> list:
+    """Every piece of text the page put on screen, tables included."""
+    texts = []
+    for kind in ("markdown", "caption", "code", "success", "info", "warning",
+                 "error", "metric", "text", "title", "subheader"):
+        for element in getattr(app, kind, []):
+            texts.append(str(getattr(element, "value", "")))
+            texts.append(str(getattr(element, "label", "")))
+    texts.extend(str(box.value) for box in app.text_input)
+    for table in app.dataframe:
+        frame = table.value
+        texts.append(frame.to_csv() if hasattr(frame, "to_csv") else str(frame))
+    return texts
 
 
 @pytest.fixture
@@ -116,14 +132,17 @@ def test_every_tab_waits_for_its_prerequisite(demo_root):
 
 def test_simulate_writes_the_campaign_and_the_answer_key(demo_root):
     app = _page()
-    assert app.text_input(key="nano_demo_root").value == str(demo_root)
+    # Shown relative to where the app runs, never as an absolute path.
+    assert app.text_input(key="nano_demo_root").value == "CuAu"
 
     _click(app, "nano_demo_simulate")
-    campaign = demo_root / "Campaign"
-    assert sorted(p.name for p in (campaign / "MetaData").glob("*_dict.py")) \
+    assert sorted(p.name for p in (demo_root / "MetaData").glob("*_dict.py")) \
         == [f"{s}_dict.py" for s in sorted(STAGES)]
     assert (demo_root / "truth.csv").is_file()
-    assert len(list((campaign / "TEMData").rglob("*.tif"))) == 24
+    assert len(list((demo_root / "TEMData").rglob("*.tif"))) == 24
+    for module in (demo_root / "MetaData").glob("*_dict.py"):
+        assert str(demo_root) not in module.read_text(), \
+            f"{module.name} must name its files relative to the campaign"
 
     metrics = _metrics(app)
     assert metrics["Metadata modules"] == "4"
@@ -147,9 +166,11 @@ def test_the_whole_walk_recovers_the_hidden_number(demo_root):
     assert (catalog.loc["CuAu05", ["tem", "sem"]] == 3).all(), \
         "note.txt must not be linked as a micrograph"
     assert catalog["tomo"].sum() == 2, "tomography is on two samples only"
-    # Paths are recorded exactly as linked, not rewritten.
+    # Every path recorded relative to the organizer's folder: nothing in it
+    # names where the folder happens to be.
     text = store.read_text()
-    assert str(demo_root / "Campaign" / "TEMData" / "CuAu05") in text
+    assert "TEMData/CuAu05/01.tif" in text
+    assert str(demo_root) not in text, "cuau.json must hold no absolute path"
     assert json.loads(text), "cuau.json is plain JSON"
 
     # The kernel ran on the default window: Vegard gives CuAu05's x back.
@@ -180,6 +201,10 @@ def test_the_whole_walk_recovers_the_hidden_number(demo_root):
     assert app.session_state["nano_workbench"] is \
         app.session_state["nano_demo_org"]
 
+    # Nowhere on the page — captions, code, tables, inputs — an absolute path.
+    leaked = [text for text in _shown(app) if str(demo_root.parent) in text]
+    assert not leaked, leaked[:3]
+
 
 def test_a_saved_organizer_reopens_in_a_new_session(saved):
     app = _page()
@@ -203,10 +228,21 @@ def test_start_over_removes_only_the_organizer(reopened):
     assert not (root / "cuau.json").exists()
     assert not (root / "results").exists()
     # The campaign and the answer key are untouched.
-    assert (root / "Campaign" / "MetaData" / "Synthesis_dict.py").is_file()
+    assert (root / "MetaData" / "Synthesis_dict.py").is_file()
     assert (root / "truth.csv").is_file()
-    assert len(list((root / "Campaign").rglob("*.tif"))) == 48
+    assert len(list(root.rglob("*.tif"))) == 48
     assert "nano_demo_org" not in app.session_state
+
+
+def test_simulating_again_drops_the_organizer_it_rewrote(reopened):
+    """The folder is one piece: rewriting the campaign takes cuau.json with
+    it, so the page must not keep holding the old organizer."""
+    app, root = reopened
+    assert any("rewrites the whole folder" in i.value for i in app.info)
+    _click(app, "nano_demo_simulate")
+    assert not (root / "cuau.json").exists()
+    assert "nano_demo_org" not in app.session_state
+    assert app.button(key="nano_demo_create").label == "Create Organizer(cuau.json)"
 
 
 def test_restricted_mode_refuses_a_root_outside_the_fence(demo_root, tmp_path,
@@ -246,6 +282,38 @@ def test_each_group_draws_and_the_tomogram_turns(reopened):
     _clean(app, "interactive slices")
     app.selectbox(key="nano_demo_vis_m").select("saxs2d").run()
     _clean(app, "interactive saxs2d")
+
+
+def test_overlay_follows_the_technique_picked_above(reopened):
+    app, _ = reopened
+    # The free picker opens on the tomogram, which does not overlay: the
+    # overlay falls back to WAXS.
+    assert app.selectbox(key="nano_demo_vis_m").value == "tomo"
+    assert app.selectbox(key="nano_demo_overlay_m::tomo").value == "waxs1d"
+
+    app.selectbox(key="nano_demo_vis_m").select("uvvis").run()
+    _clean(app, "picker → uvvis")
+    assert app.selectbox(key="nano_demo_overlay_m::uvvis").value == "uvvis"
+    chosen = app.multiselect(key="nano_demo_overlay::uvvis").value
+    assert "CuAu09" not in chosen and len(chosen) == 8
+
+
+def test_overlay_technique_can_be_chosen_on_its_own(reopened):
+    app, _ = reopened
+    app.selectbox(key="nano_demo_vis_m").select("uvvis").run()
+    overlay = app.selectbox(key="nano_demo_overlay_m::uvvis")
+    overlay.select("xpcs_g2").run()
+    _clean(app, "overlay → xpcs_g2")
+    assert app.selectbox(key="nano_demo_vis_m").value == "uvvis"
+    assert app.selectbox(key="nano_demo_overlay_m::uvvis").value == "xpcs_g2"
+    # Only the three samples that had XPCS beamtime are offered.
+    assert app.multiselect(key="nano_demo_overlay::xpcs_g2").value == \
+        ["CuAu01", "CuAu04", "CuAu08"]
+
+    app.toggle(key="nano_demo_overlay_zoom::xpcs_g2").set_value(True).run()
+    _clean(app, "overlay zoom")
+    app.radio(key="nano_demo_overlay_reduce").set_value("mean").run()
+    _clean(app, "overlay mean")
 
 
 def test_a_worse_model_shows_in_the_residual_not_the_headline(reopened):
