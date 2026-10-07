@@ -28,6 +28,12 @@ goes in the paper.  **interactive** is Plotly — zoom a shoulder, read a pixel,
 turn a tomogram around.  Neither is a wrapper around the other; they return
 different objects (an ``Axes`` and a ``go.Figure``) and the caller is told
 which by what it asked for.
+
+Every ``*_figure`` here draws where it is told: ``ax=`` for static,
+``fig=`` (with ``row=``/``col=`` for a subplot grid) for interactive, and
+returns what it drew on. The data steps they share — :func:`curve_data`,
+:func:`image_display`, :func:`project_volume` — draw nothing, so their numbers
+can be had without a figure.
 """
 
 from __future__ import annotations
@@ -225,24 +231,17 @@ def curve_figure(measurement, resolver, *, engine: str = STATIC,
 # Images
 # ---------------------------------------------------------------------------
 
-def image_figure(measurement, resolver, *, engine: str = STATIC,
-                 frame=None, t=None, T=None, file: str = "",
-                 percentile: float = 99.0, vmin=None, vmax=None,
-                 log_intensity: bool = False, cmap: str = "viridis",
-                 colorscale: str = "Viridis", equal_aspect: bool = True,
-                 calibrate: bool = True, ax=None, title: str = "", **options):
-    """Draw a 2D measurement as an image.
+def image_display(array, *, percentile: float = 99.0, vmin=None, vmax=None,
+                  log_intensity: bool = False
+                  ) -> Tuple[np.ndarray, float, float]:
+    """The array as it should be shown, and its display range. Draws nothing.
 
-    The display range defaults to a symmetric *percentile* clip rather than
-    min–max, because one hot pixel otherwise flattens the whole frame to grey.
-    A file that carried a pixel calibration is drawn on nanometre axes, so a
-    distance read off the picture means something.
+    Returns ``(display, low, high)``. The range defaults to a symmetric
+    *percentile* clip rather than min–max, because one hot pixel otherwise
+    flattens the whole frame to grey; *vmin*/*vmax* override it. With
+    *log_intensity* the display is ``log10``, floored at the smallest positive
+    value so a zero pixel does not become ``-inf``.
     """
-    paths = measurement.resolve(resolver)
-    index = select_frame(measurement, resolver, frame=frame, t=t, T=T,
-                            file=file, n_available=len(paths))
-    array, info = reading.load_image(measurement, resolver, index)
-
     display = np.asarray(array, dtype=float)
     if log_intensity:
         positive = display[display > 0]
@@ -254,6 +253,30 @@ def image_figure(measurement, resolver, *, engine: str = STATIC,
         high = float(np.nanpercentile(display, percentile))
     else:
         low, high = float(vmin), float(vmax)
+    return display, low, high
+
+
+def image_figure(measurement, resolver, *, engine: str = STATIC,
+                 frame=None, t=None, T=None, file: str = "",
+                 percentile: float = 99.0, vmin=None, vmax=None,
+                 log_intensity: bool = False, cmap: str = "viridis",
+                 colorscale: str = "Viridis", equal_aspect: bool = True,
+                 calibrate: bool = True, ax=None, title: str = "", **options):
+    """Draw a 2D measurement as an image.
+
+    Reads one frame, asks :func:`image_display` for the display range, and
+    hands both to :func:`~NanoOrganizer.viz.plots.plot_image` (static) or
+    :func:`~NanoOrganizer.viz.interactive.image_figure`. A file that carried a
+    pixel calibration is drawn on nanometre axes, so a distance read off the
+    picture means something.
+    """
+    paths = measurement.resolve(resolver)
+    index = select_frame(measurement, resolver, frame=frame, t=t, T=T,
+                            file=file, n_available=len(paths))
+    array, info = reading.load_image(measurement, resolver, index)
+    display, low, high = image_display(array, percentile=percentile,
+                                       vmin=vmin, vmax=vmax,
+                                       log_intensity=log_intensity)
 
     spec = measurement.spec
     scale = info.get("nm_per_pixel") if calibrate else None
@@ -274,32 +297,49 @@ def image_figure(measurement, resolver, *, engine: str = STATIC,
             xlabel=axis_label, ylabel=axis_label, extent=extent,
             equal_aspect=equal_aspect, **options)
 
-    import matplotlib.pyplot as plt
-
-    figsize = options.pop("figsize", (6.5, 5.5))
-    if ax is None:
-        _, ax = plt.subplots(figsize=figsize)
-    picture = ax.imshow(display, cmap=cmap, vmin=low, vmax=high,
-                        interpolation="nearest", origin="upper", extent=extent,
-                        aspect="equal" if equal_aspect else "auto", **options)
-    if extent is None:
-        ax.set_xticks([])
-        ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    ax.set_title(title, color=plots.INK, fontsize=10, loc="left")
-    if axis_label:
-        ax.set_xlabel(axis_label, color=plots.INK_SOFT, fontsize=10)
-        ax.set_ylabel(axis_label, color=plots.INK_SOFT, fontsize=10)
-    bar = ax.figure.colorbar(picture, ax=ax, fraction=0.046)
-    bar.outline.set_visible(False)
-    bar.ax.tick_params(colors=plots.INK_SOFT, labelsize=8)
-    return ax
+    return plots.plot_image(display, ax=ax, extent=extent, cmap=cmap,
+                            vmin=low, vmax=high, title=title,
+                            xlabel=axis_label, ylabel=axis_label,
+                            equal_aspect=equal_aspect, **options)
 
 
 # ---------------------------------------------------------------------------
 # Volumes
 # ---------------------------------------------------------------------------
+
+def project_volume(volume, *, axis: int = 0,
+                   projection: str = "max projection",
+                   slab: Optional[int] = None, centre: Optional[int] = None
+                   ) -> Tuple[np.ndarray, str]:
+    """Collapse a 3D array to the plane a static figure shows. Draws nothing.
+
+    Returns ``(plane, detail)``, where *detail* says what was done —
+    ``"max of planes 40–87"`` — so a figure title can carry it.
+    *projection* is ``"single slice"`` (the plane at *centre*), or a ``mean``
+    or ``max`` projection through *slab* planes centred on it; *slab* defaults
+    to the whole depth.
+    """
+    volume = np.asarray(volume)
+    if volume.ndim != 3:
+        raise ValueError(f"expected a 3D array, got shape {volume.shape}")
+
+    n_planes = volume.shape[axis]
+    centre = n_planes // 2 if centre is None else int(centre)
+    slab = n_planes if slab is None else int(slab)
+
+    if projection == "single slice":
+        plane = np.take(volume, min(max(centre, 0), n_planes - 1), axis=axis)
+        return plane, f"plane {centre} of {n_planes}"
+
+    low = max(centre - slab // 2, 0)
+    high = min(low + slab, n_planes)
+    block = np.take(volume, range(low, high), axis=axis)
+    kind = "mean" if projection.startswith("mean") else "max"
+    plane = block.mean(axis=axis) if kind == "mean" else block.max(axis=axis)
+    detail = (f"{kind} through all {n_planes} planes" if high - low >= n_planes
+              else f"{kind} of planes {low}–{high - 1}")
+    return plane, detail
+
 
 def volume_figure(measurement, resolver, *, engine: str = STATIC,
                   mode: str = "isosurface", axis: int = 0,
@@ -310,11 +350,11 @@ def volume_figure(measurement, resolver, *, engine: str = STATIC,
     """Draw a 3D measurement.
 
     Static gives a **slab projection** — a mean or max through part of the
-    stack — because a single plane through a 150 nm aggregate shows one
-    accident of where the plane fell.  Interactive gives the real thing: an
-    isosurface, a translucent volume, points or orthogonal slices, rotatable.
-    ``level`` is a control and not a constant, since that one number decides
-    what the structure appears to be.
+    stack, from :func:`project_volume` — because a single plane through a
+    150 nm aggregate shows one accident of where the plane fell.  Interactive
+    gives the real thing: an isosurface, a translucent volume, points or
+    orthogonal slices, rotatable. ``level`` is a control and not a constant,
+    since that one number decides what the structure appears to be.
     """
     volume, info = reading.load_volume(measurement, resolver)
     title = title or (f"{measurement.sample_id} — "
@@ -327,39 +367,12 @@ def volume_figure(measurement, resolver, *, engine: str = STATIC,
                                          colorscale=colorscale, title=title,
                                          **options)
 
-    n_planes = volume.shape[axis]
-    centre = n_planes // 2 if centre is None else int(centre)
-    slab = n_planes if slab is None else int(slab)
-
-    if projection == "single slice":
-        plane = np.take(volume, min(max(centre, 0), n_planes - 1), axis=axis)
-        detail = f"plane {centre} of {n_planes}"
-    else:
-        low = max(centre - slab // 2, 0)
-        high = min(low + slab, n_planes)
-        block = np.take(volume, range(low, high), axis=axis)
-        reducer = block.mean if projection.startswith("mean") else block.max
-        plane = reducer(axis=axis)
-        kind = "mean" if projection.startswith("mean") else "max"
-        detail = (f"{kind} through all {n_planes} planes" if high - low >= n_planes
-                  else f"{kind} of planes {low}–{high - 1}")
-
-    import matplotlib.pyplot as plt
-
-    figsize = options.pop("figsize", (6.0, 5.4))
-    if ax is None:
-        _, ax = plt.subplots(figsize=figsize)
-    picture = ax.imshow(plane, cmap=cmap, interpolation="nearest")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    ax.set_title(f"{title} · {detail} along axis {axis}",
-                 color=plots.INK, fontsize=10, loc="left")
-    bar = ax.figure.colorbar(picture, ax=ax, fraction=0.046)
-    bar.outline.set_visible(False)
-    bar.ax.tick_params(colors=plots.INK_SOFT, labelsize=8)
-    return ax
+    plane, detail = project_volume(volume, axis=axis, projection=projection,
+                                   slab=slab, centre=centre)
+    options.setdefault("figsize", (6.0, 5.4))
+    return plots.plot_image(plane, ax=ax, cmap=cmap,
+                            title=f"{title} · {detail} along axis {axis}",
+                            **options)
 
 
 # ---------------------------------------------------------------------------
@@ -400,10 +413,13 @@ def result_figure(result, *, engine: str = STATIC, ax=None, title: str = "",
         return interactive.curves_figure(drawn, xlabel=xlabel, ylabel=ylabel,
                                          title=title, **options)
 
-    if has_fit and ax is None:
-        from NanoOrganizer.viz import plots as _plots
-
-        return _plots.plot_peak_fit(result)
+    if has_fit:
+        # The fit layout whether or not an Axes was supplied: drawing the
+        # residual as one more line beside the data, just because the caller
+        # chose where the figure goes, would hide the panel that matters.
+        return plots.plot_fit(
+            x, curves["y"], curves["y_fit"], curves.get("residual"), ax=ax,
+            xlabel=xlabel, ylabel=ylabel, title=title, **options)
 
     drawn = [(name, x, y) for name, y in curves.items()
              if name != "x" and y.shape == x.shape]
@@ -510,7 +526,10 @@ def _caption(measurement, info: Dict[str, Any]) -> str:
 
 
 __all__ = [
+    # drawing — ax= (static) or fig= (interactive) in, the same out
     "figure", "curve_figure", "image_figure", "volume_figure", "overlay",
     "result_figure",
-    "curve_data", "frames", "select_frame", "STATIC", "INTERACTIVE", "REDUCERS",
+    # data steps — no figure
+    "curve_data", "image_display", "project_volume", "frames", "select_frame",
+    "STATIC", "INTERACTIVE", "REDUCERS",
 ]

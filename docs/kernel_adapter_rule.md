@@ -122,9 +122,9 @@ Drawing has exactly the same problem, and it is the one people forget.
 def plot_fit(x, y, y_fit, residual=None, *, ax=None, xlabel="", title=""): ...
 
 # ADAPTER — unwraps the result object, supplies the labels, calls the kernel.
-def plot_peak_fit(result, axes=None):
+def plot_peak_fit(result, ax=None):
     return plot_fit(result.curves["x"], result.curves["y"],
-                    result.curves["y_fit"], result.curves["residual"],
+                    result.curves["y_fit"], result.curves["residual"], ax=ax,
                     xlabel=result.diagnostics.get("x_label", ""),
                     title=f"{result.sample_id} — R² = {result.values['fit_r2']:.4f}")
 ```
@@ -132,6 +132,71 @@ def plot_peak_fit(result, axes=None):
 The payoff is the same: a user with their own `x, y, y_fit` from somewhere else
 entirely gets your house style for free, and a user who wants to add a vertical
 line to your figure gets an `Axes` back rather than a picture.
+
+Two further rules make a plot reusable. Both are absolute.
+
+### Rule P1 — draw where you are told, return what you drew on
+
+**Every plotting function takes `ax=None`.**
+
+- Given an `Axes`, it draws on that `Axes` and nowhere else — no new figure,
+  no `plt.gca()`, no `plt.figure()`.
+- Given nothing, it makes its own figure.
+- It **returns what it drew on**: the `Axes`, or a tuple of them for a
+  multi-panel plot. The figure is one attribute away (`ax.figure`).
+- It never calls `plt.show()`, `plt.close()` or `savefig()` — showing and
+  saving are the caller's decisions.
+
+```python
+def plot_thing(x, y, ax=None, **style):
+    if ax is None:
+        _, ax = plt.subplots()
+    ax.plot(x, y, **style)
+    return ax
+```
+
+That is what lets one function serve a quick look, a panel in someone else's
+3×4 grid, and a figure that gets one more annotation before it goes in a
+paper. A function that makes its own figure can only ever be the whole figure.
+
+A multi-panel plot (a fit with its residual strip, two kinetics panels) takes
+the panels it needs as a sequence — `ax=(top, bottom)` — and may also accept
+one `Axes` and split it, so a fit placed in a grid keeps its residuals.
+
+For an interactive library the same rule reads `fig=None` (with `row=`/`col=`
+for a subplot grid): add the traces to the figure given, style only that
+cell's axes, and return the figure. Never overwrite the caller's title, size
+or legend.
+
+### Rule P2 — never analyse and draw in one function
+
+**A function either computes a result or draws one. Never both.**
+
+```python
+# NO — one call that fits and draws. You cannot have the fit without the
+# picture, cannot redraw without refitting, cannot test either half alone.
+result, axes = org.fit("S01", "waxs1d", show=True)
+
+# YES — two calls. Each is useful without the other.
+result = org.fit("S01", "waxs1d")      # the analysis: returns a result, draws nothing
+org.plot_fit(result, ax=ax)            # the picture: takes the result, computes nothing
+```
+
+The same goes for a "plot" that segments the image it is about to draw, takes
+a radial average on the way to plotting it, or runs an analysis because it was
+handed a sample id instead of a result. Each of those hides a number nobody
+can check, keep or reuse — split it: the analysis returns a result object, the
+plot takes that object (or arrays).
+
+Where the line sits: a plot may do **display arithmetic** — choose limits,
+clip contrast to a percentile, take a log for display, stride forty curves out
+of four hundred, mark the mean of the values it is drawing. It may not produce
+**a number a reader would want to keep**: no fit, segmentation, integration,
+reduction to a derived quantity, or other analysis. If you would put it in a
+table, it belongs in an analysis function.
+
+Composing the two belongs to the caller — the notebook cell, the GUI page —
+not to a library function that "does both for convenience".
 
 ---
 
@@ -179,3 +244,8 @@ metric, a transform, a segmentation, a drawing. Not to plumbing.
 - [ ] Is a quality threshold applied in the adapter, not the kernel?
 - [ ] Do both docstrings name their counterpart?
 - [ ] Is there a kernel test using synthetic data with a known answer?
+- [ ] Does every plotting function take `ax=None` (or `fig=None`), draw only
+      there when given one, and return what it drew on?
+- [ ] Is there any function that both computes a result and draws it? Split it.
+- [ ] Does any plotting function call `plt.show()`, `savefig()` or create a
+      figure when it was handed an `Axes`?

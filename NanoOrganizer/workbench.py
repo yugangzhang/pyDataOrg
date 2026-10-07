@@ -13,12 +13,18 @@ of samples that every subsequent call defaults to:
 
 >>> wb = open_project("/data/MyProject")               # doctest: +SKIP
 >>> wb.filter("`synthesis.conditions.temperature_C` >= 5")
->>> wb.batch("uvvis_kinetics")          # only the basket            # doctest: +SKIP
->>> wb.plot_kinetics("Sample000001")                                 # doctest: +SKIP
+>>> wb.batch("peak_fit", modality="uvvis")   # only the basket      # doctest: +SKIP
+>>> result = wb.run("peak_fit", "Sample000001", modality="uvvis")  # +SKIP
+>>> wb.plot_fit(result)                                             # +SKIP
 
 Nothing here is required: every method is a thin call onto the library objects,
 which stay reachable as ``wb.project`` and ``wb.resolver``. The GUI uses the
 same class, so a page and a notebook cannot drift apart in behaviour.
+
+Analysing and drawing are always **two calls**: ``run``/``fit``/``segment``
+return a result and draw nothing; every ``plot*`` method draws a result, or a
+measurement as it is, and analyses nothing. Every ``plot*`` takes ``ax=``
+(``fig=`` with ``engine="interactive"``) and returns what it drew on.
 """
 
 from __future__ import annotations
@@ -937,7 +943,7 @@ class Workbench:
 
     def fit(self, sample_id: str, modality: str = "", *,
             analysis: str = "peak_fit", stage: str = "", role: str = "",
-            show: bool = False, **params):
+            **params):
         """Try one fit on one sample and hand back the result — nothing stored.
 
         The deliberate first step of an analysis: settle the parameters on a
@@ -946,11 +952,13 @@ class Workbench:
         in the order that hides the mistake.
 
         >>> params = dict(x_range=(2.3, 3.0), n_peaks=1, background="linear")
-        >>> result = org.fit("S01", "waxs1d", show=True, **params)  # +SKIP
+        >>> result = org.fit("S01", "waxs1d", **params)        # +SKIP
+        >>> org.plot_fit(result)                                # +SKIP
         >>> org.batch("peak_fit", modality="waxs1d", link=True, **params)
 
-        Returns the :class:`AnalysisResult`; with *show*, returns
-        ``(result, axes)`` so the check is one call.
+        Returns the :class:`AnalysisResult` and draws nothing: looking at it
+        is :meth:`plot_fit`, a second call, because a function that fits and
+        draws can be used for neither on its own.
 
         This is still a convenience: it finds the measurement for you. When
         the fit itself is what needs attention, skip it and call the kernel on
@@ -965,22 +973,27 @@ class Workbench:
 
         See ``docs/kernel_adapter_rule.md``.
         """
+        if "show" in params:
+            raise TypeError(
+                "fit() no longer draws — analysing and plotting are separate "
+                "calls. Use: result = org.fit(...); org.plot_fit(result)")
         where = {k: v for k, v in (("modality", modality), ("stage", stage),
                                    ("role", role)) if v}
         measurement = self._target(analysis, sample_id, **where)
-        result = _analysis.run(analysis, measurement, self.resolver, **params)
-        if not show:
-            return result
-        if not result.ok:
-            raise ValueError(f"{analysis} failed on {sample_id}: "
-                             f"{result.message}")
-        return result, self.plot_fit(result)
+        return _analysis.run(analysis, measurement, self.resolver, **params)
 
-    def plot_fit(self, result, *, engine: str = "static", **options):
-        """Draw a result you are holding — no store, no file, no round trip."""
+    def plot_fit(self, result, *, ax=None, engine: str = "static",
+                 **options):
+        """Draw a result you are holding — no store, no file, no round trip.
+
+        Fits run nothing here: *result* is what :meth:`fit`, :meth:`run` or
+        :meth:`result` returned. A result with a fitted curve is drawn over
+        its data with the residuals beneath — split off the bottom of *ax*
+        when one is given. Returns what it drew on.
+        """
         from NanoOrganizer.viz import show as _show
 
-        return _show.result_figure(result, engine=engine, **options)
+        return _show.result_figure(result, engine=engine, ax=ax, **options)
 
     def batch(self, key: str, *, write: bool = True, verbose: bool = True,
               link: bool = False, **options):
@@ -1015,46 +1028,83 @@ class Workbench:
                 for key in keys}
 
     # ------------------------------------------------------------------
-    # plots
+    # segmentation: the analysis, then its picture
     # ------------------------------------------------------------------
 
-    def plot_kinetics(self, sample_id: str, axes=None, **options):
-        """Run the kinetics analysis on one sample and plot it."""
+    def segment(self, sample_id: str, modality: str = "tem", *,
+                image_index: int = 0, stage: str = "", role: str = "",
+                **options):
+        """Segment one micrograph — the check before trusting a size table.
+
+        Returns a :class:`~NanoOrganizer.analysis.imaging.Segmentation` and
+        draws nothing; :meth:`plot_segmentation` draws it::
+
+            seg = org.segment("S03", "tem", image_index=1)
+            org.plot_segmentation(seg)
+        """
+        from NanoOrganizer.analysis.imaging import segment_micrograph
+
+        measurement = self.measurement(sample_id, modality=modality,
+                                       stage=stage, role=role)
+        return segment_micrograph(measurement, self.resolver,
+                                  image_index=image_index, **options)
+
+    # ------------------------------------------------------------------
+    # plots of finished results — each one draws, none of them analyses
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _finished(result, method: str, analysis: str):
+        """Refuse a sample id where a result is expected, and say why."""
+        if isinstance(result, str):
+            raise TypeError(
+                f"{method}() draws a finished result and runs nothing. "
+                f"Analyse first, then plot: "
+                f"result = wb.run({analysis!r}, {result!r}); "
+                f"wb.{method}(result)")
+        return result
+
+    def plot_segmentation(self, segmentation, ax=None, **options):
+        """Particle outlines over the raw micrograph — always check this.
+
+        *segmentation* is what :meth:`segment` returned.
+        """
         from NanoOrganizer.viz import plots
 
-        return plots.plot_kinetics(
-            self.run("uvvis_kinetics", sample_id, **options), axes=axes)
+        if isinstance(segmentation, str):
+            raise TypeError(
+                "plot_segmentation() draws a segmentation and runs nothing. "
+                f"seg = wb.segment({segmentation!r}); "
+                "wb.plot_segmentation(seg)")
+        return plots.plot_segmentation(segmentation, ax=ax, **options)
 
-    def plot_spectra(self, sample_id: str, stage: str = "synthesis", ax=None,
-                     **options):
-        """Spectra over a run, coloured by time."""
+    def plot_kinetics(self, result, ax=None, **options):
+        """A kinetics result: band traces and the fitted log-ratio."""
         from NanoOrganizer.viz import plots
 
-        key = "uvvis_spectra" if stage == "synthesis" else "uvvis_kinetics"
-        return plots.plot_spectra(self.run(key, sample_id, **options), ax=ax)
+        result = self._finished(result, "plot_kinetics", "uvvis_kinetics")
+        return plots.plot_kinetics(result, ax=ax, **options)
 
-    def plot_endpoint(self, sample_id: str, ax=None, **options):
-        """The grown sol's plasmon band, with peak and width marked."""
+    def plot_spectra(self, result, ax=None, **options):
+        """The spectra a result carries, coloured by time."""
         from NanoOrganizer.viz import plots
 
-        return plots.plot_endpoint_spectrum(
-            self.run("uvvis_spectra", sample_id, **options), ax=ax)
+        result = self._finished(result, "plot_spectra", "uvvis_spectra")
+        return plots.plot_spectra(result, ax=ax, **options)
 
-    def plot_sizes(self, sample_id: str, ax=None, **options):
-        """Pooled particle-size histogram."""
+    def plot_endpoint(self, result, ax=None, **options):
+        """A plasmon-band result: the endpoint spectrum, peak and width marked."""
         from NanoOrganizer.viz import plots
 
-        return plots.plot_size_distribution(
-            self.run("particle_sizing", sample_id, **options), ax=ax)
+        result = self._finished(result, "plot_endpoint", "uvvis_spectra")
+        return plots.plot_endpoint_spectrum(result, ax=ax, **options)
 
-    def plot_segmentation(self, sample_id: str, modality: str = "tem",
-                          ax=None, **options):
-        """Particle outlines over the raw micrograph — always check this."""
+    def plot_sizes(self, result, ax=None, **options):
+        """A particle-sizing result as a pooled size histogram."""
         from NanoOrganizer.viz import plots
 
-        return plots.plot_segmentation(
-            self.measurement(sample_id, modality=modality), self.resolver,
-            ax=ax, **options)
+        result = self._finished(result, "plot_sizes", "particle_sizing")
+        return plots.plot_size_distribution(result, ax=ax, **options)
 
     def plot_compare(self, x: str, y: str, color_by: str = "", ax=None,
                      **options):

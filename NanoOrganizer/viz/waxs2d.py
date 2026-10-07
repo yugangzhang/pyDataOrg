@@ -17,8 +17,7 @@ azimuthal  – azimuthally averaged I(2θ).
 import numpy as np
 from typing import Any, Dict
 
-from NanoOrganizer.viz.base import BasePlotter
-from NanoOrganizer.viz.saxs2d import _azimuthal_average   # shared helper
+from NanoOrganizer.viz.base import BasePlotter, warn_computes
 
 
 class WAXS2DPlotter(BasePlotter):
@@ -93,15 +92,22 @@ class WAXS2DPlotter(BasePlotter):
         idx          = int(np.argmin(np.abs(times - time_point)))
         closest_time = times[idx]
 
-        r_pix, profile = _azimuthal_average(images[idx])
+        from NanoOrganizer.analysis.profiles import (
+            azimuthal_average, radius_to_two_theta,
+        )
+        warn_computes('azimuthal',
+                      'r, I = NanoOrganizer.analysis.azimuthal_average(image); '
+                      'tth = radius_to_two_theta(r, ...); '
+                      'plot_curves([(label, tth, I)])')
+
+        r_pix, profile = azimuthal_average(images[idx])
 
         # Convert pixel radius → 2θ if calibration is available
         pixel_size = data.get('pixel_size_mm')
         sdd        = data.get('sdd_mm')
 
         if None not in (pixel_size, sdd):
-            r_mm   = r_pix * pixel_size
-            x_axis = np.degrees(np.arctan(r_mm / sdd))   # 2θ in degrees
+            x_axis = radius_to_two_theta(r_pix, pixel_size, sdd)
             xlabel = '2θ (degrees)'
         else:
             x_axis = r_pix

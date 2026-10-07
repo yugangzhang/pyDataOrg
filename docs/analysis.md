@@ -13,7 +13,22 @@
 > | `fit_peaks(x, y, …)` | `peak_fit(measurement, resolver, …)` |
 > | `measure_curve(x, y, …)` | `curve_metrics(measurement, resolver, …)` |
 > | `size_from_image(image, …)`, `size_statistics(d)` | `particle_sizing(measurement, resolver, …)` |
-> | `plot_fit`, `plot_distribution`, `plot_outlines`, `plot_series`, `plot_marked_curve` | `plot_peak_fit`, `plot_size_distribution`, `plot_segmentation`, `plot_spectra`, `plot_endpoint_spectrum` |
+> | `segment_particles(image, …)` | `segment_micrograph(measurement, resolver, …)` → `Segmentation` |
+> | `azimuthal_average(image)`, `radius_to_q`, `weighted_mean` | — (reductions that used to hide inside plots) |
+> | `plot_fit`, `plot_distribution`, `plot_outlines`, `plot_series`, `plot_marked_curve`, `plot_image` | `plot_peak_fit`, `plot_size_distribution`, `plot_segmentation`, `plot_spectra`, `plot_endpoint_spectrum` |
+>
+> **Analysing and drawing are never one function.** An analysis returns a
+> result and draws nothing; a plot takes a result (or arrays) and computes
+> nothing worth keeping. Every plot takes `ax=None` — draws there when given
+> one — and returns what it drew on (`fig=None` for the Plotly figures). So:
+>
+> ```python
+> seg = segment_micrograph(measurement, resolver, image_index=0)   # analysis
+> plot_segmentation(seg, ax=ax)                                    # picture
+>
+> result = org.fit("S01", "waxs1d", x_range=(2.3, 3.0))            # analysis
+> org.plot_fit(result, ax=ax)                                      # picture
+> ```
 
 
 Analyses turn measurements into **derived values** — scalars that land in the

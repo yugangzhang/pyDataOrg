@@ -427,9 +427,13 @@ is memory-mapped, so its frames are planes and indexing one costs one plane.
 ```python
 params = dict(x_range=(2.5, 3.6), n_peaks=1, background="linear")
 
-trial, axes = org.fit("S01", "waxs1d", show=True, **params)   # stores nothing
+trial = org.fit("S01", "waxs1d", **params)    # stores nothing, draws nothing
+org.plot_fit(trial)                            # looking is a second call
 org.batch("peak_fit", modality="waxs1d", link=True, **params)
 ```
+
+Fitting and drawing are separate calls on purpose: a function that does both
+can be used for neither on its own.
 
 Settling the parameters on a sample you can look at, and only then spending
 them on the whole set, is the same work as running the batch first and reading

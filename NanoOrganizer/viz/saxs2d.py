@@ -20,7 +20,7 @@ azimuthal  – azimuthally averaged I(q) from the 2-D image.
 import numpy as np
 from typing import Any, Dict
 
-from NanoOrganizer.viz.base import BasePlotter
+from NanoOrganizer.viz.base import BasePlotter, warn_computes
 
 
 class SAXS2DPlotter(BasePlotter):
@@ -95,7 +95,14 @@ class SAXS2DPlotter(BasePlotter):
         idx          = int(np.argmin(np.abs(times - time_point)))
         closest_time = times[idx]
 
-        r_pix, profile = _azimuthal_average(images[idx])
+        from NanoOrganizer.analysis.profiles import (
+            azimuthal_average, radius_to_q,
+        )
+        warn_computes('azimuthal',
+                      'r, I = NanoOrganizer.analysis.azimuthal_average(image); '
+                      'q = radius_to_q(r, ...); plot_curves([(label, q, I)])')
+
+        r_pix, profile = azimuthal_average(images[idx])
 
         # Convert pixel radius → q if calibration is available
         pixel_size = data.get('pixel_size_mm')
@@ -103,7 +110,7 @@ class SAXS2DPlotter(BasePlotter):
         wavelength = data.get('wavelength_A')
 
         if None not in (pixel_size, sdd, wavelength):
-            x_axis = 2 * np.pi * r_pix * pixel_size / (sdd * wavelength)
+            x_axis = radius_to_q(r_pix, pixel_size, sdd, wavelength)
             xlabel = 'q (1/Å)'
         else:
             x_axis = r_pix
@@ -122,36 +129,9 @@ class SAXS2DPlotter(BasePlotter):
         ax.grid(True, alpha=0.3)
 
 
-# ---------------------------------------------------------------------------
-# shared helper (also used by WAXS2DPlotter)
-# ---------------------------------------------------------------------------
-
+# Kept for anything that imported it; the kernel is
+# NanoOrganizer.analysis.profiles.azimuthal_average.
 def _azimuthal_average(image, center=None, n_bins=None):
-    """
-    Radial (azimuthal) average of a 2-D array.
+    from NanoOrganizer.analysis.profiles import azimuthal_average
 
-    Returns
-    -------
-    r_centres : 1-D array   bin-centre radii in pixel units
-    profile   : 1-D array   mean intensity per bin
-    """
-    ny, nx = image.shape
-    if center is None:
-        center = (nx / 2.0, ny / 2.0)
-
-    y, x = np.indices(image.shape)
-    r    = np.sqrt((x - center[0])**2 + (y - center[1])**2)
-
-    if n_bins is None:
-        n_bins = min(nx, ny) // 2
-
-    edges   = np.linspace(0, r.max(), n_bins + 1)
-    indices = np.digitize(r.ravel(), edges) - 1
-
-    profile = np.zeros(n_bins)
-    for i in range(n_bins):
-        mask = indices == i
-        if mask.any():
-            profile[i] = image.ravel()[mask].mean()
-
-    return (edges[:-1] + edges[1:]) / 2.0, profile
+    return azimuthal_average(image, center=center, n_bins=n_bins)

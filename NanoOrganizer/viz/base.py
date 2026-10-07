@@ -8,8 +8,23 @@ matplotlib Axes.  They have no knowledge of files, DataLinks, or
 the organizer.
 """
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
+
+
+def warn_computes(plot_type: str, recipe: str) -> None:
+    """Flag a legacy plot type that computes a quantity while drawing it.
+
+    Plotting does not analyse (``docs/kernel_adapter_rule.md``). The few
+    legacy plot types that did still work, so existing scripts keep running,
+    but each says what to call instead: the kernel that computes the number,
+    then a plot of what it returned.
+    """
+    warnings.warn(
+        f"plot_type={plot_type!r} computes while it draws and will be removed. "
+        f"Compute first, then plot: {recipe}",
+        DeprecationWarning, stacklevel=4)
 
 
 class BasePlotter(ABC):

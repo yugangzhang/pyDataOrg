@@ -12,6 +12,17 @@ Everything here returns a ``plotly.graph_objects.Figure``, so it renders in a
 notebook (``fig.show()``), in Streamlit (``st.plotly_chart``), or to a
 self-contained HTML file (``fig.write_html``) without the caller caring which.
 
+Every function takes ``fig=None`` — the Plotly counterpart of ``ax=``. Given a
+figure it adds its traces there (at ``row=``/``col=`` for a grid made with
+``plotly.subplots.make_subplots``) and styles only that cell's axes, leaving
+the caller's title, size and legend alone; given nothing it makes and styles a
+new one. Either way it returns the figure::
+
+    from plotly.subplots import make_subplots
+    grid = make_subplots(rows=1, cols=2)
+    curves_figure([("S01", x, y1)], fig=grid, row=1, col=1)
+    curves_figure([("S02", x, y2)], fig=grid, row=1, col=2)
+
 Plotly is an extra::
 
     pip install "nanoorganizer[web]"
@@ -85,11 +96,38 @@ def _plotly():
     return go
 
 
+def _canvas(fig) -> Tuple[Any, bool]:
+    """The figure to draw into, and whether this call created it."""
+    if fig is not None:
+        return fig, False
+    return _plotly().Figure(), True
+
+
+def _cell(row: Optional[int], col: Optional[int]) -> Dict[str, int]:
+    """``row=``/``col=`` keywords for Plotly, or none for a plain figure."""
+    if row is None and col is None:
+        return {}
+    return {"row": row or 1, "col": col or 1}
+
+
+def _x_anchor(fig, row: Optional[int], col: Optional[int]) -> str:
+    """The x-axis id (``"x"``, ``"x2"`` …) of one cell, for scaleanchor."""
+    if row is None and col is None:
+        return "x"
+    subplot = fig.get_subplot(row or 1, col or 1)
+    return subplot.xaxis.plotly_name.replace("axis", "")
+
+
 def _layout(fig, *, title: str = "", xlabel: str = "", ylabel: str = "",
             width: Optional[int] = None, height: int = 520,
             show_legend: bool = True, show_grid: bool = True,
-            legend_position: str = "top right"):
-    """Apply the house style: recessive axes, ink-coloured text, no chartjunk."""
+            legend_position: str = "top right", own: bool = True,
+            row: Optional[int] = None, col: Optional[int] = None):
+    """Apply the house style: recessive axes, ink-coloured text, no chartjunk.
+
+    On a figure this call did not create (*own* False) only the target cell's
+    axes are styled: the title, size and legend belong to whoever made it.
+    """
     anchors = {
         "top right": dict(x=0.99, y=0.99, xanchor="right", yanchor="top"),
         "top left": dict(x=0.01, y=0.99, xanchor="left", yanchor="top"),
@@ -103,6 +141,11 @@ def _layout(fig, *, title: str = "", xlabel: str = "", ylabel: str = "",
                     tickfont=dict(color=INK_SOFT, size=11),
                     title=dict(text=label,
                                font=dict(color=INK_SOFT, size=12)))
+
+    if not own:
+        fig.update_xaxes(axis(xlabel), **_cell(row, col))
+        fig.update_yaxes(axis(ylabel), **_cell(row, col))
+        return fig
 
     fig.update_layout(
         title=dict(text=title, font=dict(color=INK, size=14), x=0.0, xanchor="left"),
@@ -123,16 +166,18 @@ def _layout(fig, *, title: str = "", xlabel: str = "", ylabel: str = "",
 
 def _apply_scales(fig, *, logx: bool, logy: bool,
                   xlim: Optional[Tuple[float, float]] = None,
-                  ylim: Optional[Tuple[float, float]] = None):
+                  ylim: Optional[Tuple[float, float]] = None,
+                  row: Optional[int] = None, col: Optional[int] = None):
     """Log scales and limits.
 
     Plotly ranges are in *log units* on a log axis — passing data units there
     is a classic way to get an empty plot, so the conversion happens here once.
     """
+    cell = _cell(row, col)
     if logx:
-        fig.update_xaxes(type="log")
+        fig.update_xaxes(type="log", **cell)
     if logy:
-        fig.update_yaxes(type="log")
+        fig.update_yaxes(type="log", **cell)
 
     if xlim and None not in xlim:
         low, high = float(xlim[0]), float(xlim[1])
@@ -140,14 +185,14 @@ def _apply_scales(fig, *, logx: bool, logy: bool,
             if low <= 0 or high <= 0:
                 return fig
             low, high = np.log10(low), np.log10(high)
-        fig.update_xaxes(range=[low, high])
+        fig.update_xaxes(range=[low, high], **cell)
     if ylim and None not in ylim:
         low, high = float(ylim[0]), float(ylim[1])
         if logy:
             if low <= 0 or high <= 0:
                 return fig
             low, high = np.log10(low), np.log10(high)
-        fig.update_yaxes(range=[low, high])
+        fig.update_yaxes(range=[low, high], **cell)
     return fig
 
 
@@ -171,16 +216,22 @@ def curves_figure(curves: Sequence[Tuple[str, np.ndarray, np.ndarray]], *,
                   width: Optional[int] = None, height: int = 520,
                   colorbar_values: Optional[Sequence[float]] = None,
                   colorbar_label: str = "",
-                  colorscale: str = "Viridis"):
+                  colorscale: str = "Viridis",
+                  fig=None, row: Optional[int] = None,
+                  col: Optional[int] = None):
     """Draw ``[(label, x, y), …]`` as an interactive line plot.
 
     Pass *colorbar_values* — one number per curve, a time or a temperature —
     to colour the curves continuously along *colorscale* and show a colour bar
     instead of a legend. That is the right encoding for a series where the
     curves are ordered; a categorical palette is right when they are not.
+
+    *fig*, *row*, *col*: draw into an existing figure (see the module
+    docstring). Returns the figure.
     """
     go = _plotly()
-    fig = go.Figure()
+    fig, own = _canvas(fig)
+    cell = _cell(row, col)
 
     sampled = _ramp(colorbar_values, colorscale) if colorbar_values is not None else None
     palette = list(colors) if colors else list(CATEGORICAL)
@@ -207,7 +258,7 @@ def curves_figure(curves: Sequence[Tuple[str, np.ndarray, np.ndarray]], *,
                         symbol=MARKERS.get(marker) or "circle"),
             opacity=opacity, showlegend=show_this,
             hovertemplate=f"<b>{label}</b><br>%{{x:.5g}}, %{{y:.5g}}<extra></extra>",
-        ))
+        ), **cell)
 
     if sampled is not None and len(curves):
         values = np.asarray(colorbar_values, dtype=float)
@@ -221,13 +272,14 @@ def curves_figure(curves: Sequence[Tuple[str, np.ndarray, np.ndarray]], *,
                                                  font=dict(color=INK_SOFT,
                                                            size=11)),
                                       outlinewidth=0, thickness=14)),
-        ))
+        ), **cell)
         show_legend = False
 
     _layout(fig, title=title, xlabel=xlabel, ylabel=ylabel, width=width,
             height=height, show_legend=show_legend, show_grid=show_grid,
-            legend_position=legend_position)
-    return _apply_scales(fig, logx=logx, logy=logy, xlim=xlim, ylim=ylim)
+            legend_position=legend_position, own=own, row=row, col=col)
+    return _apply_scales(fig, logx=logx, logy=logy, xlim=xlim, ylim=ylim,
+                         row=row, col=col)
 
 
 def _ramp(values, colorscale: str) -> List[str]:
@@ -252,14 +304,19 @@ def image_figure(array: np.ndarray, *,
                  show_colorbar: bool = True,
                  width: Optional[int] = None, height: int = 620,
                  extent: Optional[Tuple[float, float, float, float]] = None,
-                 hover_unit: str = ""):
+                 hover_unit: str = "",
+                 fig=None, row: Optional[int] = None,
+                 col: Optional[int] = None):
     """Draw a 2D array as an interactive heatmap.
 
     *extent* is ``(x0, x1, y0, y1)`` in data units, so a calibrated micrograph
-    can be read in nanometres rather than pixels.
+    can be read in nanometres rather than pixels. *fig*, *row*, *col*: draw
+    into an existing figure. Returns the figure.
     """
     go = _plotly()
     array = np.asarray(array, dtype=float)
+    fig, own = _canvas(fig)
+    cell = _cell(row, col)
 
     axes: Dict[str, Any] = {}
     if extent is not None:
@@ -267,7 +324,7 @@ def image_figure(array: np.ndarray, *,
         axes["x"] = np.linspace(x0, x1, array.shape[1])
         axes["y"] = np.linspace(y0, y1, array.shape[0])
 
-    fig = go.Figure(go.Heatmap(
+    fig.add_trace(go.Heatmap(
         z=array, colorscale=colorscale, zmin=vmin, zmax=vmax,
         showscale=show_colorbar,
         colorbar=dict(outlinewidth=0, thickness=14,
@@ -275,18 +332,20 @@ def image_figure(array: np.ndarray, *,
         hovertemplate=("x %{x:.4g}<br>y %{y:.4g}<br>"
                        f"value %{{z:.5g}} {hover_unit}<extra></extra>"),
         **axes,
-    ))
+    ), **cell)
     _layout(fig, title=title, xlabel=xlabel, ylabel=ylabel, width=width,
-            height=height, show_legend=False, show_grid=False)
+            height=height, show_legend=False, show_grid=False, own=own,
+            row=row, col=col)
 
     if reverse_y:
-        fig.update_yaxes(autorange="reversed")
+        fig.update_yaxes(autorange="reversed", **cell)
     if equal_aspect:
         # Without this a square detector image is drawn as a rectangle,
         # and every angle read off it is wrong.
-        fig.update_yaxes(scaleanchor="x", scaleratio=1.0)
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(showgrid=False)
+        fig.update_yaxes(scaleanchor=_x_anchor(fig, row, col),
+                         scaleratio=1.0, **cell)
+    fig.update_xaxes(showgrid=False, **cell)
+    fig.update_yaxes(showgrid=False, **cell)
     return fig
 
 
@@ -322,7 +381,9 @@ def volume_figure(volume: np.ndarray, *,
                   unit: str = "voxels",
                   title: str = "",
                   width: Optional[int] = None, height: int = 650,
-                  show_colorbar: bool = True):
+                  show_colorbar: bool = True,
+                  fig=None, row: Optional[int] = None,
+                  col: Optional[int] = None):
     """Render a 3D array interactively — rotate, zoom, slice.
 
     Parameters
@@ -344,6 +405,9 @@ def volume_figure(volume: np.ndarray, *,
     max_voxels, max_points : int
         Rendering budgets. Exceeded, the volume is strided down and the
         figure says by how much.
+    fig, row, col
+        Draw into an existing figure — at a ``{"type": "scene"}`` cell of a
+        ``make_subplots`` grid. Returns the figure.
     """
     go = _plotly()
     volume = np.asarray(volume, dtype=float)
@@ -364,11 +428,11 @@ def volume_figure(volume: np.ndarray, *,
         note += f" · subsampled 1:{step}"
 
     if mode == "points":
-        fig = _points(go, small, level, scale, colorscale, max_points,
-                      opacity, show_colorbar)
+        traces = _points(go, small, level, scale, colorscale, max_points,
+                         opacity, show_colorbar)
     elif mode == "slices":
-        fig = _ortho_slices(go, small, scale, colorscale, show_colorbar,
-                            slice_fractions)
+        traces = _ortho_slices(go, small, scale, colorscale, show_colorbar,
+                               slice_fractions)
     else:
         zz, yy, xx = np.mgrid[0:nz, 0:ny, 0:nx]
         common = dict(
@@ -383,32 +447,42 @@ def volume_figure(volume: np.ndarray, *,
             # imply a variation that is not there.
             common["showscale"] = False
             common.pop("colorbar", None)
-            fig = go.Figure(go.Isosurface(
+            traces = [go.Isosurface(
                 isomin=level, isomax=float(small.max()), opacity=opacity,
                 surface_count=1, caps=dict(x_show=False, y_show=False,
                                            z_show=False),
-                **common))
+                **common)]
         else:
             # The same threshold means the same thing here: below it, do not
             # draw. Without it a noisy volume renders its own noise floor as
             # a translucent shell around whatever you came to look at.
-            fig = go.Figure(go.Volume(
+            traces = [go.Volume(
                 isomin=level, isomax=float(small.max()),
                 opacity=opacity, surface_count=surface_count,
                 caps=dict(x_show=False, y_show=False, z_show=False),
-                **common))
+                **common)]
+
+    fig, own = _canvas(fig)
+    cell = _cell(row, col)
+    for trace in traces:
+        fig.add_trace(trace, **cell)
 
     axis = dict(backgroundcolor="white", gridcolor=GRID, showbackground=True,
                 zerolinecolor=GRID, tickfont=dict(color=INK_SOFT, size=10))
+    scene = dict(
+        xaxis=dict(title=f"x ({unit})", **axis),
+        yaxis=dict(title=f"y ({unit})", **axis),
+        zaxis=dict(title=f"z ({unit})", **axis),
+        aspectmode="data",      # a cube of voxels must look like a cube
+    )
+    if not own:
+        fig.update_scenes(scene, **cell)
+        return fig
+
     fig.update_layout(
         title=dict(text=f"{title}  ·  {note}" if title else note,
                    font=dict(color=INK, size=13), x=0.0, xanchor="left"),
-        scene=dict(
-            xaxis=dict(title=f"x ({unit})", **axis),
-            yaxis=dict(title=f"y ({unit})", **axis),
-            zaxis=dict(title=f"z ({unit})", **axis),
-            aspectmode="data",      # a cube of voxels must look like a cube
-        ),
+        scene=scene,
         margin=dict(l=0, r=0, t=40, b=0),
         height=height, paper_bgcolor="white", showlegend=False,
     )
@@ -418,11 +492,11 @@ def volume_figure(volume: np.ndarray, *,
 
 
 def _points(go, volume, level, scale, colorscale, max_points, opacity,
-            show_colorbar):
-    """Voxels above *level* as a subsampled point cloud."""
+            show_colorbar) -> list:
+    """Voxels above *level* as a subsampled point cloud — a list of traces."""
     occupied = np.argwhere(volume >= level)
     if occupied.size == 0:
-        return go.Figure()
+        return []
 
     values = volume[tuple(occupied.T)]
     if len(occupied) > max_points:
@@ -432,7 +506,7 @@ def _points(go, volume, level, scale, colorscale, max_points, opacity,
                                                replace=False)
         occupied, values = occupied[keep], values[keep]
 
-    return go.Figure(go.Scatter3d(
+    return [go.Scatter3d(
         x=occupied[:, 2] * scale, y=occupied[:, 1] * scale,
         z=occupied[:, 0] * scale, mode="markers",
         marker=dict(size=2.2, color=values, colorscale=colorscale,
@@ -440,11 +514,11 @@ def _points(go, volume, level, scale, colorscale, max_points, opacity,
                     colorbar=dict(outlinewidth=0, thickness=14,
                                   tickfont=dict(color=INK_SOFT, size=10))),
         hovertemplate="%{x:.1f}, %{y:.1f}, %{z:.1f}<extra></extra>",
-    ))
+    )]
 
 
 def _ortho_slices(go, volume, scale, colorscale, show_colorbar,
-                  fractions=(0.5, 0.5, 0.5)):
+                  fractions=(0.5, 0.5, 0.5)) -> list:
     """Three orthogonal planes, as 3D surfaces, at *fractions* of each axis."""
     nz, ny, nx = volume.shape
     low, high = float(volume.min()), float(volume.max())
@@ -476,32 +550,43 @@ def _ortho_slices(go, volume, scale, colorscale, show_colorbar,
         surfacecolor=volume[:, :, x_mid], colorscale=colorscale,
         cmin=low, cmax=high, showscale=False))
 
-    return go.Figure(traces)
+    return traces
 
 
 def surface_figure(array: np.ndarray, *, colorscale: str = "Viridis",
                    title: str = "", xlabel: str = "x", ylabel: str = "y",
                    zlabel: str = "value", height: int = 620,
-                   width: Optional[int] = None):
+                   width: Optional[int] = None,
+                   fig=None, row: Optional[int] = None,
+                   col: Optional[int] = None):
     """Draw a 2D array as a rotatable 3D surface.
 
     Useful for a map whose shape matters more than its values — a detector
     image is usually clearer flat, but a peak in a 2D scan is easier to judge
-    in relief.
+    in relief. *fig*, *row*, *col*: draw into a ``scene`` cell of an existing
+    figure. Returns the figure.
     """
     go = _plotly()
     array = np.asarray(array, dtype=float)
 
-    fig = go.Figure(go.Surface(z=array, colorscale=colorscale,
-                               colorbar=dict(outlinewidth=0, thickness=14)))
+    fig, own = _canvas(fig)
+    cell = _cell(row, col)
+    fig.add_trace(go.Surface(z=array, colorscale=colorscale,
+                             colorbar=dict(outlinewidth=0, thickness=14)),
+                  **cell)
     axis = dict(backgroundcolor="white", gridcolor=GRID, showbackground=True,
                 zerolinecolor=GRID, tickfont=dict(color=INK_SOFT, size=10))
+    scene = dict(xaxis=dict(title=xlabel, **axis),
+                 yaxis=dict(title=ylabel, **axis),
+                 zaxis=dict(title=zlabel, **axis))
+    if not own:
+        fig.update_scenes(scene, **cell)
+        return fig
+
     fig.update_layout(
         title=dict(text=title, font=dict(color=INK, size=13), x=0.0,
                    xanchor="left"),
-        scene=dict(xaxis=dict(title=xlabel, **axis),
-                   yaxis=dict(title=ylabel, **axis),
-                   zaxis=dict(title=zlabel, **axis)),
+        scene=scene,
         margin=dict(l=0, r=0, t=40, b=0), height=height,
         paper_bgcolor="white", showlegend=False,
     )

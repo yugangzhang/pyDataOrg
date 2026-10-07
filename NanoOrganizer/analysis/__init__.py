@@ -245,7 +245,14 @@ register_analysis(Analysis(
 # away without having to know which module it lives in. See
 # ``docs/kernel_adapter_rule.md`` for why the split exists at all.
 from NanoOrganizer.analysis.curves import CurveMetrics, measure_curve  # noqa: E402
+from NanoOrganizer.analysis.imaging import (                           # noqa: E402
+    Segmentation, measure_particles, segment_micrograph, segment_particles,
+    size_from_image, size_statistics,
+)
 from NanoOrganizer.analysis.peaks import PeakFitResult, fit_peaks      # noqa: E402
+from NanoOrganizer.analysis.profiles import (                          # noqa: E402
+    azimuthal_average, radius_to_q, radius_to_two_theta, weighted_mean,
+)
 
 __all__ = [
     "Analysis", "ANALYSIS_REGISTRY", "AnalysisResult",
@@ -253,4 +260,9 @@ __all__ = [
     "run", "batch", "batch_report",
     # kernels: arrays in, result out — no files, no project
     "fit_peaks", "PeakFitResult", "measure_curve", "CurveMetrics",
+    "segment_particles", "measure_particles", "size_from_image",
+    "size_statistics", "azimuthal_average", "radius_to_q",
+    "radius_to_two_theta", "weighted_mean",
+    # the one-frame segmentation adapter, for checking before sizing
+    "segment_micrograph", "Segmentation",
 ]

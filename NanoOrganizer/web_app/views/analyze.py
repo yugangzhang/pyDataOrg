@@ -115,7 +115,7 @@ def draw(result) -> None:
     try:
         if result.analysis == "uvvis_kinetics":
             figure, axes = plt.subplots(1, 2, figsize=(12, 4.5))
-            plots.plot_kinetics(result, axes=axes)
+            plots.plot_kinetics(result, ax=axes)
             figure.tight_layout()
         elif result.analysis == "uvvis_spectra":
             figure, axes = plt.subplots(1, 2, figsize=(13, 4.8))
@@ -130,7 +130,7 @@ def draw(result) -> None:
             figure, axes = plt.subplots(
                 2, 1, figsize=(8, 6), sharex=True,
                 gridspec_kw={"height_ratios": [3, 1], "hspace": 0.08})
-            plots.plot_peak_fit(result, axes=axes)
+            plots.plot_peak_fit(result, ax=axes)
         else:
             return
     except Exception as exc:

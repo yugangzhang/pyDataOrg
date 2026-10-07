@@ -510,18 +510,25 @@ def test_fit_tries_one_sample_and_stores_nothing(org, data):
     assert not org.results_dir.exists()
 
 
-def test_fit_can_draw_the_check_in_the_same_call(org, data):
+def test_fit_and_its_picture_are_two_calls(org, data):
+    import matplotlib.pyplot as plt
+
     org.link("S01", "waxs1d", f"{data['xrd']}/S01.dat")
-    result, axes = org.fit("S01", "waxs1d", show=True, x_range=(2.5, 3.5),
-                           n_peaks=1)
+    result = org.fit("S01", "waxs1d", x_range=(2.5, 3.5), n_peaks=1)
     assert result.ok
-    assert axes is not None
+
+    # Drawn where it is told: the residual strip is split off the given Axes,
+    # and both panels come back.
+    fig, ax = plt.subplots()
+    top, bottom = org.plot_fit(result, ax=ax)
+    assert top is ax and bottom.figure is fig
+    plt.close(fig)
 
 
-def test_fit_with_show_raises_rather_than_drawing_a_failure(org, data):
+def test_fit_refuses_to_draw(org, data):
     org.link("S01", "waxs1d", f"{data['xrd']}/S01.dat")
-    with pytest.raises(ValueError, match="failed"):
-        org.fit("S01", "waxs1d", show=True, x_range=(90.0, 95.0), n_peaks=1)
+    with pytest.raises(TypeError, match="plot_fit"):
+        org.fit("S01", "waxs1d", show=True, x_range=(2.5, 3.5), n_peaks=1)
 
 
 def test_the_same_params_go_on_to_the_batch(org, data):

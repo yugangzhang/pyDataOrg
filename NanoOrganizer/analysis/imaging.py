@@ -33,11 +33,16 @@ functions here take arrays:
 ``particle_sizing(measurement, resolver, ...)``
     the **adapter** — reads every frame, calls the kernels, pools, and files
     the answer as an :class:`AnalysisResult`.
+``segment_micrograph(measurement, resolver, ...)``
+    the adapter for *checking* — one frame, segmented, returned as a
+    :class:`Segmentation` for :func:`~NanoOrganizer.viz.plots.plot_segmentation`
+    to draw. Segmenting and drawing are two calls, not one.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -402,6 +407,66 @@ def size_statistics(diameters, unit: str = "nm") -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Adapter: one frame, segmented, for looking at
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Segmentation:
+    """One micrograph and the label map segmentation made of it.
+
+    What :func:`segment_micrograph` returns and
+    :func:`~NanoOrganizer.viz.plots.plot_segmentation` draws. ``labels`` has
+    the shape of ``image``; 0 is background, 1…n are particles.
+    """
+
+    image: np.ndarray
+    labels: np.ndarray
+    nm_per_pixel: Optional[float] = None
+    file: str = ""
+    info: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def n_particles(self) -> int:
+        return int(self.labels.max()) if self.labels.size else 0
+
+    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+        scale = (f"{self.nm_per_pixel:.3f} nm/px" if self.nm_per_pixel
+                 else "uncalibrated")
+        return (f"<Segmentation {self.file or 'image'}: {self.n_particles} "
+                f"particles, {self.image.shape[1]}×{self.image.shape[0]} px, "
+                f"{scale}>")
+
+
+def segment_micrograph(measurement, resolver, *, image_index: int = 0,
+                       nm_per_pixel: Optional[float] = None,
+                       min_diameter_nm: float = 2.0,
+                       **segment_options) -> Segmentation:
+    """Read one frame of a micrograph measurement and segment it. **Adapter.**
+
+    The look-before-you-trust step: :func:`particle_sizing` pools every frame
+    into a histogram, and a histogram looks plausible whether the outlines
+    were right or not. This returns the label map for one frame so it can be
+    drawn — by :func:`~NanoOrganizer.viz.plots.plot_segmentation`, which is a
+    separate call on purpose.
+
+    *min_diameter_nm* becomes the smallest kept area in pixels when the frame
+    is calibrated; uncalibrated, a 20-pixel floor is used instead.
+    """
+    paths = measurement.resolve(resolver)
+    if not paths:
+        raise FileNotFoundError(f"no images for {measurement.measurement_id}")
+
+    path = paths[image_index]
+    image, scale, read_info = read_micrograph(path, nm_per_pixel=nm_per_pixel)
+    min_area = np.pi * (0.5 * min_diameter_nm / scale) ** 2 if scale else 20.0
+    labels, info = segment_particles(
+        image, min_area_px=int(max(min_area, 4)), **segment_options)
+    info = {**read_info, **info, "image_index": image_index}
+    return Segmentation(image=image, labels=labels, nm_per_pixel=scale,
+                        file=Path(path).name, info=info)
+
+
+# ---------------------------------------------------------------------------
 # Adapter: every frame of a measurement, pooled
 # ---------------------------------------------------------------------------
 
@@ -576,8 +641,8 @@ __all__ = [
     # kernels — arrays in
     "segment_particles", "measure_particles", "size_from_image",
     "size_statistics",
-    # adapter — a measurement in
-    "particle_sizing",
+    # adapters — a measurement in
+    "particle_sizing", "segment_micrograph", "Segmentation",
     # readers
     "read_micrograph", "pixel_size_nm",
 ]

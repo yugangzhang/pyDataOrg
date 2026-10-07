@@ -18,7 +18,7 @@ heatmap    – 2-D colour map (time × diameter).
 import numpy as np
 from typing import Any, Dict
 
-from NanoOrganizer.viz.base import BasePlotter
+from NanoOrganizer.viz.base import BasePlotter, warn_computes
 
 
 class DLSPlotter(BasePlotter):
@@ -84,12 +84,13 @@ class DLSPlotter(BasePlotter):
         diameters = data['diameters']
         intensity = data['intensity']
 
-        mean_d = []
-        for i in range(len(times)):
-            total = intensity[i].sum()
-            mean_d.append(
-                float(np.sum(diameters * intensity[i]) / total) if total > 0 else np.nan
-            )
+        from NanoOrganizer.analysis.profiles import weighted_mean
+        warn_computes('kinetics',
+                      'mean_d = NanoOrganizer.analysis.weighted_mean('
+                      'data["diameters"], data["intensity"]); '
+                      'ax.plot(data["times"], mean_d)')
+
+        mean_d = weighted_mean(diameters, intensity)
 
         ax.plot(times, mean_d, 'o-', linewidth=2, markersize=6)
         ax.set_xlabel('Time (s)', fontsize=12)

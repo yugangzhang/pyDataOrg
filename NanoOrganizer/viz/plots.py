@@ -2,10 +2,19 @@
 """
 Plots for analysis results — one house style, used by the notebooks and the GUI.
 
-Every function takes an :class:`~NanoOrganizer.analysis.result.AnalysisResult`
-or a dataframe and returns the matplotlib ``Axes`` it drew on, so a notebook can
-keep styling afterwards and a Streamlit page can hand the figure straight to
-``st.pyplot``.
+Two rules hold for every function here (``docs/kernel_adapter_rule.md``):
+
+* **Draw where you are told.** Every function takes ``ax=None``. Given an
+  ``Axes`` it draws there and nowhere else; given nothing it makes a figure.
+  It returns what it drew on — an ``Axes``, or a tuple of them for a
+  multi-panel figure — so a notebook can keep styling afterwards, place the
+  plot in its own grid, and reach the figure as ``ax.figure``. Nothing here
+  calls ``plt.show()`` or saves a file.
+* **Draw, never analyse.** A plot takes arrays or a finished result. It may do
+  display arithmetic — limits, a contrast clip, striding forty curves out of
+  four hundred, marking the mean of what it draws — but no fit, segmentation,
+  integration or other number a reader would want to keep. That is an
+  analysis, and it returns a result the plot is then handed.
 
 Colour rules, applied here rather than left to each caller:
 
@@ -118,21 +127,28 @@ def category_colors(labels: Sequence, scatter: bool = False
 # Kinetics
 # ---------------------------------------------------------------------------
 
-def plot_kinetics(result, axes=None, time_unit: str = "min"):
+def plot_kinetics(result, ax=None, time_unit: str = "min"):
     """Two panels: the raw band traces, and ``ln(A/A0)`` with the fitted window.
+
+    **Adapter** — draws a finished kinetics result; it runs nothing.
 
     The two absorbance traces share one axis because they are the same
     quantity; the log-ratio gets its own panel rather than a second y-scale,
     which would make the two curves' crossings meaningless.
+
+    *ax* is a pair of ``Axes`` (left, right); a new 1×2 figure is made when it
+    is None. Returns the pair.
     """
     import matplotlib.pyplot as plt
 
     if not result.curves:
         raise ValueError(f"{result.analysis} produced no curves to plot")
 
-    if axes is None:
-        _, axes = plt.subplots(1, 2, figsize=(12.0, 4.5))
-    left, right = axes
+    if ax is None:
+        _, ax = plt.subplots(1, 2, figsize=(12.0, 4.5))
+    if np.size(ax) != 2:
+        raise ValueError("plot_kinetics draws two panels: pass ax=(left, right)")
+    left, right = np.ravel(ax)
 
     scale = 60.0 if time_unit == "min" else 1.0
     t = np.asarray(result.curves["t_s"], dtype=float) / scale
@@ -169,7 +185,7 @@ def plot_kinetics(result, axes=None, time_unit: str = "min"):
     style(right, f"time ({time_unit})", f"ln(A/A$_0$) at {band_nm:.0f} nm",
           "pseudo-first-order fit")
     _legend(right, loc="lower left")
-    return axes
+    return left, right
 
 
 # ---------------------------------------------------------------------------
@@ -383,30 +399,68 @@ def plot_outlines(image, labels, ax=None, *, window: int = 700,
     return ax
 
 
-def plot_segmentation(measurement, resolver, ax=None, image_index: int = 0,
-                      window: int = 700, **options):
-    """Segment a micrograph and draw it. **Adapter over** :func:`plot_outlines`.
+def plot_segmentation(segmentation, ax=None, *, window: int = 700,
+                      title: str = ""):
+    """Particle outlines over the micrograph they came from.
 
-    Reads the frame, runs the segmentation, and labels the figure with the
-    file and the pixel calibration.
+    **Adapter over** :func:`plot_outlines`. Takes the
+    :class:`~NanoOrganizer.analysis.imaging.Segmentation` that
+    :func:`~NanoOrganizer.analysis.imaging.segment_micrograph` returns, and
+    labels the figure with the file, the count and the pixel calibration. It
+    segments nothing itself — that is the analysis, and it is run first::
+
+        seg = segment_micrograph(measurement, resolver, image_index=0)
+        plot_segmentation(seg, ax=ax)
     """
-    from NanoOrganizer.analysis.imaging import read_micrograph, segment_particles
-
-    paths = measurement.resolve(resolver)
-    if not paths:
-        raise FileNotFoundError(f"no images for {measurement.measurement_id}")
-
-    path = paths[image_index]
-    image, scale, _ = read_micrograph(path)
-    min_diameter = options.pop("min_diameter_nm", 2.0)
-    min_area = np.pi * (0.5 * min_diameter / scale) ** 2 if scale else 20.0
-    labels, info = segment_particles(image, min_area_px=int(max(min_area, 4)),
-                                     **options)
-
+    scale = segmentation.nm_per_pixel
     scale_text = f"{scale:.3f} nm/px" if scale else "uncalibrated"
     return plot_outlines(
-        image, labels, ax=ax, window=window,
-        title=f"{path.name} — {int(labels.max())} particles, {scale_text}")
+        segmentation.image, segmentation.labels, ax=ax, window=window,
+        title=title or (f"{segmentation.file} — "
+                        f"{segmentation.n_particles} particles, {scale_text}"))
+
+
+def plot_image(array, ax=None, *, extent=None, cmap: str = "viridis",
+               vmin: Optional[float] = None, vmax: Optional[float] = None,
+               title: str = "", xlabel: str = "", ylabel: str = "",
+               equal_aspect: bool = True, colorbar: bool = True,
+               colorbar_label: str = "", origin: str = "upper",
+               figsize: Tuple[float, float] = (6.5, 5.5), **imshow_options):
+    """A 2D array as an image, in the house style. **Kernel.**
+
+    *extent* is ``(x0, x1, y0, y1)`` in data units, so a calibrated micrograph
+    is drawn on nanometre axes; without it the pixel ticks are hidden, because
+    a pixel index is not a measurement. The display range is whatever *vmin*
+    and *vmax* say — choosing it is the caller's decision
+    (:func:`NanoOrganizer.viz.show.image_display` makes the usual one).
+    """
+    array = np.asarray(array, dtype=float)
+    if array.ndim != 2:
+        raise ValueError(f"expected a 2D array, got shape {array.shape}")
+
+    ax = _axes(ax, figsize=figsize)
+    picture = ax.imshow(array, cmap=cmap, vmin=vmin, vmax=vmax,
+                        interpolation="nearest", origin=origin, extent=extent,
+                        aspect="equal" if equal_aspect else "auto",
+                        **imshow_options)
+    if extent is None:
+        ax.set_xticks([])
+        ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    if title:
+        ax.set_title(title, color=INK, fontsize=10, loc="left")
+    if xlabel:
+        ax.set_xlabel(xlabel, color=INK_SOFT, fontsize=10)
+    if ylabel:
+        ax.set_ylabel(ylabel, color=INK_SOFT, fontsize=10)
+    if colorbar:
+        bar = ax.figure.colorbar(picture, ax=ax, fraction=0.046)
+        bar.outline.set_visible(False)
+        bar.ax.tick_params(colors=INK_SOFT, labelsize=8)
+        if colorbar_label:
+            bar.set_label(colorbar_label, color=INK_SOFT, fontsize=9)
+    return ax
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +581,7 @@ def plot_curves(curves: Sequence[Tuple[str, np.ndarray, np.ndarray]], ax=None,
     return ax
 
 
-def plot_fit(x, y, y_fit, residual=None, *, axes=None, xlabel: str = "x",
+def plot_fit(x, y, y_fit, residual=None, *, ax=None, xlabel: str = "x",
              ylabel: str = "signal", title: str = "",
              data_label: str = "data", fit_label: str = "fit",
              figsize: Tuple[float, float] = (7.0, 5.6)):
@@ -543,6 +597,18 @@ def plot_fit(x, y, y_fit, residual=None, *, axes=None, xlabel: str = "x",
     is persuasive whatever it does, and the residual going from noise to shape
     is the thing to look at. Pass ``residual=None`` to draw the top panel only.
 
+    Where it draws:
+
+    ``ax=None``
+        a new figure — two stacked panels, or one without a residual.
+    ``ax=an Axes``
+        that ``Axes``. With a residual, a strip is split off its bottom for
+        it, so a fit placed in your own grid keeps its residuals.
+    ``ax=(top, bottom)``
+        exactly those two.
+
+    Returns ``(top, bottom)`` when a residual is drawn, else the one ``Axes``.
+
     See :func:`plot_peak_fit` for the version that takes an
     :class:`~NanoOrganizer.analysis.result.AnalysisResult`.
     """
@@ -556,17 +622,28 @@ def plot_fit(x, y, y_fit, residual=None, *, axes=None, xlabel: str = "x",
             f"x, y and y_fit must match: {x.shape}, {y.shape}, {y_fit.shape}")
 
     wants_residual = residual is not None
-    if axes is None:
+    if ax is None:
         if wants_residual:
-            _, axes = plt.subplots(
+            _, (top, bottom) = plt.subplots(
                 2, 1, figsize=figsize, sharex=True,
                 gridspec_kw={"height_ratios": [3, 1], "hspace": 0.08})
         else:
-            _, axes = plt.subplots(figsize=(figsize[0], figsize[1] * 0.75))
+            _, top = plt.subplots(figsize=(figsize[0], figsize[1] * 0.75))
+            bottom = None
+    elif np.size(ax) == 2:
+        top, bottom = np.ravel(ax)
+        bottom = bottom if wants_residual else None
+    elif np.size(ax) == 1:
+        top = np.ravel(ax)[0] if np.ndim(ax) else ax
+        bottom = None
+        if wants_residual:
+            from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-    pair = np.atleast_1d(axes)
-    top = pair[0]
-    bottom = pair[1] if wants_residual and pair.size > 1 else None
+            bottom = make_axes_locatable(top).append_axes(
+                "bottom", size="33%", pad=0.08, sharex=top)
+            top.tick_params(labelbottom=False)
+    else:
+        raise ValueError("ax must be None, one Axes, or a (top, bottom) pair")
 
     top.plot(x, y, linewidth=0, marker="o", markersize=3, alpha=0.5,
              color=CATEGORICAL[0], label=data_label)
@@ -574,21 +651,23 @@ def plot_fit(x, y, y_fit, residual=None, *, axes=None, xlabel: str = "x",
     style(top, "" if bottom is not None else xlabel, ylabel, title)
     _legend(top)
 
-    if bottom is not None:
-        bottom.axhline(0, color=GRID, linewidth=1)
-        bottom.plot(x, np.asarray(residual, dtype=float), linewidth=1.2,
-                    color=INK_SOFT)
-        style(bottom, xlabel, "residual")
+    if bottom is None:
+        return top
 
-    return axes
+    bottom.axhline(0, color=GRID, linewidth=1)
+    bottom.plot(x, np.asarray(residual, dtype=float), linewidth=1.2,
+                color=INK_SOFT)
+    style(bottom, xlabel, "residual")
+    return top, bottom
 
 
-def plot_peak_fit(result, axes=None, **options):
+def plot_peak_fit(result, ax=None, **options):
     """A fitted curve over its data. **Adapter over** :func:`plot_fit`.
 
     Unwraps an :class:`~NanoOrganizer.analysis.result.AnalysisResult` and
     supplies the axis caption and title from its diagnostics; all the drawing
-    is the kernel's.
+    is the kernel's, including where it draws — *ax* means what it means
+    there.
     """
     curves = result.curves
     missing = [k for k in ("x", "y", "y_fit") if k not in curves]
@@ -604,7 +683,7 @@ def plot_peak_fit(result, axes=None, **options):
 
     return plot_fit(
         curves["x"], curves["y"], curves["y_fit"], curves.get("residual"),
-        axes=axes, xlabel=xlabel,
+        ax=ax, xlabel=xlabel,
         ylabel=diagnostics.get("y_label") or "signal",
         title=options.pop(
             "title",
@@ -619,8 +698,8 @@ __all__ = [
     "category_colors",
     # kernels — arrays in, Axes out
     "plot_curves", "plot_fit", "plot_distribution", "plot_outlines",
-    "plot_series", "plot_marked_curve",
-    # adapters — AnalysisResult in
+    "plot_series", "plot_marked_curve", "plot_image",
+    # adapters — a finished result in
     "plot_peak_fit", "plot_size_distribution", "plot_segmentation",
     "plot_kinetics", "plot_spectra", "plot_endpoint_spectrum",
     # tables

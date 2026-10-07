@@ -23,6 +23,7 @@ import numpy as np
 import streamlit as st
 
 from NanoOrganizer.analysis import reading
+from NanoOrganizer.analysis.imaging import segment_micrograph
 from NanoOrganizer.core import modality as modality_registry
 from NanoOrganizer.viz import plots
 from NanoOrganizer.web_app.components import plot_controls as controls
@@ -444,9 +445,11 @@ def render_images():
                                  key="nano_seg_contrast")
             if st.button("Segment this frame", key="nano_seg_run"):
                 try:
-                    show_static(plots.plot_segmentation(
+                    # Two calls: segment (analysis), then draw what it found.
+                    segmentation = segment_micrograph(
                         measurement, workbench.resolver, image_index=index,
-                        min_contrast_frac=contrast))
+                        min_contrast_frac=contrast)
+                    show_static(plots.plot_segmentation(segmentation))
                 except Exception as exc:
                     st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
 
