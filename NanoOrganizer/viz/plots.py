@@ -176,111 +176,220 @@ def plot_kinetics(result, axes=None, time_unit: str = "min"):
 # Spectra
 # ---------------------------------------------------------------------------
 
-def plot_spectra(result, ax=None, max_curves: int = 40,
-                 xlim: Optional[Tuple[float, float]] = None,
-                 colorbar: bool = True):
-    """Spectra over the run, coloured light-to-dark by time.
+def plot_series(x, matrix, values=None, ax=None, *, max_curves: int = 40,
+                xlabel: str = "x", ylabel: str = "signal", title: str = "",
+                colorbar_label: str = "", xlim=None, ylim=None,
+                colorbar: bool = True, logx: bool = False, logy: bool = False,
+                figsize: Optional[Tuple[float, float]] = None,
+                linewidth: float = 1.1, **line_options):
+    """A stack of curves coloured light-to-dark by *values*. **Kernel.**
 
-    Only lightness carries time, so the ordering reads correctly for a
-    colour-blind viewer and in greyscale. At most *max_curves* are drawn —
-    beyond that the lines overplot and the figure gets slow for no gain.
+    ``matrix`` is ``(n_curves, len(x))``; ``values`` is one number per curve —
+    a time, a temperature, a dose. Only lightness carries it, so the ordering
+    reads correctly for a colour-blind viewer and in greyscale, and a colour
+    bar replaces a legend of forty timestamps.
+
+    At most *max_curves* are drawn, **strided** rather than truncated: forty
+    lines evenly spaced across a run say what the run did, while the first
+    forty of four hundred say only what its first minute did.
     """
     import matplotlib.pyplot as plt
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
 
-    ax = _axes(ax, figsize=(7.5, 4.8))
-    wavelength = np.asarray(result.curves["wavelength"], dtype=float)
-    spectra = np.asarray(result.curves["spectra"], dtype=float)
-    t = np.asarray(result.curves.get("t_s", np.arange(len(spectra))), dtype=float)
+    x = np.asarray(x, dtype=float)
+    matrix = np.atleast_2d(np.asarray(matrix, dtype=float))
+    if matrix.shape[1] != x.size:
+        raise ValueError(
+            f"each row must have {x.size} points, got {matrix.shape[1]}")
 
-    step = max(1, len(spectra) // max_curves)
-    keep = np.arange(0, len(spectra), step)
+    values = (np.arange(matrix.shape[0], dtype=float) if values is None
+              else np.asarray(values, dtype=float))
+    if values.size != matrix.shape[0]:
+        raise ValueError(
+            f"need one value per curve: {values.size} vs {matrix.shape[0]}")
+
+    ax = _axes(ax, figsize=figsize or (7.5, 4.8))
+    step = max(1, matrix.shape[0] // max_curves)
     cmap = sequential_cmap()
-    norm = Normalize(vmin=float(t.min()), vmax=float(t.max()))
+    low, high = float(np.nanmin(values)), float(np.nanmax(values))
+    norm = Normalize(vmin=low, vmax=high if high > low else low + 1.0)
 
-    for index in keep:
-        ax.plot(wavelength, spectra[index], linewidth=1.1,
-                color=cmap(norm(t[index])))
+    for index in range(0, matrix.shape[0], step):
+        ax.plot(x, matrix[index], linewidth=linewidth,
+                color=cmap(norm(values[index])), **line_options)
 
-    style(ax, "wavelength (nm)", "absorbance",
-          f"{result.sample_id} — {len(spectra)} spectra")
+    if logx:
+        ax.set_xscale("log")
+    if logy:
+        ax.set_yscale("log")
+
+    style(ax, xlabel, ylabel, title)
     if xlim:
         ax.set_xlim(*xlim)
+    if ylim:
+        ax.set_ylim(*ylim)
     if colorbar:
         bar = ax.figure.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=ax)
-        bar.set_label("time (s)", color=INK_SOFT, fontsize=9)
+        bar.set_label(colorbar_label, color=INK_SOFT, fontsize=9)
         bar.ax.tick_params(colors=INK_SOFT, labelsize=8)
         bar.outline.set_visible(False)
     return ax
 
 
-def plot_endpoint_spectrum(result, ax=None):
-    """The endpoint spectrum with the plasmon peak and FWHM marked."""
+def plot_spectra(result, ax=None, max_curves: int = 40,
+                 xlim: Optional[Tuple[float, float]] = None,
+                 colorbar: bool = True):
+    """Spectra over a run. **Adapter over** :func:`plot_series`."""
+    spectra = np.asarray(result.curves["spectra"], dtype=float)
+    times = np.asarray(result.curves.get("t_s", np.arange(len(spectra))),
+                       dtype=float)
+    return plot_series(
+        result.curves["wavelength"], spectra, times, ax=ax,
+        max_curves=max_curves, xlabel="wavelength (nm)", ylabel="absorbance",
+        title=f"{result.sample_id} — {len(spectra)} spectra",
+        colorbar_label="time (s)", xlim=xlim, colorbar=colorbar)
+
+
+def plot_marked_curve(x, y, ax=None, *, mark=None, width=None,
+                      xlabel: str = "x", ylabel: str = "signal",
+                      title: str = "", label: str = "",
+                      mark_label: str = "", unit: str = ""):
+    """One curve with a position and a width marked on it. **Kernel.**
+
+    *mark* draws a vertical line; *width* shades a band of that total width
+    centred on it. Both are optional, so this also serves as the plain
+    single-curve plot in the house style.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if x.shape != y.shape:
+        raise ValueError(f"x and y must match: {x.shape} vs {y.shape}")
+
     ax = _axes(ax)
-    wavelength = np.asarray(result.curves["wavelength"], dtype=float)
-    spectrum = np.asarray(result.curves["endpoint_spectrum"], dtype=float)
+    ax.plot(x, y, color=CATEGORICAL[0], linewidth=2, label=label or None)
 
-    ax.plot(wavelength, spectrum, color=CATEGORICAL[0], linewidth=2,
-            label="endpoint spectrum")
+    suffix = f" {unit}" if unit else ""
+    if mark is not None and np.isfinite(mark):
+        ax.axvline(float(mark), color=STATUS["critical"], linewidth=1.5,
+                   linestyle="--",
+                   label=mark_label or f"peak {mark:.1f}{suffix}")
+        if width is not None and np.isfinite(width):
+            ax.axvspan(mark - width / 2, mark + width / 2,
+                       color=STATUS["critical"], alpha=0.08, linewidth=0,
+                       label=f"FWHM {width:.1f}{suffix}")
 
-    peak = result.values.get("spr_peak_nm", float("nan"))
-    fwhm = result.values.get("spr_fwhm_nm", float("nan"))
-    if np.isfinite(peak):
-        ax.axvline(peak, color=STATUS["critical"], linewidth=1.5,
-                   linestyle="--", label=f"peak {peak:.1f} nm")
-    if np.isfinite(peak) and np.isfinite(fwhm):
-        ax.axvspan(peak - fwhm / 2, peak + fwhm / 2, color=STATUS["critical"],
-                   alpha=0.08, linewidth=0, label=f"FWHM {fwhm:.1f} nm")
-
-    style(ax, "wavelength (nm)", "absorbance",
-          f"{result.sample_id} — plasmon band")
-    _legend(ax)
+    style(ax, xlabel, ylabel, title)
+    if ax.get_legend_handles_labels()[0]:
+        _legend(ax)
     return ax
+
+
+def plot_endpoint_spectrum(result, ax=None):
+    """The endpoint spectrum, peak and FWHM marked.
+
+    **Adapter over** :func:`plot_marked_curve`.
+    """
+    return plot_marked_curve(
+        result.curves["wavelength"], result.curves["endpoint_spectrum"],
+        ax=ax,
+        mark=result.values.get("spr_peak_nm", float("nan")),
+        width=result.values.get("spr_fwhm_nm", float("nan")),
+        xlabel="wavelength (nm)", ylabel="absorbance",
+        title=f"{result.sample_id} — plasmon band",
+        label="endpoint spectrum", unit="nm")
 
 
 # ---------------------------------------------------------------------------
 # Size distribution and segmentation
 # ---------------------------------------------------------------------------
 
-def plot_size_distribution(result, ax=None, bins: int = 40):
-    """Pooled particle-size histogram with the mean and median marked.
+def plot_distribution(values, ax=None, *, bins: int = 40, unit: str = "nm",
+                      xlabel: str = "", title: str = ""):
+    """A histogram with the mean and median marked. **Kernel.**
 
     Both are drawn because they disagree whenever unseparated clusters survive
     into the tail, and the gap between them is the honest signal that they did.
     """
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        raise ValueError("nothing to plot: no finite values")
+
     ax = _axes(ax)
+    ax.hist(values, bins=bins, color=CATEGORICAL[0], alpha=0.85,
+            edgecolor="white", linewidth=0.5)
+
+    mean = float(values.mean())
+    median = float(np.median(values))
+    ax.axvline(mean, color=STATUS["critical"], linewidth=1.8,
+               label=f"mean {mean:.1f} {unit}".strip())
+    ax.axvline(median, color=CATEGORICAL[1], linewidth=1.8, linestyle="--",
+               label=f"median {median:.1f} {unit}".strip())
+
+    style(ax, xlabel or f"value ({unit})" if unit else "value", "count", title)
+    _legend(ax)
+    return ax
+
+
+def plot_size_distribution(result, ax=None, bins: int = 40):
+    """Pooled particle sizes. **Adapter over** :func:`plot_distribution`."""
     diameters = np.asarray(result.curves.get("diameters", []), dtype=float)
     if diameters.size == 0:
         raise ValueError("no particles were measured")
 
     unit = result.diagnostics.get("unit", "nm")
-    ax.hist(diameters, bins=bins, color=CATEGORICAL[0], alpha=0.85,
-            edgecolor="white", linewidth=0.5)
-
-    mean = float(diameters.mean())
-    median = float(np.median(diameters))
-    ax.axvline(mean, color=STATUS["critical"], linewidth=1.8,
-               label=f"mean {mean:.1f} {unit}")
-    ax.axvline(median, color=CATEGORICAL[1], linewidth=1.8, linestyle="--",
-               label=f"median {median:.1f} {unit}")
-
-    style(ax, f"equivalent diameter ({unit})", "count",
-          f"{result.sample_id} — n = {diameters.size} particles "
-          f"from {result.values.get('n_images', '?')} images")
-    _legend(ax)
-    return ax
+    return plot_distribution(
+        diameters, ax=ax, bins=bins, unit=unit,
+        xlabel=f"equivalent diameter ({unit})",
+        title=f"{result.sample_id} — n = {diameters.size} particles "
+              f"from {result.values.get('n_images', '?')} images")
 
 
-def plot_segmentation(measurement, resolver, ax=None, image_index: int = 0,
-                      window: int = 700, **options):
-    """Overlay the detected particle outlines on the raw micrograph.
+def plot_outlines(image, labels, ax=None, *, window: int = 700,
+                  title: str = "", color=(0.89, 0.23, 0.23)):
+    """Particle outlines over the raw image. **Kernel.**
+
+    Takes the image and its label map, so it draws any segmentation — this
+    package's, scikit-image's, or one you did by hand.
 
     Always look at this before trusting a size distribution: over-splitting and
     film texture both produce a plausible-looking histogram.
     """
     from skimage.segmentation import find_boundaries
 
+    image = np.asarray(image, dtype=float)
+    labels = np.asarray(labels)
+    if image.shape != labels.shape:
+        raise ValueError(
+            f"image and labels must match: {image.shape} vs {labels.shape}")
+
+    cut = (slice(0, min(window, image.shape[0])),
+           slice(0, min(window, image.shape[1])))
+    tile = image[cut]
+    span = float(np.ptp(tile)) or 1e-9
+    normalised = (tile - tile.min()) / span
+    overlay = np.dstack([normalised] * 3)
+    overlay[find_boundaries(labels[cut], mode="outer")] = list(color)
+
+    ax = _axes(ax, figsize=(6.0, 6.0))
+    ax.imshow(overlay, interpolation="nearest")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    if title:
+        ax.set_title(title, color=INK, fontsize=11, loc="left")
+    return ax
+
+
+def plot_segmentation(measurement, resolver, ax=None, image_index: int = 0,
+                      window: int = 700, **options):
+    """Segment a micrograph and draw it. **Adapter over** :func:`plot_outlines`.
+
+    Reads the frame, runs the segmentation, and labels the figure with the
+    file and the pixel calibration.
+    """
     from NanoOrganizer.analysis.imaging import read_micrograph, segment_particles
 
     paths = measurement.resolve(resolver)
@@ -294,23 +403,10 @@ def plot_segmentation(measurement, resolver, ax=None, image_index: int = 0,
     labels, info = segment_particles(image, min_area_px=int(max(min_area, 4)),
                                      **options)
 
-    cut = (slice(0, min(window, image.shape[0])),
-           slice(0, min(window, image.shape[1])))
-    tile = image[cut]
-    normalised = (tile - tile.min()) / max(tile.ptp(), 1e-9)
-    overlay = np.dstack([normalised] * 3)
-    overlay[find_boundaries(labels[cut], mode="outer")] = [0.89, 0.23, 0.23]
-
-    ax = _axes(ax, figsize=(6.0, 6.0))
-    ax.imshow(overlay, interpolation="nearest")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
     scale_text = f"{scale:.3f} nm/px" if scale else "uncalibrated"
-    ax.set_title(f"{path.name} — {int(labels.max())} particles, {scale_text}",
-                 color=INK, fontsize=11, loc="left")
-    return ax
+    return plot_outlines(
+        image, labels, ax=ax, window=window,
+        title=f"{path.name} — {int(labels.max())} particles, {scale_text}")
 
 
 # ---------------------------------------------------------------------------
@@ -431,39 +527,102 @@ def plot_curves(curves: Sequence[Tuple[str, np.ndarray, np.ndarray]], ax=None,
     return ax
 
 
-def plot_peak_fit(result, axes=None):
-    """A fitted curve over its data, with the residuals beneath it."""
+def plot_fit(x, y, y_fit, residual=None, *, axes=None, xlabel: str = "x",
+             ylabel: str = "signal", title: str = "",
+             data_label: str = "data", fit_label: str = "fit",
+             figsize: Tuple[float, float] = (7.0, 5.6)):
+    """A fitted curve over its data, with the residuals beneath. **Kernel.**
+
+    Arrays in, ``Axes`` out — no result object, no analysis, no project — so
+    any ``x, y, y_fit`` draws in the house style::
+
+        fit = fit_peaks(x, Y[0], n_peaks=2)
+        plot_fit(fit.x, fit.y, fit.y_fit, fit.residual, xlabel="q (1/Å)")
+
+    The residual panel is where a bad fit shows: a fitted line drawn over data
+    is persuasive whatever it does, and the residual going from noise to shape
+    is the thing to look at. Pass ``residual=None`` to draw the top panel only.
+
+    See :func:`plot_peak_fit` for the version that takes an
+    :class:`~NanoOrganizer.analysis.result.AnalysisResult`.
+    """
     import matplotlib.pyplot as plt
 
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    y_fit = np.asarray(y_fit, dtype=float)
+    if not (x.shape == y.shape == y_fit.shape):
+        raise ValueError(
+            f"x, y and y_fit must match: {x.shape}, {y.shape}, {y_fit.shape}")
+
+    wants_residual = residual is not None
     if axes is None:
-        _, axes = plt.subplots(
-            2, 1, figsize=(7.0, 5.6), sharex=True,
-            gridspec_kw={"height_ratios": [3, 1], "hspace": 0.08})
-    top, bottom = axes
+        if wants_residual:
+            _, axes = plt.subplots(
+                2, 1, figsize=figsize, sharex=True,
+                gridspec_kw={"height_ratios": [3, 1], "hspace": 0.08})
+        else:
+            _, axes = plt.subplots(figsize=(figsize[0], figsize[1] * 0.75))
 
-    x = np.asarray(result.curves["x"], dtype=float)
-    unit = result.diagnostics.get("x_unit", "")
-    axis_label = f"x ({unit})" if unit else "x"
+    pair = np.atleast_1d(axes)
+    top = pair[0]
+    bottom = pair[1] if wants_residual and pair.size > 1 else None
 
-    top.plot(x, result.curves["y"], linewidth=0, marker="o", markersize=3,
-             alpha=0.5, color=CATEGORICAL[0], label="data")
-    top.plot(x, result.curves["y_fit"], linewidth=2,
-             color=STATUS["critical"], label="fit")
-    style(top, "", "signal",
-          f"{result.sample_id} — {result.diagnostics.get('n_peaks', 1)} peak fit, "
-          f"R² = {result.values.get('fit_r2', float('nan')):.4f}")
+    top.plot(x, y, linewidth=0, marker="o", markersize=3, alpha=0.5,
+             color=CATEGORICAL[0], label=data_label)
+    top.plot(x, y_fit, linewidth=2, color=STATUS["critical"], label=fit_label)
+    style(top, "" if bottom is not None else xlabel, ylabel, title)
     _legend(top)
 
-    bottom.axhline(0, color=GRID, linewidth=1)
-    bottom.plot(x, result.curves["residual"], linewidth=1.2,
-                color=INK_SOFT)
-    style(bottom, axis_label, "residual")
+    if bottom is not None:
+        bottom.axhline(0, color=GRID, linewidth=1)
+        bottom.plot(x, np.asarray(residual, dtype=float), linewidth=1.2,
+                    color=INK_SOFT)
+        style(bottom, xlabel, "residual")
+
     return axes
 
 
+def plot_peak_fit(result, axes=None, **options):
+    """A fitted curve over its data. **Adapter over** :func:`plot_fit`.
+
+    Unwraps an :class:`~NanoOrganizer.analysis.result.AnalysisResult` and
+    supplies the axis caption and title from its diagnostics; all the drawing
+    is the kernel's.
+    """
+    curves = result.curves
+    missing = [k for k in ("x", "y", "y_fit") if k not in curves]
+    if missing:
+        raise ValueError(
+            f"{result.analysis} result has no {', '.join(missing)} to plot; "
+            f"it carries: {', '.join(curves) or 'nothing'}")
+
+    diagnostics = result.diagnostics or {}
+    unit = diagnostics.get("x_unit", "")
+    xlabel = diagnostics.get("x_label") or (f"x ({unit})" if unit else "x")
+    r2 = result.values.get("fit_r2", float("nan"))
+
+    return plot_fit(
+        curves["x"], curves["y"], curves["y_fit"], curves.get("residual"),
+        axes=axes, xlabel=xlabel,
+        ylabel=diagnostics.get("y_label") or "signal",
+        title=options.pop(
+            "title",
+            f"{result.sample_id} — {diagnostics.get('n_peaks', 1)} peak fit, "
+            f"R\u00b2 = {r2:.4f}"),
+        **options)
+
+
 __all__ = [
+    # house style
     "CATEGORICAL", "SEQUENTIAL", "STATUS", "sequential_cmap", "style",
-    "category_colors", "plot_kinetics", "plot_spectra",
-    "plot_endpoint_spectrum", "plot_size_distribution", "plot_segmentation",
-    "plot_compare", "plot_curves", "plot_peak_fit",
+    "category_colors",
+    # kernels — arrays in, Axes out
+    "plot_curves", "plot_fit", "plot_distribution", "plot_outlines",
+    "plot_series", "plot_marked_curve",
+    # adapters — AnalysisResult in
+    "plot_peak_fit", "plot_size_distribution", "plot_segmentation",
+    "plot_kinetics", "plot_spectra", "plot_endpoint_spectrum",
+    # tables
+    "plot_compare",
 ]

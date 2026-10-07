@@ -210,44 +210,15 @@ def curve_figure(measurement, resolver, *, engine: str = STATIC,
             show_legend=ramp is None, **options)
 
     if ramp is not None:
-        return _static_ramp(curves, ramp, ax=ax, xlabel=xlabel, ylabel=ylabel,
-                            title=title, logx=logx, logy=logy,
-                            colorbar_label="time (s)", **options)
+        # One shared axis, so the colour-ramped series is exactly what
+        # plots.plot_series draws; there is no second implementation here.
+        return plots.plot_series(
+            x, np.vstack([c[2] for c in curves]), ramp, ax=ax,
+            max_curves=len(curves), xlabel=xlabel, ylabel=ylabel, title=title,
+            logx=logx, logy=logy, colorbar_label="time (s)", **options)
 
     return plots.plot_curves(curves, ax=ax, xlabel=xlabel, ylabel=ylabel,
                              title=title, logx=logx, logy=logy, **options)
-
-
-def _static_ramp(curves, values, *, ax=None, xlabel="", ylabel="", title="",
-                 logx=False, logy=False, colorbar_label="", figsize=None,
-                 **options):
-    """Matplotlib series coloured along one hue, with its colour bar."""
-    import matplotlib.pyplot as plt
-    from matplotlib.cm import ScalarMappable
-    from matplotlib.colors import Normalize
-
-    values = np.asarray(values, dtype=float)
-    cmap = plots.sequential_cmap()
-    span = (float(np.nanmin(values)), float(np.nanmax(values)))
-    norm = Normalize(vmin=span[0], vmax=span[1] if span[1] > span[0]
-                     else span[0] + 1.0)
-
-    if ax is None:
-        _, ax = plt.subplots(figsize=figsize or (7.0, 4.5))
-
-    for (_, x, y), value in zip(curves, values):
-        ax.plot(x, y, color=cmap(norm(value)), **options)
-    if logx:
-        ax.set_xscale("log")
-    if logy:
-        ax.set_yscale("log")
-
-    plots.style(ax, xlabel, ylabel, title)
-    bar = ax.figure.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=ax)
-    bar.set_label(colorbar_label, color=plots.INK_SOFT, fontsize=9)
-    bar.outline.set_visible(False)
-    bar.ax.tick_params(colors=plots.INK_SOFT, labelsize=8)
-    return ax
 
 
 # ---------------------------------------------------------------------------
