@@ -316,7 +316,7 @@ class Project:
             Stage label for a dict source.  For a file, each dict inside gets
             its own stage from its variable name unless this overrides them.
         replace : bool
-            Treat the mapping as the whole truth for this stage: parameters
+            Treat the source as the whole truth for its stages: parameters
             are replaced rather than merged, and a sample that has left the
             mapping loses this stage — and goes entirely if that was all it
             had.  This is what makes an edit-and-re-ingest loop honest, since
@@ -365,6 +365,11 @@ class Project:
         if stage:
             kwargs["stage"] = stage
         samples = run_adapter(key, path, project=self, **kwargs)
+        if replace:
+            # The file is the whole truth for every stage it describes.
+            for stage_id in sorted({st for smp in samples for st in smp.stages}):
+                self._clear_stage(stage_id, keep=[smp.sample_id for smp in samples
+                                                  if stage_id in smp.stages])
 
         touched = []
         for sample in samples:
@@ -395,30 +400,34 @@ class Project:
 
         incoming = _sampledict.ingest_mapping(dict(records), stage=stage,
                                               modality_map=modality_map)
+        if replace:
+            self._clear_stage(stage, keep=[s.sample_id for s in incoming])
         touched = []
         for sample in incoming:
-            if replace:
-                current = self.samples.get(sample.sample_id)
-                if current is not None:
-                    current.stages.pop(stage, None)
-                    current.measurements = [m for m in current.measurements
-                                            if m.stage != stage]
             self.merge_sample(sample)
             touched.append(sample.sample_id)
-
-        if replace:
-            # A sample popped from the mapping loses this stage, and goes
-            # entirely when that was the only thing holding it.
-            for sample_id in [s for s in self.samples if s not in touched]:
-                sample = self.samples[sample_id]
-                if stage not in sample.stages:
-                    continue
-                sample.stages.pop(stage, None)
-                sample.measurements = [m for m in sample.measurements
-                                       if m.stage != stage]
-                if not sample.stages and not sample.measurements:
-                    del self.samples[sample_id]
         return touched
+
+    def _clear_stage(self, stage: str, keep: Sequence[str] = ()) -> None:
+        """Drop *stage* from every sample before it is re-read.
+
+        Samples in *keep* are about to receive the stage again; the others
+        have left the source, lose the stage, and go entirely when that was
+        the only thing holding them.  Derived values stay: they belong to the
+        sample, not to the record that described it.
+        """
+        keep = set(keep)
+        for sample_id in list(self.samples):
+            sample = self.samples[sample_id]
+            if stage not in sample.stages and not any(
+                    m.stage == stage for m in sample.measurements):
+                continue
+            sample.stages.pop(stage, None)
+            sample.measurements = [m for m in sample.measurements
+                                   if m.stage != stage]
+            if (sample_id not in keep and not sample.stages
+                    and not sample.measurements):
+                del self.samples[sample_id]
 
     def reingest(self) -> Dict[str, List[str]]:
         """Re-read every recorded metadata source. Returns ``{path: ids}``."""

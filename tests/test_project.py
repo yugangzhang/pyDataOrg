@@ -444,3 +444,54 @@ def test_merging_a_stage_keeps_existing_parameters():
     sample.add_stage(Stage(stage_id="synthesis", params={"a": 1, "b": 2}))
     sample.add_stage(Stage(stage_id="synthesis", params={"b": 3, "c": 4}))
     assert sample.stage("synthesis").params == {"a": 1, "b": 3, "c": 4}
+
+
+def test_a_key_with_a_space_does_not_drop_the_whole_dict(tmp_path):
+    from NanoOrganizer.ingest.pydict import find_sample_dicts
+
+    meta = tmp_path / "Catalysis_dict.py"
+    meta.write_text(
+        "Catalysis_dict = {\n"
+        "    'Sample000001': {'k': 1},\n"
+        "    'Au standard_10nm': {'k': 2},\n"
+        "}\n")
+    found = find_sample_dicts(meta)
+    assert sorted(found["Catalysis_dict"]) == ["Au standard_10nm", "Sample000001"]
+
+
+def test_a_refused_records_dict_is_reported_not_dropped_silently(tmp_path):
+    from NanoOrganizer.ingest.pydict import find_sample_dicts
+
+    meta = tmp_path / "Synthesis_dict.py"
+    meta.write_text(
+        "Synthesis_dict = {'Sample000001': {'k': 1}, 'a sentence, not a key!': {}}\n")
+    with pytest.warns(UserWarning, match="Synthesis_dict was not read"):
+        assert find_sample_dicts(meta) == {}
+
+
+def test_failed_records_get_their_own_stage():
+    from NanoOrganizer.ingest.pydict import stage_from_name
+
+    assert stage_from_name("Synthesis_dict") == "synthesis"
+    assert stage_from_name("Catalysis_dict_2026") == "catalysis"
+    assert stage_from_name("Synthesis_failed_dict") == "synthesis_failed"
+    assert stage_from_name("Catalysis_planned_dict") == "catalysis_planned"
+
+
+def test_a_file_ingested_with_replace_is_the_whole_truth_for_its_stage(tmp_path):
+    old = tmp_path / "Synthesis_dict_A.py"
+    old.write_text("Synthesis_dict = {'S1': {'T': 90}, 'S2': {'T': 95}}\n")
+    new = tmp_path / "Synthesis_dict_B.py"
+    new.write_text("Synthesis_dict = {'S1': {'T': 91}}\n")
+    cat = tmp_path / "Catalysis_dict.py"
+    cat.write_text("Catalysis_dict = {'S2': {'k': 1}}\n")
+
+    project = Project(tmp_path)
+    project.ingest(old)
+    project.ingest(cat)
+    project.ingest(new, replace=True)
+
+    assert project.get_sample("S1").stages["synthesis"].params["T"] == 91
+    s2 = project.get_sample("S2")
+    assert "synthesis" not in s2.stages          # left the newer snapshot
+    assert "catalysis" in s2.stages              # another stage is untouched

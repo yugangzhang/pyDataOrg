@@ -186,3 +186,17 @@ def test_display_path_says_where_from_here(tmp_path):
     assert display_path("TEMData/CuAu05") == "TEMData/CuAu05"     # already relative
     far = display_path(target, start=tmp_path / "a" / "b" / "c" / "d")
     assert ".." not in far                                        # too far: not relative
+
+
+def test_display_path_never_climbs_to_the_filesystem_root(monkeypatch, tmp_path):
+    from NanoOrganizer.core.pathmap import display_path
+
+    # Seen from /tmp, a folder in the home directory is ~/…, not ../home/you/….
+    home = tmp_path / "home" / "you"
+    monkeypatch.setenv("HOME", str(home))
+    target = home / "Storage" / "Data" / "Project"
+    assert display_path(target, start="/") == "~/Storage/Data/Project"
+    outside = display_path(target, start="/proc")
+    assert outside == "~/Storage/Data/Project"
+    assert display_path(target, start=home / "Repos" / "pkg") == \
+        "../../Storage/Data/Project"

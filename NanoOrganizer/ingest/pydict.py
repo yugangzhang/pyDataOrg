@@ -30,12 +30,14 @@ import importlib.util
 import re
 import sys
 import uuid
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# A sample key looks like "Sample000001", "S001", "AuNP_01" – a short token,
-# not a sentence.  Used to decide whether a dict is sample-keyed.
-_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-.]{0,63}$")
+# A sample key looks like "Sample000001", "S001", "AuNP_01" or
+# "Au standard_10nm" – a short name, not a sentence.  Used to decide whether a
+# dict is sample-keyed.
+_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-. ]{0,63}$")
 
 # Dict variable names that carry a stage meaning, longest match first.
 STAGE_HINTS = (
@@ -47,6 +49,9 @@ STAGE_HINTS = (
     ("assay", "assay"),
     ("sample", ""),
 )
+
+# Words that mark records as the runs that went wrong or have not run yet.
+_QUALIFIERS = ("failed", "aborted", "rejected", "excluded", "planned")
 
 
 def load_module(path: Path):
@@ -99,6 +104,16 @@ def find_sample_dicts(path: Path, min_samples: int = 1) -> Dict[str, Dict[str, d
         value = getattr(module, name)
         if is_sample_keyed(value, min_samples=min_samples):
             found[name] = value
+        elif name.lower().endswith("_dict") and isinstance(value, dict) and value:
+            # A dict *named* like records that is still refused would
+            # otherwise vanish without a word — one odd key is enough.
+            odd = [repr(k) for k, v in value.items()
+                   if not (isinstance(k, str) and _KEY_RE.match(k)
+                           and isinstance(v, dict))]
+            warnings.warn(
+                f"{Path(path).name}: {name} was not read as sample records; "
+                f"offending keys: {', '.join(odd[:5])}"
+                + (" …" if len(odd) > 5 else ""), stacklevel=2)
     return found
 
 
@@ -107,10 +122,18 @@ def stage_from_name(name: str, default: str = "") -> str:
 
     ``"Synthesis_dict"`` → ``"synthesis"``; ``"Catalysis_dict_2026"`` →
     ``"catalysis"``.  Falls back to the name with ``_dict`` stripped.
+
+    A qualifier that says the records did *not* happen as planned keeps its
+    own stage — ``"Synthesis_failed_dict"`` → ``"synthesis_failed"`` — so a
+    failed run never merges into the synthesis it was meant to be.
     """
     lowered = name.lower()
+    tokens = set(re.split(r"[^a-z0-9]+", lowered))
     for hint, stage in STAGE_HINTS:
         if hint in lowered:
+            qualifier = next((q for q in _QUALIFIERS if q in tokens), "")
+            if stage and qualifier:
+                return f"{stage}_{qualifier}"
             return stage or default
     cleaned = re.sub(r"_?dicts?$", "", lowered).strip("_")
     return cleaned or default

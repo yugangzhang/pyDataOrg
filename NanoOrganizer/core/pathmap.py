@@ -73,7 +73,14 @@ def display_path(path: object, start: object = None, max_up: int = 3) -> str:
         relative = os.path.relpath(absolute, origin)
     except ValueError:                     # another drive on Windows
         relative = ""
-    if relative and relative.replace("\\", "/").split("/").count("..") <= max_up:
+    # Climbing all the way to the filesystem root is no shorter and says less:
+    # from /tmp, ``../home/you/Data`` is better written ``~/Data``.
+    try:
+        shared = os.path.commonpath([absolute, origin])
+    except ValueError:
+        shared = ""
+    if (relative and shared and shared != os.path.dirname(shared)
+            and relative.replace("\\", "/").split("/").count("..") <= max_up):
         return relative.replace("\\", "/")
     home = os.path.expanduser("~")
     if absolute == home or absolute.startswith(home + os.sep):
