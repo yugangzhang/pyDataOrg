@@ -75,6 +75,7 @@ from NanoOrganizer.core          import modality
 from NanoOrganizer.workbench     import (
     Organizer, Workbench, new_organizer, open_project,
 )
+from NanoOrganizer.structure     import dict_tree
 
 # ---------------------------------------------------------------------------
 # Loaders
@@ -133,7 +134,7 @@ __all__ = [
     'save_time_series_to_csv',
 
     # Sample-centric model
-    'Organizer', 'Workbench', 'open_project', 'new_organizer',
+    'Organizer', 'Workbench', 'open_project', 'new_organizer', 'dict_tree',
     'Project', 'ProjectConfig',
     'Sample', 'Stage', 'Measurement', 'DerivedValue', 'flatten_dict',
     'PathResolver', 'PathAlias', 'suggest_aliases',

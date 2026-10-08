@@ -343,7 +343,7 @@ def _walk_object(node: Any, inside: Sequence[str]) -> Any:
 
 
 def _object_children(node: Any, path: Path, inside: Sequence[str],
-                     limit: int) -> List[Node]:
+                     limit: int, width: int = 60) -> List[Node]:
     """Children of a plain Python mapping or sequence."""
     items: List[Tuple[str, Any]]
     if isinstance(node, dict):
@@ -370,7 +370,7 @@ def _object_children(node: Any, path: Path, inside: Sequence[str],
             nodes.append(_array_node(name, value))
         else:
             nodes.append(Node(name=name, kind="value",
-                              detail=f"{_type_name(value)} = {_preview(value)}"))
+                              detail=f"{_type_name(value)} = {_preview(value, width)}"))
 
     if len(items) > limit:
         nodes.append(_more(len(items) - limit))
@@ -606,8 +606,44 @@ def tree(address: str, depth: int = 2, limit: int = 12,
     return "\n".join(line for line in lines if line)
 
 
+def dict_tree(obj: Any, depth: int = 2, limit: int = 12, name: str = "",
+              width: int = 60) -> str:
+    """The same indented tree as :func:`tree`, for a dict or list in memory.
+
+    ``print(dict_tree(Synthesis_dict, depth=3, limit=3))`` shows the layout of
+    a nested record — keys, nesting, a short preview of every value — without
+    printing the whole thing. *name* labels the top line; *width* is how many
+    characters of each value to show (raise it to read whole paths).
+    """
+    if isinstance(obj, dict):
+        kind, detail = "mapping", f"{len(obj)} keys"
+    elif isinstance(obj, (list, tuple)):
+        kind, detail = "sequence", _sequence_detail(obj)
+    else:
+        kind, detail = "value", _preview(obj, width)
+    root = Node(name=name or _type_name(obj), kind=kind, detail=detail)
+    return "\n".join([str(root)]
+                     + _dict_tree_lines(obj, depth, limit, width, ""))
+
+
+def _dict_tree_lines(obj: Any, depth: int, limit: int, width: int,
+                     prefix: str) -> List[str]:
+    if depth <= 0:
+        return []
+    lines: List[str] = []
+    kids = _object_children(obj, Path(""), [], limit, width)
+    for index, child in enumerate(kids):
+        last = index == len(kids) - 1
+        lines.append(f"{prefix}{'└── ' if last else '├── '}{child}")
+        if child.expandable and depth > 1:
+            lines.extend(_dict_tree_lines(_walk_object(obj, [child.name]),
+                                          depth - 1, limit, width,
+                                          prefix + ("    " if last else "│   ")))
+    return lines
+
+
 __all__ = [
     "Node", "INSIDE", "DEFAULT_LIMIT", "OPENERS", "describe", "describe_file",
-    "children", "tree", "breadcrumbs", "split_address", "join_address",
-    "human_bytes", "is_noise",
+    "children", "tree", "dict_tree", "breadcrumbs", "split_address",
+    "join_address", "human_bytes", "is_noise",
 ]

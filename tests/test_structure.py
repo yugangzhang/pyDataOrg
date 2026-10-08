@@ -321,3 +321,39 @@ def test_show_hidden_reaches_the_text_tree(tmp_path):
     (tmp_path / "real.dat").write_text("1 2\n")
     assert "__pycache__" not in S.tree(str(tmp_path), depth=1)
     assert "__pycache__" in S.tree(str(tmp_path), depth=1, show_hidden=True)
+
+
+# ---------------------------------------------------------------------------
+# A dict in memory
+# ---------------------------------------------------------------------------
+
+RECORDS = {
+    "S1": {"sample_id": "S1", "conditions": {"T_C": 95.0, "ratio": 6},
+           "UV": {"glob": "/very/long/" + "x" * 80 + "/*.npy",
+                  "frames": [1, 2, 3]}},
+    "S2": {"sample_id": "S2"},
+    "S3": {"sample_id": "S3"},
+}
+
+
+def test_dict_tree_draws_a_live_dict_like_tree():
+    from NanoOrganizer import dict_tree
+
+    text = dict_tree(RECORDS, depth=3, limit=2, name="records")
+    lines = text.splitlines()
+    assert lines[0] == "🔑 records  3 keys"
+    assert "├── 🔑 S1  3 keys" in lines
+    assert any("· T_C  float = 95" in line for line in lines)
+    assert lines[-1] == "└── … +1 more  raise the per-layer limit to see them"
+    assert "UV" not in text                # S1's third key: past the limit
+
+
+def test_dict_tree_depth_and_width():
+    from NanoOrganizer import dict_tree
+
+    assert dict_tree(RECORDS, depth=0) == "🔑 dict  3 keys"
+    uv = RECORDS["S1"]["UV"]
+    assert "…" in dict_tree(uv, depth=1)
+    assert uv["glob"] in dict_tree(uv, depth=1, width=200)
+    assert "📋 frames  3 items of int" in dict_tree(uv, depth=1)
+    assert dict_tree([1, {"a": 2}], depth=2).splitlines()[-1] == "    └── · a  int = 2"
