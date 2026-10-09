@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -98,27 +98,35 @@ def _micrograph(diameter_nm: float, nm_per_pixel: float, size: int,
     return np.clip(image + rng.normal(0.0, 2.5, image.shape), 0, 255)
 
 
-def _write_micrographs(folder: Path, diameter_nm: float, n_images: int,
-                       size: int, rng) -> None:
-    """Write TIFFs carrying a pixel calibration in the description tag."""
+def write_micrographs(folder: Union[str, Path], diameter_nm: float,
+                      n_images: int = 3, size: int = 512, rng=None) -> List[Path]:
+    """Synthetic micrographs of particles about *diameter_nm* across: TIFFs
+    named ``1.tif``, ``2.tif`` … carrying a pixel calibration in the
+    description tag, the way a microscope writes them. Returns the files
+    (none without Pillow)."""
     try:
         from PIL import Image
     except ImportError:          # pragma: no cover - Pillow is an extra
-        return
+        return []
 
+    folder = Path(folder)
+    rng = rng if rng is not None else np.random.default_rng(0)
     folder.mkdir(parents=True, exist_ok=True)
     nm_per_pixel = 1000.0 / PIXELS_PER_MICRON
     description = (
         f"DemoScope XpixCal={PIXELS_PER_MICRON:.6f}"
         f"YpixCal={PIXELS_PER_MICRON:.6f}Unit=um"
     )
+    written = []
     for index in range(1, n_images + 1):
         array = _micrograph(diameter_nm, nm_per_pixel, size, rng)
         image = Image.fromarray(array.astype(np.uint8))
         image.save(folder / f"{index}.tif", description=description)
+        written.append(folder / f"{index}.tif")
 
     (folder / "note.txt").write_text(
         f"synthetic micrographs, nominal d = {diameter_nm:.1f} nm\n")
+    return written
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +239,7 @@ def build_demo_project(root, *, temperatures: Sequence[float] = DEFAULT_TEMPERAT
                        n_frames, rng)
 
         if with_images:
-            _write_micrographs(root / "TEMData" / sample_id,
+            write_micrographs(root / "TEMData" / sample_id,
                                particle_diameter_nm(temperature),
                                n_images, image_size, rng)
 
@@ -284,4 +292,4 @@ def demo_truth(temperatures: Sequence[float] = DEFAULT_TEMPERATURES):
 
 
 __all__ = ["build_demo_project", "demo_truth", "AXIS", "DEFAULT_TEMPERATURES",
-           "band_centre_nm", "particle_diameter_nm"]
+           "band_centre_nm", "particle_diameter_nm", "write_micrographs"]

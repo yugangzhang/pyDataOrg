@@ -159,9 +159,69 @@ class VolumeStyle:
         return COLORMAPS.get(self.cmap, "Viridis")
 
 
+@dataclass(frozen=True)
+class SeriesStyle:
+    """A stack of curves coloured by a value (:func:`~NanoOrganizer.viz.
+    plots.plot_series`): which rows, which colours, and the axes."""
+
+    rows: Tuple[int, ...] = ()
+    cmap: str = "coolwarm"
+    color_range: str = "shown"
+    legend: bool = False
+    legend_format: str = "{:.3g}"
+    legend_fontsize: float = 8.0
+    xlim: Optional[Tuple[float, float]] = None
+    ylim: Optional[Tuple[float, float]] = None
+    logx: bool = False
+    logy: bool = False
+    title: str = ""
+    figsize: Tuple[float, float] = (7.0, 4.4)
+
+    @property
+    def plot_options(self) -> Dict[str, Any]:
+        """The keywords :func:`plot_series` takes."""
+        return dict(y_index_list=list(self.rows), cmap=self.cmap,
+                    color_range=self.color_range, legend=self.legend,
+                    legend_format=self.legend_format,
+                    legend_fontsize=self.legend_fontsize, xlim=self.xlim,
+                    ylim=self.ylim, logx=self.logx, logy=self.logy)
+
+
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
+
+def axis_limits(key: str, label: str,
+                default: Optional[Tuple[float, float]] = None
+                ) -> Optional[Tuple[float, float]]:
+    """Axis limits, set or left to the data; *default* starts them set."""
+    on = st.checkbox(f"set {label} limits", value=default is not None,
+                     key=f"{key}_on")
+    low_default, high_default = default or (0.0, 1.0)
+    left, right = st.columns(2)
+    low = left.number_input(f"{label} min", value=float(low_default),
+                            key=f"{key}_lo", format="%g", disabled=not on)
+    high = right.number_input(f"{label} max", value=float(high_default),
+                              key=f"{key}_hi", format="%g", disabled=not on)
+    if not on:
+        return None
+    if high <= low:
+        st.caption(f"⚠️ {label} max must exceed min — left to the data.")
+        return None
+    return (float(low), float(high))
+
+
+def figure_size(key: str, default: Tuple[float, float] = (7.0, 4.4)
+                ) -> Tuple[float, float]:
+    """Width and height in inches — the shape of the figure and, as it is
+    drawn to the page's width, the size of its text."""
+    left, right = st.columns(2)
+    width = left.number_input("width (in)", 2.0, 30.0, float(default[0]), 0.5,
+                              key=f"{key}_w")
+    height = right.number_input("height (in)", 1.5, 20.0, float(default[1]),
+                                0.5, key=f"{key}_h")
+    return (float(width), float(height))
+
 
 def _limit_pair(key: str, label: str, data_range: Optional[Tuple[float, float]]
                 ) -> Optional[Tuple[float, float]]:
@@ -279,6 +339,94 @@ def curve_controls(key: str, *, spec=None,
         legend_position=legend_position, title=title, xlabel=xlabel,
         ylabel=ylabel, width=width, height=height,
     )
+
+
+SPACING_NAMES = {"linear": "evenly spaced", "log": "log spaced (dense early)",
+                 "step": "every n-th", "all": "all", "listed": "listed"}
+
+
+def series_controls(key: str, n_curves: int, *, spacing: str = "linear",
+                    count: int = 40, cmap: str = "coolwarm",
+                    color_range: str = "shown", legend: bool = False,
+                    legend_format: str = "{:.3g}", legend_fontsize: float = 8.0,
+                    xlim: Optional[Tuple[float, float]] = None,
+                    ylim: Optional[Tuple[float, float]] = None,
+                    title: str = "",
+                    figsize: Tuple[float, float] = (7.0, 4.4),
+                    expanded: bool = False) -> SeriesStyle:
+    """Plot options for a stack of curves (``plot_series``), in an expander.
+
+    The keywords are the starting values. ``spacing`` picks the rows
+    (:func:`~NanoOrganizer.viz.plots.series_indices`), or ``"listed"`` for
+    rows typed in (``0, 1, 50, -1``).
+    """
+    n = max(int(n_curves), 0)
+    with st.expander("Plot options", expanded=expanded):
+        a, b, c = st.columns([2, 1, 2])
+        names = list(SPACING_NAMES)
+        how = a.selectbox("curves", names, index=names.index(spacing),
+                          format_func=SPACING_NAMES.get, key=f"{key}_spacing")
+        many = b.number_input("every" if how == "step" else "how many",
+                              min_value=1, value=int(count), step=1,
+                              key=f"{key}_count",
+                              disabled=how in ("all", "listed"))
+        listed = c.text_input("rows (listed)", value=f"0, {max(n // 2, 0)}, -1",
+                              key=f"{key}_rows", disabled=how != "listed",
+                              help="Row numbers; negative counts from the end.")
+        if how == "listed":
+            try:
+                rows = [int(r) for r in listed.replace(",", " ").split()]
+                if not rows or any(not -n <= r < n for r in rows):
+                    raise ValueError
+            except ValueError:
+                st.caption(f"⚠️ rows must be whole numbers within ±{n} — "
+                           f"showing every row.")
+                rows = list(range(n))
+        else:
+            rows = [int(r) for r in plots.series_indices(n, how, int(many))]
+        st.caption(f"{len(rows)} of {n} curves")
+
+        a, b, c, d = st.columns(4)
+        maps = list(COLORMAPS) if cmap in COLORMAPS else [cmap, *COLORMAPS]
+        cmap = a.selectbox("colour map", maps, index=maps.index(cmap),
+                           key=f"{key}_cmap")
+        spans = ["shown", "all"]
+        color_range = b.selectbox(
+            "colours span", spans, index=spans.index(color_range),
+            key=f"{key}_span",
+            help="shown: the curves drawn use the whole map; all: a curve "
+                 "keeps its colour whichever rows are drawn.")
+        legend = c.toggle("legend", value=legend, key=f"{key}_legend")
+        legend_fontsize = d.number_input("legend size", 1.0, 20.0,
+                                         float(legend_fontsize), 1.0,
+                                         key=f"{key}_legend_size",
+                                         disabled=not legend)
+        legend_format = st.text_input("legend format", value=legend_format,
+                                      key=f"{key}_legend_format",
+                                      disabled=not legend,
+                                      help="Python format of each curve's "
+                                           "value: {:.1f} min")
+        try:
+            legend_format.format(1.0)
+        except (ValueError, IndexError, KeyError):
+            st.caption("⚠️ not a format for one number — {:.3g} used.")
+            legend_format = "{:.3g}"
+
+        left, right = st.columns(2)
+        with left:
+            xlim = axis_limits(f"{key}_x", "x", xlim)
+            logx = st.toggle("log x", value=False, key=f"{key}_logx")
+        with right:
+            ylim = axis_limits(f"{key}_y", "y", ylim)
+            logy = st.toggle("log y", value=False, key=f"{key}_logy")
+        title = st.text_input("title", value=title, key=f"{key}_title")
+        figsize = figure_size(key, figsize)
+
+    return SeriesStyle(rows=tuple(rows), cmap=cmap, color_range=color_range,
+                       legend=legend, legend_format=legend_format,
+                       legend_fontsize=float(legend_fontsize), xlim=xlim,
+                       ylim=ylim, logx=logx, logy=logy, title=title,
+                       figsize=figsize)
 
 
 def image_controls(key: str, *,
@@ -431,8 +579,10 @@ def volume_controls(key: str, shape: Sequence[int], *,
 
 
 __all__ = [
-    "CurveStyle", "ImageStyle", "VolumeStyle", "COLORMAPS", "NAMED_COLORS",
+    "CurveStyle", "ImageStyle", "VolumeStyle", "SeriesStyle", "COLORMAPS",
+    "NAMED_COLORS", "SPACING_NAMES",
     "MARKER_NAMES", "DASH_NAMES", "LEGEND_POSITIONS", "MPL_MARKERS",
     "MPL_DASHES", "INTERACTIVE", "STATIC", "engine_choice", "curve_controls",
-    "image_controls", "volume_controls",
+    "image_controls", "volume_controls", "series_controls", "axis_limits",
+    "figure_size",
 ]

@@ -2,14 +2,11 @@
 """
 Analyze — run an analysis on one sample, or over the whole selection.
 
-The option controls are built by reading each analysis function's own
-signature, so a newly registered analysis gets a working form with no change
-here. That is the same principle as the modality registry: declare it once,
-and the interface follows.
+The settings controls are built from each analysis' own settings
+(``settings_form``), so a newly registered analysis gets a working form with
+no change here. That is the same principle as the modality registry: declare
+it once, and the interface follows.
 """
-
-import inspect
-from typing import Any, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,6 +15,7 @@ import streamlit as st
 
 from NanoOrganizer import analysis as analysis_api
 from NanoOrganizer.viz import plots
+from NanoOrganizer.web_app.components.settings_form import settings_form
 from NanoOrganizer.web_app.state import (
     basket_label, require_workbench, show_message, show_result_values,
 )
@@ -43,68 +41,11 @@ spec = specs[key]
 st.caption(spec.description)
 
 # ---------------------------------------------------------------------------
-# Options, built from the function signature
+# Settings, built from the analysis itself
 # ---------------------------------------------------------------------------
 
-SKIP = {"measurement", "resolver", "self"}
-
-
-def option_widgets(function, prefix: str) -> Dict[str, Any]:
-    """Render a control for every keyword option the analysis declares.
-
-    Only keyword arguments with concrete defaults are offered. ``None``
-    defaults are rendered behind an "override" toggle, because for these
-    analyses ``None`` means "work it out from the data" — silently replacing
-    that with a number would change results without anyone asking.
-    """
-    chosen: Dict[str, Any] = {}
-    parameters = [
-        p for name, p in inspect.signature(function).parameters.items()
-        if name not in SKIP
-        and p.kind in (p.KEYWORD_ONLY, p.POSITIONAL_OR_KEYWORD)
-        and p.default is not inspect.Parameter.empty
-        and not name.startswith("_")
-    ]
-    if not parameters:
-        st.caption("No options.")
-        return chosen
-
-    columns = st.columns(3)
-    for index, parameter in enumerate(parameters):
-        slot = columns[index % 3]
-        name, default = parameter.name, parameter.default
-        widget_key = f"{prefix}_{name}"
-
-        with slot:
-            if isinstance(default, bool):
-                chosen[name] = st.toggle(name, value=default, key=widget_key)
-            elif isinstance(default, int) and not isinstance(default, bool):
-                chosen[name] = int(st.number_input(name, value=int(default),
-                                                   step=1, key=widget_key))
-            elif isinstance(default, float):
-                chosen[name] = float(st.number_input(
-                    name, value=float(default),
-                    step=abs(default) / 10 if default else 0.1,
-                    format="%g", key=widget_key))
-            elif isinstance(default, str):
-                chosen[name] = st.text_input(name, value=default, key=widget_key)
-            elif isinstance(default, tuple) and len(default) == 2 \
-                    and all(isinstance(v, (int, float)) for v in default):
-                low = st.number_input(f"{name} (low)", value=float(default[0]),
-                                      format="%g", key=f"{widget_key}_lo")
-                high = st.number_input(f"{name} (high)", value=float(default[1]),
-                                       format="%g", key=f"{widget_key}_hi")
-                chosen[name] = (float(low), float(high))
-            elif default is None:
-                if st.toggle(f"set {name}", value=False, key=f"{widget_key}_on",
-                             help="Left off, the analysis decides this itself."):
-                    chosen[name] = float(st.number_input(
-                        name, value=0.0, format="%g", key=widget_key))
-    return chosen
-
-
-with st.expander("Options", expanded=False):
-    options = option_widgets(spec.func, f"nano_opt_{key}")
+with st.expander("Settings", expanded=False):
+    options = settings_form(key, f"nano_opt_{key}")
 
 # ---------------------------------------------------------------------------
 # Plot dispatch

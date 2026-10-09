@@ -249,6 +249,7 @@ into the parent by accident; nothing is written until you `save()` it.
 x, Y, info = org.data("CuAu05", "uvvis")             # 14 frames × 551 points; info["t_s"] from the filenames
 _, Y80, hot = org.data("CuAu05", "uvvis", T=80)      # the frame nearest 80 °C — the names carry both
 org.frames("CuAu05", "uvvis").head()                 # one row per file: what each name admitted (t_s, T_c)
+org.metadata("CuAu05", "synthesis")                 # the stage's whole record, as ingested
 
 frames = org.data("CuAu05", "tem", lazy=True)        # 3 files resolved, nothing read
 image, meta = frames[0]                              # one file opened; meta["nm_per_pixel"] from the TIFF

@@ -101,7 +101,7 @@ def style(ax, xlabel: str = "", ylabel: str = "", title: str = ""):
 
 def _legend(ax, **kwargs):
     """A legend in text ink, not series colour, with no heavy frame."""
-    legend = ax.legend(frameon=False, fontsize=9, **kwargs)
+    legend = ax.legend(**{"frameon": False, "fontsize": 9, **kwargs})
     for text in legend.get_texts():
         text.set_color(INK_SOFT)
     return legend
@@ -192,10 +192,48 @@ def plot_kinetics(result, ax=None, time_unit: str = "min"):
 # Spectra
 # ---------------------------------------------------------------------------
 
+SERIES_SPACINGS = ("linear", "log", "step", "all")
+
+
+def series_indices(n_curves: int, spacing: str = "linear",
+                   count: int = 40) -> np.ndarray:
+    """Which rows of a series to draw — ``y_index_list`` for :func:`plot_series`.
+
+    ``"linear"``: *count* rows evenly spaced; ``"log"``: *count* rows dense at
+    the start, where a reaction changes fastest; ``"step"``: every *count*-th
+    row; ``"all"``: every row. The first and the last row are always in.
+
+    >>> series_indices(100, "log", 5)
+    array([ 0,  1,  3,  9, 31, 99])
+    """
+    n = int(n_curves)
+    if n <= 0:
+        return np.array([], dtype=int)
+    last = n - 1
+    if spacing == "linear":
+        rows = np.linspace(0, last, max(int(count), 2))
+    elif spacing == "log":
+        rows = np.logspace(0, np.log10(max(last, 1)), max(int(count), 2))
+    elif spacing == "step":
+        rows = np.arange(0, n, max(int(count), 1))
+    elif spacing == "all":
+        rows = np.arange(n)
+    else:
+        raise ValueError(f"spacing must be one of {', '.join(SERIES_SPACINGS)}; "
+                         f"got {spacing!r}")
+    rows = np.concatenate([[0], np.int_(rows), [last]])
+    return np.unique(np.clip(rows, 0, last))
+
+
 def plot_series(x, matrix, values=None, ax=None, *, max_curves: int = 40,
+                step: Optional[int] = None,
+                y_index_list: Optional[Sequence[int]] = None, cmap=None,
+                color_range="all",
                 xlabel: str = "x", ylabel: str = "signal", title: str = "",
                 colorbar_label: str = "", xlim=None, ylim=None,
-                colorbar: bool = True, logx: bool = False, logy: bool = False,
+                colorbar: bool = True, legend: bool = False,
+                legend_format: str = "{:.3g}", legend_fontsize: float = 8,
+                logx: bool = False, logy: bool = False,
                 figsize: Optional[Tuple[float, float]] = None,
                 linewidth: float = 1.1, **line_options):
     """A stack of curves coloured light-to-dark by *values*. **Kernel.**
@@ -207,7 +245,22 @@ def plot_series(x, matrix, values=None, ax=None, *, max_curves: int = 40,
 
     At most *max_curves* are drawn, **strided** rather than truncated: forty
     lines evenly spaced across a run say what the run did, while the first
-    forty of four hundred say only what its first minute did.
+    forty of four hundred say only what its first minute did. ``step=20``
+    draws every twentieth curve instead, whatever that comes to.
+    ``y_index_list=[0, 1, 50, -1]`` draws exactly those rows, in that order,
+    and *step* and *max_curves* are ignored.
+
+    *color_range* sets what the colours (and the colour bar) span:
+    ``"all"`` — the whole series, so a curve has the same colour whichever
+    rows are drawn; ``"shown"`` — only the curves drawn, so a few early
+    frames use the whole colour map; or ``(low, high)`` in *values*' units.
+
+    ``legend=True`` labels each curve with its value, written with
+    *legend_format* (``"{:.1f} min"``); the colour bar stays unless
+    ``colorbar=False``.
+
+    *cmap* is any matplotlib colormap or its name (``"coolwarm"``); the
+    default is the house single-hue ramp.
     """
     import matplotlib.pyplot as plt
     from matplotlib.cm import ScalarMappable
@@ -225,13 +278,32 @@ def plot_series(x, matrix, values=None, ax=None, *, max_curves: int = 40,
         raise ValueError(
             f"need one value per curve: {values.size} vs {matrix.shape[0]}")
 
+    n_curves = matrix.shape[0]
+    if y_index_list is not None:
+        rows = [int(i) for i in np.ravel(y_index_list)]
+        outside = [i for i in rows if not -n_curves <= i < n_curves]
+        if outside:
+            raise IndexError(f"y_index_list {outside} outside the "
+                             f"{n_curves} rows of the matrix")
+    else:
+        step = max(1, int(step) if step else n_curves // max_curves)
+        rows = list(range(0, n_curves, step))
+
     ax = _axes(ax, figsize=figsize or (7.5, 4.8))
-    step = max(1, matrix.shape[0] // max_curves)
-    cmap = sequential_cmap()
-    low, high = float(np.nanmin(values)), float(np.nanmax(values))
+    cmap = plt.get_cmap(cmap) if cmap is not None else sequential_cmap()
+    if isinstance(color_range, str):
+        if color_range not in ("all", "shown"):
+            raise ValueError(f"color_range must be 'all', 'shown' or "
+                             f"(low, high), got {color_range!r}")
+        spanned = values if color_range == "all" else values[rows]
+        low, high = float(np.nanmin(spanned)), float(np.nanmax(spanned))
+    else:
+        low, high = (float(v) for v in color_range)
     norm = Normalize(vmin=low, vmax=high if high > low else low + 1.0)
 
-    for index in range(0, matrix.shape[0], step):
+    for index in rows:
+        if legend:
+            line_options["label"] = legend_format.format(values[index])
         ax.plot(x, matrix[index], linewidth=linewidth,
                 color=cmap(norm(values[index])), **line_options)
 
@@ -245,6 +317,8 @@ def plot_series(x, matrix, values=None, ax=None, *, max_curves: int = 40,
         ax.set_xlim(*xlim)
     if ylim:
         ax.set_ylim(*ylim)
+    if legend:
+        _legend(ax, fontsize=legend_fontsize)
     if colorbar:
         bar = ax.figure.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=ax)
         bar.set_label(colorbar_label, color=INK_SOFT, fontsize=9)
@@ -591,6 +665,7 @@ def plot_curves(curves: Sequence[Tuple[str, np.ndarray, np.ndarray]], ax=None,
 def plot_fit(x, y, y_fit, residual=None, *, ax=None, xlabel: str = "x",
              ylabel: str = "signal", title: str = "",
              data_label: str = "data", fit_label: str = "fit",
+             components: Optional[Dict[str, np.ndarray]] = None,
              figsize: Tuple[float, float] = (7.0, 5.6)):
     """A fitted curve over its data, with the residuals beneath. **Kernel.**
 
@@ -603,6 +678,10 @@ def plot_fit(x, y, y_fit, residual=None, *, ax=None, xlabel: str = "x",
     The residual panel is where a bad fit shows: a fitted line drawn over data
     is persuasive whatever it does, and the residual going from noise to shape
     is the thing to look at. Pass ``residual=None`` to draw the top panel only.
+
+    *components* — ``{label: y}`` on the same *x*, such as
+    ``fit.components()`` — are drawn dashed under the fit, so a two-peak fit
+    shows which peak took which part of the curve.
 
     Where it draws:
 
@@ -654,6 +733,14 @@ def plot_fit(x, y, y_fit, residual=None, *, ax=None, xlabel: str = "x",
 
     top.plot(x, y, linewidth=0, marker="o", markersize=3, alpha=0.5,
              color=CATEGORICAL[0], label=data_label)
+    for index, (label, piece) in enumerate((components or {}).items()):
+        piece = np.asarray(piece, dtype=float)
+        if piece.shape != x.shape:
+            raise ValueError(f"component {label!r} has {piece.shape}, "
+                             f"x has {x.shape}")
+        top.plot(x, piece, linewidth=1.3, linestyle="--",
+                 color=CATEGORICAL[(index + 1) % len(CATEGORICAL)],
+                 label=label)
     top.plot(x, y_fit, linewidth=2, color=STATUS["critical"], label=fit_label)
     style(top, "" if bottom is not None else xlabel, ylabel, title)
     _legend(top)
@@ -706,6 +793,7 @@ __all__ = [
     # kernels — arrays in, Axes out
     "plot_curves", "plot_fit", "plot_distribution", "plot_outlines",
     "plot_series", "plot_marked_curve", "plot_image",
+    "series_indices", "SERIES_SPACINGS",
     # adapters — a finished result in
     "plot_peak_fit", "plot_size_distribution", "plot_segmentation",
     "plot_kinetics", "plot_spectra", "plot_endpoint_spectrum",

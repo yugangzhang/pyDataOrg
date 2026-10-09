@@ -111,6 +111,57 @@ The registry is what lets a notebook and the GUI both ask "what can I run on
 this?" without either keeping a list — and what lets an external package extend
 both at once.
 
+## One settings dict, three levels
+
+Give an analysis a **method on arrays** and the same settings work everywhere.
+The method takes its data positionally — the arrays, and facts about the
+sample such as a trigger time — and its settings as keyword-only parameters,
+and returns an `AnalysisResult`. Register it as the analysis' `kernel`; the
+adapter then only loads a sample's data and calls it:
+
+```python
+def my_assay_method(x, y, *, window=(2.0, 4.0), scale=1.0) -> AnalysisResult:
+    ...
+
+def my_assay(measurement, resolver, **settings):
+    x, y, info = load_curve(measurement, resolver)
+    return my_assay_method(x, y, **settings)       # plus sample/measurement ids
+
+register_analysis(Analysis(key="my_assay", func=my_assay,
+                           kernel=my_assay_method, modalities=("uvvis",)))
+```
+
+```python
+settings = dict(window=(2.5, 3.5), scale=2.0)
+org.run_method("my_assay", x, y, settings=settings)   # arrays you hold
+org.run("my_assay", "S01", settings=settings)         # one sample
+org.batch("my_assay", ["S01", "S02"], settings=settings)  # a list; None = all
+```
+
+A name that is not one of the method's settings is refused, rather than run
+with the default. Every result records the settings it ran with, defaults
+included (`result.settings`, kept in its file).
+
+**Done before.** `run` and `batch` look for a result kept (linked) for that
+measurement with the same settings and load it instead of running again; a
+batch row says `status` = `ran`, `loaded` or `failed`. Other settings, a
+missing file, or a result kept before settings were recorded run again, and
+`overwrite=True` runs regardless. An analysis on another one's stored result
+also runs again when that input was redone with other settings.
+
+**New data.** `wb.kept_settings(key)` is the settings dict the kept results
+were made with (the most common, `{}` if none). Passing it on analyses new
+samples the way the others were and loads the rest:
+`wb.batch(key, settings=wb.kept_settings(key), link=True)`.
+`wb.kept_settings(key, sample_id)` is the dict one sample's kept result was
+made with — how a page tells a sample redone with other settings from the rest.
+
+An analysis can also run on another analysis' stored result: declare
+`modalities=("fit",), stages=("analysis",), results_of=("my_assay",)` and its
+adapter is handed the linked result file of `my_assay` (read it with
+`NanoOrganizer.analysis.store.load_result`). It applies to those results only
+— not to its own, so running it twice does not run it on itself.
+
 ## Derived names carry the modality
 
 An analysis that applies to more than one modality prefixes its derived values
@@ -150,6 +201,22 @@ least a tenth of the axis span. That separation matters: without it a two-peak
 fit happily starts both components on the same bump and returns two identical
 peaks with a meaningless width. Bounds keep peaks inside the axis and widths
 positive.
+
+When you know which peak is which, say so by name — that beats any automatic
+guess:
+
+```python
+fit = fit_peaks(x, y, n_peaks=2, x_range=(260, 520),
+                initial_guess={"peak1_center": 316, "peak2_center": 400},
+                bounds={"peak1_center": (296, 336), "peak2_center": (380, 420)})
+plot_fit(fit.x, fit.y, fit.y_fit, fit.residual, components=fit.components())
+```
+
+A named guess replaces only those parameters; the rest are still estimated. A
+start outside its bounds is moved inside them. `fit.components()` is the
+background and each peak on `fit.x` — they add up to `fit.y_fit` — and
+`plot_fit(..., components=...)` draws them dashed, which is where a two-peak
+fit shows which peak took which part of the curve.
 
 Parameter uncertainties come from the covariance matrix. A non-finite entry
 means that parameter was not actually determined, and is reported as absent

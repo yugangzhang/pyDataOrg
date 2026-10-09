@@ -88,6 +88,7 @@ def save_result(result: AnalysisResult, folder: Union[str, Path],
         "errors": result.errors,
         "units": result.units,
         "diagnostics": result.diagnostics,
+        "settings": result.settings,
         "ok": result.ok,
         "message": result.message,
         "curves": list(arrays),
@@ -125,6 +126,7 @@ def load_result(path: Union[str, Path]) -> AnalysisResult:
         diagnostics=meta.get("diagnostics", {}),
         ok=bool(meta.get("ok", True)),
         message=meta.get("message", ""),
+        settings=meta.get("settings", {}),
     )
 
 

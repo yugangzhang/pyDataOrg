@@ -220,6 +220,26 @@ class PeakFitResult:
         return [self.params[k] for k in sorted(self.params)
                 if k.endswith("_center")]
 
+    def components(self) -> Dict[str, np.ndarray]:
+        """Each fitted piece on :attr:`x`: the background, then every peak.
+
+        ``{"background": ..., "peak1": ..., "peak2": ...}`` — they add up to
+        :attr:`y_fit`. A two-peak fit drawn only as its sum hides which peak
+        took which part of the curve, which is the thing worth checking.
+        """
+        profile = _profile(self.settings.get("shape", "gaussian"))
+        x = self.x
+        background = np.full_like(x, self.params["baseline"])
+        if "baseline_slope" in self.params and x.size:
+            background = background + self.params["baseline_slope"] * (x - x[0])
+        pieces = {"background": background}
+        for peak in range(1, int(self.settings.get("n_peaks", 0)) + 1):
+            width = max(abs(self.params[f"peak{peak}_width"]), 1e-12)
+            pieces[f"peak{peak}"] = (
+                self.params[f"peak{peak}_amplitude"]
+                * profile(x, self.params[f"peak{peak}_center"], width))
+        return pieces
+
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         peaks = ", ".join(f"{c:.4g}" for c in self.centers)
         return (f"<PeakFitResult {self.settings.get('n_peaks', '?')} peak(s) "
@@ -229,7 +249,7 @@ class PeakFitResult:
 def fit_peaks(x, y, *, n_peaks: int = 1, shape: str = "gaussian",
               background: str = "constant",
               x_range: Optional[Tuple[float, float]] = None,
-              initial_guess: Optional[Sequence[float]] = None,
+              initial_guess=None,
               bounds: Optional[Dict[str, tuple]] = None,
               maxfev: int = 20000) -> PeakFitResult:
     """Fit *n_peaks* peaks plus a background to ``(x, y)``. **The kernel.**
@@ -262,11 +282,16 @@ def fit_peaks(x, y, *, n_peaks: int = 1, shape: str = "gaussian",
         try.
     x_range : (float, float), optional
         Fit only this window.
-    initial_guess : sequence, optional
-        Raw parameter vector, in model order.  Omitted, it is estimated from
-        the data.
+    initial_guess : dict or sequence, optional
+        Where to start.  A dict sets parameters by name and leaves the rest
+        to the automatic estimate — ``{"peak1_center": 316, "peak2_center":
+        400}`` is how you say which band is which.  A sequence is the raw
+        vector in model order.  Omitted, everything is estimated from the
+        data.
     bounds : dict, optional
-        Overrides for the automatic physical bounds, by parameter name.
+        ``{name: (low, high)}`` overrides for the automatic physical bounds —
+        ``{"peak1_center": (300, 335)}`` keeps a peak where it belongs.  A
+        starting value outside its bounds is moved inside them.
 
     Returns
     -------
@@ -312,9 +337,21 @@ def fit_peaks(x, y, *, n_peaks: int = 1, shape: str = "gaussian",
     order = np.argsort(x)
     x, y = x[order], y[order]
 
-    guess = list(initial_guess) if initial_guess is not None else \
-        _initial_guess(x, y, n_peaks, background)
+    names = _param_names(n_peaks, background)
+    if isinstance(initial_guess, dict):
+        guess = _initial_guess(x, y, n_peaks, background)
+        for name, value in _known(initial_guess, names, "initial_guess"):
+            guess[names.index(name)] = float(value)
+    elif initial_guess is not None:
+        guess = [float(v) for v in initial_guess]
+        if len(guess) != len(names):
+            raise ValueError(
+                f"initial_guess needs {len(names)} values "
+                f"({', '.join(names)}), got {len(guess)}")
+    else:
+        guess = _initial_guess(x, y, n_peaks, background)
     lower, upper = _bounds(x, y, n_peaks, bounds, background)
+    guess = list(np.clip(guess, lower, upper))
     model = _peak_model(shape, n_peaks, background)
 
     try:
@@ -593,10 +630,34 @@ def _bounds(x: np.ndarray, y: np.ndarray, n_peaks: int,
         upper.extend([10.0 * height, float(x[-1]), span])
 
     if override:
-        for name, (low, high) in override.items():
-            if name == "baseline":
-                lower[0], upper[0] = float(low), float(high)
+        names = _param_names(n_peaks, background)
+        for name, (low, high) in _known(override, names, "bounds"):
+            if not float(low) < float(high):
+                raise ValueError(f"bounds for {name} must be (low, high) "
+                                 f"with low < high, got ({low}, {high})")
+            lower[names.index(name)] = float(low)
+            upper[names.index(name)] = float(high)
     return lower, upper
+
+
+def _param_names(n_peaks: int, background: str = "constant") -> List[str]:
+    """The model's parameters, in the order ``curve_fit`` sees them."""
+    names = ["baseline"]
+    if _N_BACKGROUND[background] == 2:
+        names.append("baseline_slope")
+    for peak in range(1, n_peaks + 1):
+        names += [f"peak{peak}_amplitude", f"peak{peak}_center",
+                  f"peak{peak}_width"]
+    return names
+
+
+def _known(by_name: Dict[str, Any], names: List[str], what: str):
+    """``by_name.items()``, refusing a name the model does not have."""
+    unknown = sorted(set(by_name) - set(names))
+    if unknown:
+        raise ValueError(f"{what}: no parameter {', '.join(unknown)}; "
+                         f"this model has {', '.join(names)}")
+    return by_name.items()
 
 
 def _axis_unit(spec) -> str:

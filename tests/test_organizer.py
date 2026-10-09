@@ -105,6 +105,21 @@ def test_reopening_restores_everything(org, data):
     assert again.measurement("S01", modality="waxs1d").resolve(again.resolver)
 
 
+def test_metadata_is_the_record_that_was_ingested(org, records):
+    every = org.metadata("S01")
+    assert list(every) == ["synthesis"]
+    assert every["synthesis"]["conditions"] == {"temperature_C": 80.0}
+
+    synthesis = org.metadata("S01", "synthesis")
+    assert synthesis["synthesis_batch"]["run_id"] == "run_1"
+
+    synthesis["conditions"]["temperature_C"] = 0.0      # a copy, not the store
+    assert org.metadata("S01", "synthesis")["conditions"]["temperature_C"] == 80.0
+
+    with pytest.raises(KeyError, match="no stage 'catalysis'.*synthesis"):
+        org.metadata("S01", "catalysis")
+
+
 def test_a_directory_gets_a_default_filename(tmp_path):
     organizer = Organizer(tmp_path / "somewhere")
     assert organizer.path.name == "organizer.json"
@@ -278,6 +293,212 @@ def test_results_table_lists_what_has_been_analysed(org, data):
     assert set(table["analysis"]) == {"peak_fit"}
     assert table["readable"].all()
     assert "fit_r2" in table.columns
+
+
+def test_results_can_live_in_a_project_folder_beside_the_organizer(
+        tmp_path, records, data):
+    """Many organizers in one folder, each project's results in its own."""
+    org = Organizer(tmp_path / "Orgnizer" / "lab.json", name="lab")
+    org.ingest(synthesis=records)
+    org.link("S01", "waxs1d", f"{data['xrd']}/S01.dat")
+    results = tmp_path / "Project" / "Results"
+    org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.5), n_peaks=1,
+              write=False, link=True, folder=results, verbose=False)
+
+    measurement = org.measurement("S01", "fit")
+    assert measurement.paths[0].startswith("../Project/Results/")
+    assert (results / Path(measurement.paths[0]).name).exists()
+    # write=False: the values are in the file, not in the organizer.
+    assert not org["S01"].derived
+    org.save()
+
+    later = Organizer(org.path)
+    table = later.results(analysis="peak_fit")
+    assert list(table["sample_id"]) == ["S01"]
+    assert table["readable"].all() and "fit_r2" in table.columns
+    assert later.results(analysis="something_else").empty
+
+    # A relative folder is relative to the organizer, not to where Python runs.
+    later.link_result(later.run("peak_fit", "S01", modality="waxs1d",
+                                x_range=(2.5, 3.5), n_peaks=1),
+                      folder="../Project/Results", write=False)
+    assert later.measurement("S01", "fit").resolve(later.resolver)[0] \
+        .parent.resolve() == results.resolve()
+
+
+def test_an_analysis_can_run_on_another_analysis_stored_result(org, data):
+    from NanoOrganizer.analysis import (ANALYSIS_REGISTRY, Analysis,
+                                        AnalysisResult, register_analysis)
+    from NanoOrganizer.analysis import store as result_store
+
+    def peak_shift(measurement, resolver, **_):
+        fit = result_store.load_result(measurement.resolve(resolver)[0])
+        result = AnalysisResult("peak_shift", sample_id=fit.sample_id,
+                                measurement_id=fit.measurement_id)
+        return result.set("shift", fit.values["peak1_center"] - 3.0)
+
+    register_analysis(Analysis("peak_shift", peak_shift, modalities=("fit",),
+                               stages=("analysis",), results_of=("peak_fit",)))
+    try:
+        org.link("S01", "waxs1d", f"{data['xrd']}/S01.dat")
+        org.link_result(org.run("peak_fit", "S01", modality="waxs1d",
+                                x_range=(2.5, 3.5), n_peaks=1))
+        assert "peak_shift" not in org.analyses("S01", modality="waxs1d")
+
+        first = org.run("peak_shift", "S01")
+        assert first.values["shift"] == pytest.approx(0.0, abs=0.05)
+        org.link_result(first, write=False)
+        # Its own stored result is not something it runs on: still one target.
+        frame = org.batch("peak_shift", write=False, link=True, verbose=False)
+        assert len(frame) == 1 and frame["ok"].all()
+        assert org.result("S01", "peak_shift").values["shift"] == \
+            pytest.approx(first.values["shift"])
+    finally:
+        ANALYSIS_REGISTRY.pop("peak_shift", None)
+
+
+@pytest.fixture()
+def toy(org, data):
+    """A registered analysis with a method on arrays, counting its runs."""
+    from NanoOrganizer.analysis import (ANALYSIS_REGISTRY, Analysis,
+                                        AnalysisResult, register_analysis)
+    from NanoOrganizer.analysis.peaks import load_curve
+
+    calls = []
+
+    def toy_peak(x, y, *, scale: float = 1.0, window=(2.0, 4.0)):
+        inside = (x >= window[0]) & (x <= window[1])
+        result = AnalysisResult("toy_peak")
+        result.set("height", scale * float(y[inside].max()))
+        result.curves["x"] = x
+        return result
+
+    def adapter(measurement, resolver, **settings):
+        calls.append(measurement.sample_id)
+        x, y, _ = load_curve(measurement, resolver)
+        result = toy_peak(x, y, **settings)
+        result.sample_id = measurement.sample_id
+        result.measurement_id = measurement.measurement_id
+        return result
+
+    register_analysis(Analysis("toy_peak", adapter, modalities=("waxs1d",),
+                               kernel=toy_peak))
+    for sample in ("S01", "S02"):
+        org.link(sample, "waxs1d", f"{data['xrd']}/{sample}.dat")
+    yield calls
+    ANALYSIS_REGISTRY.pop("toy_peak", None)
+
+
+def test_settings_are_recorded_with_their_defaults_and_kept(org, toy, tmp_path):
+    result = org.run("toy_peak", "S01", settings={"scale": 2.0})
+    assert result.settings == {"scale": 2.0, "window": [2.0, 4.0]}
+    org.link_result(result, folder=tmp_path, write=False)
+    assert org.result("S01", "toy_peak").settings == result.settings
+
+
+def test_done_before_is_loaded_not_run_again(org, toy, tmp_path, capsys):
+    keep = dict(link=True, write=False, folder=tmp_path)
+    first = org.run("toy_peak", "S01", settings={"scale": 2.0}, **keep)
+    again = org.run("toy_peak", "S01", settings={"scale": 2.0}, **keep)
+    assert toy == ["S01"]                                 # ran once
+    assert again.values == first.values
+    assert "done before" in capsys.readouterr().out
+
+    org.run("toy_peak", "S01", settings={"scale": 3.0}, **keep)
+    assert toy == ["S01", "S01"]                          # other settings: ran
+    org.run("toy_peak", "S01", settings={"scale": 3.0}, overwrite=True, **keep)
+    assert len(toy) == 3                                  # asked to: ran
+    for path in tmp_path.glob("*.npz"):
+        path.unlink()
+    org.run("toy_peak", "S01", settings={"scale": 3.0}, **keep)
+    assert len(toy) == 4                                  # file gone: ran
+
+
+def test_batch_takes_samples_and_says_what_it_did(org, toy, tmp_path):
+    keep = dict(link=True, write=False, folder=tmp_path, verbose=False)
+    frame = org.batch("toy_peak", "S01", settings={"scale": 2.0}, **keep)
+    assert list(frame["sample_id"]) == ["S01"] and list(frame["status"]) == ["ran"]
+
+    frame = org.batch("toy_peak", ["S01", "S02"], settings={"scale": 2.0}, **keep)
+    assert dict(zip(frame["sample_id"], frame["status"])) == {
+        "S01": "loaded", "S02": "ran"}
+    frame = org.batch("toy_peak", settings={"scale": 2.0}, **keep)
+    assert set(frame["status"]) == {"loaded"} and len(frame) == 2
+    assert toy == ["S01", "S02"]
+
+
+def test_new_samples_are_done_the_way_the_kept_ones_were(org, toy, tmp_path):
+    keep = dict(link=True, write=False, folder=tmp_path, verbose=False)
+    assert org.kept_settings("toy_peak") == {}            # nothing kept yet
+    org.batch("toy_peak", "S01", settings={"scale": 2.0}, **keep)
+    used = org.kept_settings("toy_peak")
+    assert used == {"scale": 2.0, "window": [2.0, 4.0]}   # defaults included
+
+    frame = org.batch("toy_peak", settings=used, **keep)
+    assert dict(zip(frame["sample_id"], frame["status"])) == {
+        "S01": "loaded", "S02": "ran"}
+
+    org.run("toy_peak", "S02", settings={"scale": 3.0}, **keep)   # redone
+    assert org.kept_settings("toy_peak", "S02")["scale"] == 3.0
+    assert org.kept_settings("toy_peak", "S01")["scale"] == 2.0
+    assert org.kept_settings("toy_peak", "nobody") == {}
+
+
+def test_a_mistyped_setting_is_refused_not_ignored(org, toy):
+    with pytest.raises(TypeError, match="no setting 'scal'.*scale, window"):
+        org.run("toy_peak", "S01", scal=2.0)
+    with pytest.raises(TypeError, match="no setting"):
+        org.batch("toy_peak", settings={"scal": 2.0}, verbose=False)
+    with pytest.raises(TypeError, match="no setting"):
+        org.run_method("toy_peak", np.arange(5.0), np.ones(5), scal=2.0)
+    # An analysis without a method on arrays keeps its tolerant options.
+    assert "x_range" in org.run("peak_fit", "S01", modality="waxs1d",
+                                x_range=(2.5, 3.5)).settings
+
+
+def test_run_method_is_run_on_arrays_you_hold(org, toy):
+    from NanoOrganizer.analysis.peaks import load_curve
+
+    settings = {"scale": 2.0, "window": (2.5, 3.5)}
+    x, y, _ = load_curve(org.measurement("S01", "waxs1d"), org.resolver)
+    on_arrays = org.run_method("toy_peak", x, y, settings=settings)
+    on_sample = org.run("toy_peak", "S01", settings=settings)
+    assert on_arrays.values == on_sample.values
+    assert on_arrays.settings == on_sample.settings
+    with pytest.raises(TypeError, match="no method on arrays"):
+        org.run_method("peak_fit", x, y)
+
+
+def test_a_result_built_on_another_reruns_when_that_one_is_redone(
+        org, toy, tmp_path):
+    from NanoOrganizer.analysis import (ANALYSIS_REGISTRY, Analysis,
+                                        AnalysisResult, register_analysis)
+    from NanoOrganizer.analysis import store as result_store
+
+    calls = []
+
+    def double(measurement, resolver, **_):
+        calls.append(1)
+        peak = result_store.load_result(measurement.resolve(resolver)[0])
+        result = AnalysisResult("toy_double", sample_id=peak.sample_id,
+                                measurement_id=peak.measurement_id)
+        return result.set("twice", 2 * peak.values["height"])
+
+    register_analysis(Analysis("toy_double", double, modalities=("fit",),
+                               stages=("analysis",), results_of=("toy_peak",)))
+    keep = dict(link=True, write=False, folder=tmp_path, verbose=False)
+    try:
+        org.run("toy_peak", "S01", settings={"scale": 1.0}, **keep)
+        org.run("toy_double", "S01", **keep)
+        org.run("toy_double", "S01", **keep)
+        assert len(calls) == 1                            # loaded the second time
+        org.run("toy_peak", "S01", settings={"scale": 5.0}, **keep)
+        twice = org.run("toy_double", "S01", **keep)
+        assert len(calls) == 2                            # its input changed
+        assert twice.values["twice"] == pytest.approx(
+            2 * org.result("S01", "toy_peak").values["height"])
+    finally:
+        ANALYSIS_REGISTRY.pop("toy_double", None)
 
 
 def test_batch_without_link_writes_no_files(org, data):

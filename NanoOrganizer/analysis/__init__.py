@@ -39,6 +39,37 @@ class Analysis:
     groups: Tuple[str, ...] = ()         # empty = any
     description: str = ""
     prefix: str = ""                     # prepended to derived names
+    results_of: Tuple[str, ...] = ()     # runs on these analyses' stored results
+    kernel: Optional[Callable[..., AnalysisResult]] = None   # the same, on arrays
+
+    def settings_for(self, options: Optional[Dict[str, Any]] = None, *,
+                     strict: bool = False) -> Dict[str, Any]:
+        """Every setting a run with *options* uses: the defaults, overridden.
+
+        Settings are what a person chooses and keeps the same for every
+        sample — a width, a window, a method. With a :attr:`kernel` they are
+        its keyword-only parameters (the positional ones are the inputs: the
+        arrays, a trigger time); without one, the adapter's keyword
+        parameters. *strict* refuses a name that is not a setting, which
+        catches the typo that would otherwise run with the default.
+        """
+        import inspect
+
+        options = dict(options or {})
+        if self.kernel is not None:
+            params = [p for p in inspect.signature(self.kernel).parameters.values()
+                      if p.kind is p.KEYWORD_ONLY]
+        else:
+            params = [p for p in list(inspect.signature(self.func).parameters.values())[2:]
+                      if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+        known = {p.name: (None if p.default is p.empty else p.default)
+                 for p in params}
+        unknown = sorted(set(options) - set(known))
+        if unknown and strict:
+            raise TypeError(
+                f"{self.key} has no setting {', '.join(map(repr, unknown))}; "
+                f"its settings are: {', '.join(known) or 'none'}")
+        return jsonable({**known, **options})
 
     def prefix_for(self, measurement) -> str:
         """Prefix for the derived names this analysis writes on *measurement*.
@@ -60,7 +91,16 @@ class Analysis:
         return f"{measurement.modality}_"
 
     def applies_to(self, measurement) -> bool:
-        """True if this analysis is meaningful for *measurement*."""
+        """True if this analysis is meaningful for *measurement*.
+
+        An analysis with :attr:`results_of` takes the output of another one:
+        it applies to a stored result (a ``fit`` linked by
+        :meth:`Workbench.link_result`) of one of those analyses, and to
+        nothing else — not even to a stored result of its own.
+        """
+        if self.results_of and (measurement.meta or {}).get("analysis") \
+                not in self.results_of:
+            return False
         if self.modalities and measurement.modality not in self.modalities:
             return False
         if self.stages and measurement.stage not in self.stages:
@@ -102,9 +142,78 @@ def analyses_for(measurement) -> List[Analysis]:
     return [a for a in list_analyses() if a.applies_to(measurement)]
 
 
+def jsonable(value):
+    """*value* as it reads back from a result file: tuples as lists, numpy
+    numbers as Python ones — so two sets of settings compare equal exactly
+    when they would run the same."""
+    import json
+
+    def default(obj):
+        return obj.tolist() if hasattr(obj, "tolist") else str(obj)
+
+    return json.loads(json.dumps(value, default=default))
+
+
 def run(key: str, measurement, resolver, **options) -> AnalysisResult:
-    """Run one analysis on one measurement."""
-    return get_analysis(key)(measurement, resolver, **options)
+    """Run one analysis on one measurement.
+
+    The result records the settings it ran with and the measurement it ran
+    on (``diagnostics["ran_on"]``); one that runs on another analysis'
+    stored result also records that result's settings
+    (``diagnostics["of_settings"]``), so it can tell when its input changed.
+    """
+    analysis = get_analysis(key)
+    result = analysis(measurement, resolver, **options)
+    result.settings = result.settings or analysis.settings_for(options)
+    result.diagnostics.setdefault("ran_on", measurement.measurement_id)
+    if analysis.results_of:
+        from NanoOrganizer.analysis import store as _store
+
+        paths = measurement.resolve(resolver)
+        if paths:
+            result.diagnostics.setdefault(
+                "of_settings", _store.peek(paths[0]).get("settings", {}))
+    return result
+
+
+def run_method(key: str, *inputs, settings: Optional[Dict[str, Any]] = None,
+               **options) -> AnalysisResult:
+    """An analysis on arrays you are holding: no project, no files.
+
+    *inputs* are what its :attr:`~Analysis.kernel` takes positionally — for
+    a series of spectra, the wavelength, the frames and the clock. The
+    settings are the ones :func:`run` and :func:`batch` take, so the dict
+    settled here is the dict used on every sample. A name that is not a
+    setting is refused.
+    """
+    analysis = get_analysis(key)
+    if analysis.kernel is None:
+        raise TypeError(f"{key} has no method on arrays; run it on a sample "
+                        f"with run()")
+    options = {**(settings or {}), **options}
+    used = analysis.settings_for(options, strict=True)
+    result = analysis.kernel(*inputs, **options)
+    result.analysis = result.analysis or key
+    result.settings = used
+    if analysis.results_of and inputs and hasattr(inputs[0], "settings"):
+        result.diagnostics.setdefault("of_settings", inputs[0].settings)
+    return result
+
+
+def targets(project, key: str, *, sample_ids: Sequence[str] = (),
+            modality: str = "", stage: str = "", role: str = "") -> list:
+    """The measurements *key* would run on: its own declaration, narrowed."""
+    analysis = get_analysis(key)
+    wanted_modality = modality or (analysis.modalities[0]
+                                   if len(analysis.modalities) == 1 else "")
+    wanted_stage = stage or (analysis.stages[0]
+                             if len(analysis.stages) == 1 else "")
+    return [
+        m for m in project.measurements(modality=wanted_modality,
+                                        stage=wanted_stage, role=role,
+                                        sample_ids=sample_ids)
+        if analysis.applies_to(m)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -151,26 +260,17 @@ def batch(project, key: str, *, sample_ids: Sequence[str] = (),
     import pandas as pd
 
     analysis = get_analysis(key)
-    wanted_modality = modality or (analysis.modalities[0]
-                                   if len(analysis.modalities) == 1 else "")
-    wanted_stage = stage or (analysis.stages[0]
-                             if len(analysis.stages) == 1 else "")
-
-    targets = [
-        m for m in project.measurements(modality=wanted_modality,
-                                        stage=wanted_stage, role=role,
-                                        sample_ids=sample_ids)
-        if analysis.applies_to(m)
-    ]
+    found = targets(project, key, sample_ids=sample_ids, modality=modality,
+                    stage=stage, role=role)
 
     rows: List[Dict[str, Any]] = []
     results: List[AnalysisResult] = []
 
-    for index, measurement in enumerate(targets):
+    for index, measurement in enumerate(found):
         if progress is not None:
-            progress(index, len(targets), measurement)
+            progress(index, len(found), measurement)
         try:
-            result = analysis(measurement, project.resolver, **options)
+            result = run(key, measurement, project.resolver, **options)
         except Exception as exc:  # one bad run must not end the batch
             result = AnalysisResult.failure(
                 key, f"{type(exc).__name__}: {exc}",
@@ -201,6 +301,10 @@ def batch_report(frame) -> str:
     ok = int(frame["ok"].sum()) if "ok" in frame else len(frame)
     total = len(frame)
     out = f"{ok}/{total} succeeded"
+    if "status" in frame:
+        counts = frame["status"].value_counts()
+        out += (f" ({int(counts.get('ran', 0))} ran, "
+                f"{int(counts.get('loaded', 0))} done before)")
     if ok < total and "message" in frame:
         reasons = frame.loc[~frame["ok"], "message"].dropna().unique()
         if len(reasons):
@@ -257,7 +361,7 @@ from NanoOrganizer.analysis.profiles import (                          # noqa: E
 __all__ = [
     "Analysis", "ANALYSIS_REGISTRY", "AnalysisResult",
     "register_analysis", "get_analysis", "list_analyses", "analyses_for",
-    "run", "batch", "batch_report",
+    "run", "run_method", "targets", "batch", "batch_report", "jsonable",
     # kernels: arrays in, result out — no files, no project
     "fit_peaks", "PeakFitResult", "measure_curve", "CurveMetrics",
     "segment_particles", "measure_particles", "size_from_image",

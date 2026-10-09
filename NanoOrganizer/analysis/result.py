@@ -51,7 +51,10 @@ class AnalysisResult:
     curves : dict
         ``{name: ndarray}`` – for plotting, not for storage.
     diagnostics : dict
-        Provenance and quality: fit window, R², counts, settings used.
+        Provenance and quality: fit window, R², counts.
+    settings : dict
+        Every setting the analysis ran with, defaults included — what decides
+        whether a stored result can stand in for running it again.
     ok : bool
         False when the analysis could not produce trustworthy values.
     message : str
@@ -68,6 +71,7 @@ class AnalysisResult:
     diagnostics: Dict[str, Any] = field(default_factory=dict)
     ok: bool = True
     message: str = ""
+    settings: Dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
 

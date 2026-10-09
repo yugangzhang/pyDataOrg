@@ -110,6 +110,46 @@ def test_a_sloping_background_is_fitted_when_asked_for():
         abs(flat.params["peak1_center"] - 5.0)
 
 
+def test_named_guesses_and_bounds_say_which_peak_is_which():
+    x = np.linspace(260.0, 520.0, 800)
+    y = gaussian(x, 0.15, 316.0, 25.0) + gaussian(x, 0.6, 400.0, 28.0) + 0.02
+
+    fit = fit_peaks(x, y, n_peaks=2,
+                    initial_guess={"peak1_center": 316, "peak2_center": 400},
+                    bounds={"peak1_center": (300, 335),
+                            "peak2_center": (385, 415)})
+
+    assert fit.params["peak1_center"] == pytest.approx(316.0, abs=0.5)
+    assert fit.params["peak2_amplitude"] == pytest.approx(0.6, abs=0.01)
+
+
+def test_a_guess_outside_its_bounds_is_moved_inside():
+    x = np.linspace(0, 10, 300)
+    y = gaussian(x, 2.0, 4.0, 0.6) + 0.5
+    fit = fit_peaks(x, y, initial_guess={"peak1_center": 9.0},
+                    bounds={"peak1_center": (3.0, 5.0)})
+    assert fit.params["peak1_center"] == pytest.approx(4.0, abs=0.01)
+
+
+def test_an_unknown_parameter_name_is_refused():
+    x = np.linspace(0, 10, 300)
+    y = gaussian(x, 2.0, 4.0, 0.6)
+    with pytest.raises(ValueError, match="peak2_center.*peak1_center"):
+        fit_peaks(x, y, bounds={"peak2_center": (1, 2)})
+    with pytest.raises(ValueError, match="needs 4 values"):
+        fit_peaks(x, y, initial_guess=[0.0, 2.0])
+
+
+def test_components_add_up_to_the_fit():
+    x = np.linspace(0, 10, 300)
+    y = gaussian(x, 5.0, 4.0, 0.6) + gaussian(x, 2.0, 7.0, 0.4) + 1.0
+    for background in ("constant", "linear"):
+        fit = fit_peaks(x, y, n_peaks=2, background=background)
+        pieces = fit.components()
+        assert list(pieces) == ["background", "peak1", "peak2"]
+        assert np.allclose(sum(pieces.values()), fit.y_fit)
+
+
 def test_fit_peaks_raises_rather_than_returning_a_sentinel():
     x = np.linspace(0, 10, 100)
     y = gaussian(x, 1.0, 5.0, 1.0)
@@ -308,6 +348,77 @@ def test_plot_series_strides_rather_than_truncating():
     assert final > matrix[50].max()
 
 
+def test_plot_series_takes_a_step_and_a_colormap():
+    x = np.linspace(0, 1, 50)
+    matrix = np.vstack([x * k for k in range(100)])
+
+    axes = plot_series(x, matrix, values=np.arange(100), step=20,
+                       cmap="coolwarm")
+    lines = axes.get_lines()
+    assert len(lines) == 5                               # 0, 20, 40, 60, 80
+    first = plt.get_cmap("coolwarm")(0.0)
+    assert np.allclose(lines[0].get_color(), first)
+
+
+def test_plot_series_draws_exactly_the_rows_it_is_given():
+    x = np.linspace(0, 1, 50)
+    matrix = np.vstack([x * k for k in range(100)])
+
+    axes = plot_series(x, matrix, values=np.arange(100), step=2,
+                       y_index_list=[0, 50, -1], cmap="coolwarm")
+    lines = axes.get_lines()
+    assert len(lines) == 3                               # step is ignored
+    assert np.allclose(lines[2].get_ydata(), matrix[99])
+    # The colour scale is the whole series', not just the rows drawn.
+    assert np.allclose(lines[1].get_color(),
+                       plt.get_cmap("coolwarm")(50 / 99))
+    with pytest.raises(IndexError, match="outside the 100 rows"):
+        plot_series(x, matrix, y_index_list=[0, 100])
+
+
+def test_plot_series_colours_can_span_only_the_rows_shown():
+    x = np.linspace(0, 1, 50)
+    matrix = np.vstack([x * k for k in range(100)])
+    coolwarm = plt.get_cmap("coolwarm")
+
+    axes = plot_series(x, matrix, values=np.arange(100), cmap="coolwarm",
+                       y_index_list=[0, 5, 10], color_range="shown")
+    colors = [line.get_color() for line in axes.get_lines()]
+    assert np.allclose(colors[0], coolwarm(0.0))
+    assert np.allclose(colors[2], coolwarm(1.0))      # row 10 is the top now
+
+    axes = plot_series(x, matrix, values=np.arange(100), cmap="coolwarm",
+                       y_index_list=[10], color_range=(0, 20))
+    assert np.allclose(axes.get_lines()[0].get_color(), coolwarm(0.5))
+    with pytest.raises(ValueError, match="color_range"):
+        plot_series(x, matrix, color_range="some")
+
+
+def test_plot_series_can_label_each_curve_with_its_value():
+    x = np.linspace(0, 1, 50)
+    matrix = np.vstack([x * k for k in range(100)])
+    minutes = np.arange(100) / 3.0
+
+    axes = plot_series(x, matrix, values=minutes, y_index_list=[0, 3, 6],
+                       legend=True, legend_format="{:.1f} min")
+    labels = [t.get_text() for t in axes.get_legend().get_texts()]
+    assert labels == ["0.0 min", "1.0 min", "2.0 min"]
+    assert plot_series(x, matrix).get_legend() is None     # off by default
+
+
+def test_plot_fit_draws_the_components_it_is_given():
+    x = np.linspace(0, 10, 200)
+    y = gaussian(x, 5.0, 4.0, 0.6) + gaussian(x, 2.0, 7.0, 0.4) + 1.0
+    fit = fit_peaks(x, y, n_peaks=2)
+
+    top, _ = plot_fit(fit.x, fit.y, fit.y_fit, fit.residual,
+                      components=fit.components())
+    labels = [t.get_text() for t in top.get_legend().get_texts()]
+    assert {"background", "peak1", "peak2", "fit"} <= set(labels)
+    with pytest.raises(ValueError, match="component 'bad'"):
+        plot_fit(fit.x, fit.y, fit.y_fit, components={"bad": [1.0, 2.0]})
+
+
 def test_plot_series_needs_one_value_per_curve():
     x = np.linspace(0, 1, 10)
     matrix = np.vstack([x, x * 2])
@@ -339,3 +450,15 @@ def test_plot_outlines_draws_any_label_map():
 def test_plot_outlines_refuses_a_mismatched_label_map():
     with pytest.raises(ValueError, match="must match"):
         plot_outlines(np.zeros((8, 8)), np.zeros((4, 4), dtype=int))
+
+
+def test_series_indices_keep_the_first_and_last_row():
+    from NanoOrganizer.viz.plots import series_indices
+
+    assert list(series_indices(100, "log", 5)) == [0, 1, 3, 9, 31, 99]
+    assert list(series_indices(11, "linear", 3)) == [0, 5, 10]
+    assert list(series_indices(10, "step", 4)) == [0, 4, 8, 9]
+    assert list(series_indices(3, "linear", 200)) == [0, 1, 2]   # no repeats
+    assert list(series_indices(0, "all")) == []
+    with pytest.raises(ValueError):
+        series_indices(10, "cubic")

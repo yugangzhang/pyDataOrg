@@ -635,3 +635,56 @@ def test_creating_over_an_existing_json_is_refused(tmp_path):
     [b for b in app.button if b.label == "Create organizer"][0].click().run()
     assert not app.exception, _why(app)
     assert any("already exists" in e.value for e in app.error)
+
+
+# ---------------------------------------------------------------------------
+# Components shared with other packages' pages
+# ---------------------------------------------------------------------------
+
+def _settings_script():
+    import streamlit as st
+
+    from NanoOrganizer.web_app.components.settings_form import settings_form
+
+    st.session_state["chosen"] = settings_form(
+        "peak_fit", "form", {"n_peaks": 2, "x_range": [400, 700]},
+        choices={"shape": ("gaussian", "lorentzian")})
+
+
+def test_the_settings_form_starts_from_the_settings_given():
+    app = AppTest.from_function(_settings_script, default_timeout=60)
+    app.run()
+    assert not app.exception, _why(app)
+    chosen = app.session_state["chosen"]
+    assert chosen["n_peaks"] == 2 and chosen["x_range"] == (400, 700)
+    assert chosen["min_r2"] == 0.9                     # the analysis' default
+    assert app.selectbox(key="form_shape").options == ["gaussian", "lorentzian"]
+
+    app.text_input(key="form_x_range").set_value("450, 650.5").run()
+    assert app.session_state["chosen"]["x_range"] == (450, 650.5)
+    app.text_input(key="form_x_range").set_value("").run()     # may be None
+    assert app.session_state["chosen"]["x_range"] is None
+    app.text_input(key="form_x_range").set_value("wide").run()
+    assert not app.exception, _why(app)
+
+
+def _series_script():
+    import streamlit as st
+
+    from NanoOrganizer.web_app.components.plot_controls import series_controls
+
+    st.session_state["style"] = series_controls("s", 100, spacing="log",
+                                                count=5, xlim=(350, 900))
+
+
+def test_the_series_controls_pick_the_rows_to_draw():
+    app = AppTest.from_function(_series_script, default_timeout=60)
+    app.run()
+    assert not app.exception, _why(app)
+    style = app.session_state["style"]
+    assert style.rows == (0, 1, 3, 9, 31, 99)
+    assert style.plot_options["xlim"] == (350.0, 900.0)
+
+    app.selectbox(key="s_spacing").set_value("listed").run()
+    app.text_input(key="s_rows").set_value("0, -1").run()
+    assert app.session_state["style"].rows == (0, -1)

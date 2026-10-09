@@ -29,6 +29,7 @@ measurement as it is, and analyses nothing. Every ``plot*`` takes ``ax=``
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -294,6 +295,32 @@ class Workbench:
         if sample is None:
             raise KeyError(f"unknown sample {sample_id!r}")
         return sample
+
+    def metadata(self, sample_id: str, stage: str = "") -> Dict[str, Any]:
+        """What was recorded about how a sample was made or measured.
+
+        The whole authored record of one stage — what ``ingest`` read from
+        the source dictionary, or what ``set_params`` wrote — or, with no
+        *stage*, ``{stage: record}`` for every stage the sample has::
+
+            org.metadata("S01")                        # {"synthesis": {...}, ...}
+            org.metadata("S01", "synthesis")["temperature_C"]
+
+        A copy: editing it changes nothing in the organiser (that is
+        :meth:`set_params`). A measurement's own record — the instrument
+        settings, the file pattern — is ``measurement(...).meta``.
+        """
+        import copy
+
+        sample = self[sample_id]
+        if not stage:
+            return {name: copy.deepcopy(record.params)
+                    for name, record in sample.stages.items()}
+        record = sample.stage(stage)
+        if record is None:
+            raise KeyError(f"{sample_id} has no stage {stage!r}; it has: "
+                           f"{', '.join(sample.stages) or 'none'}")
+        return copy.deepcopy(record.params)
 
     # ------------------------------------------------------------------
     # building: linking data in, wherever it lives
@@ -749,6 +776,12 @@ class Workbench:
         ``result()``, draws with ``plot_result()``, and survives being
         reopened months later without the analysis being run again.
 
+        *folder* is where the file goes (default :attr:`results_dir`; a
+        relative one is relative to the organizer's folder). With
+        *write* off, the values stay in the file only: nothing is added to
+        the organizer's ``derived.*`` columns, and :meth:`results` reads
+        them back.
+
         >>> fit = wb.run("peak_fit", "CuAu05")             # doctest: +SKIP
         >>> wb.link_result(fit)                            # doctest: +SKIP
         """
@@ -759,13 +792,17 @@ class Workbench:
         if sample is None:
             raise KeyError(f"unknown sample {result.sample_id!r}")
 
-        path = _store.save_result(result, folder or self.results_dir)
-        # Beside the store, so record it relative: the fits travel with the
-        # organizer like everything else in its folder.
+        target = Path(folder).expanduser() if folder else self.results_dir
+        if not target.is_absolute():               # relative to the organizer
+            target = Path(self.project.root) / target
+        path = _store.save_result(result, target)
+        # Recorded relative to the organizer's folder, as every path is —
+        # ``results/…`` beside it, ``../Project/Results/…`` in a project
+        # folder next to it — so the fits travel with the folders.
         try:
-            recorded = Path(path).absolute().relative_to(
-                self.project.root).as_posix()
-        except ValueError:
+            recorded = Path(os.path.relpath(Path(path).absolute(),
+                                            self.project.root)).as_posix()
+        except ValueError:                 # another drive: nothing relative
             recorded = str(path)
 
         source = sample.get_measurement(result.measurement_id)
@@ -792,6 +829,8 @@ class Workbench:
             label=f"{result.analysis} of {result.measurement_id}",
             meta={"analysis": result.analysis,
                   "source_measurement": result.measurement_id,
+                  "ran_on": result.diagnostics.get("ran_on",
+                                                   result.measurement_id),
                   "source_modality": source_modality,
                   "ok": result.ok},
         )
@@ -846,8 +885,12 @@ class Workbench:
                 f"file was moved or never written here.")
         return _store.load_result(paths[0])
 
-    def results(self, all_samples: bool = False):
-        """Every stored result as a table — what has been analysed, and how."""
+    def results(self, all_samples: bool = False, analysis: str = ""):
+        """Every stored result as a table — what has been analysed, and how.
+
+        One row per stored result, with its values read from the file;
+        *analysis* keeps one analysis' results only.
+        """
         import pandas as pd
 
         from NanoOrganizer.analysis import store as _store
@@ -859,6 +902,9 @@ class Workbench:
             if sample is None:
                 continue
             for measurement in sample.get_measurements(modality="fit"):
+                if analysis and measurement.meta.get(
+                        "analysis", measurement.role) != analysis:
+                    continue
                 paths = measurement.resolve(self.resolver)
                 row = {
                     "sample_id": sample.sample_id,
@@ -932,25 +978,137 @@ class Workbench:
             f"Narrow with modality=, stage= or role=."
         )
 
+    def run_method(self, key: str, *inputs,
+                   settings: Optional[Dict[str, Any]] = None, **options):
+        """An analysis on arrays you are holding — the level below :meth:`run`.
+
+        *inputs* are what the analysis takes as data (for a series of
+        spectra: wavelength, frames, clock, and any per-sample fact such as
+        a trigger time); *settings* are the same dict :meth:`run` and
+        :meth:`batch` take. Settle the settings here, on arrays you can look
+        at, then pass the same dict on. Nothing is loaded or stored.
+        """
+        return _analysis.run_method(key, *inputs, settings=settings, **options)
+
     def run(self, key: str, sample_id: str, *, modality: str = "",
-            stage: str = "", role: str = "", write: bool = False, **options):
-        """Run one analysis on one sample.
+            stage: str = "", role: str = "",
+            settings: Optional[Dict[str, Any]] = None,
+            overwrite: bool = False, link: bool = False,
+            folder: Union[str, Path, None] = None, write: bool = False,
+            verbose: bool = True, **options):
+        """Run one analysis on one sample — or load it, if it was done.
 
         The measurement is found from the analysis' own declaration, so
         ``wb.run("uvvis_kinetics", "Sample000001")`` needs no further hints.
-        ``write`` is off here on purpose: a single exploratory run should not
-        silently change the results table — use :meth:`batch` for that.
+        *settings* (a dict) and keyword *options* are the analysis' settings.
+
+        **Done before?** A result kept (linked) for this measurement with the
+        same settings is loaded instead of run again — and, for an analysis
+        that runs on another one's stored result, only if that input has not
+        changed since. ``overwrite=True`` runs it regardless; a missing file
+        or a result with no recorded settings is run again too.
+
+        With *link* the result is kept: saved in *folder* (default
+        :attr:`results_dir`) and linked onto the sample. *write* also puts
+        its values in the organiser's ``derived.*`` columns; it is off here
+        on purpose, as a single exploratory run should not silently change
+        the results table.
         """
         where = {k: v for k, v in
                  (("modality", modality), ("stage", stage), ("role", role))
                  if v}
         measurement = self._target(key, sample_id, **where)
-        result = _analysis.run(key, measurement, self.resolver, **options)
-        if write and result.ok:
-            result.write_to(
-                self.project.get_sample(sample_id),
-                prefix=_analysis.get_analysis(key).prefix_for(measurement))
+        options = {**(settings or {}), **options}
+        result, status = self._run_one(key, measurement, options,
+                                       overwrite=overwrite, link=link,
+                                       folder=folder, write=write)
+        if verbose and (status == "loaded" or (link and result.ok)):
+            print(f"{key} {sample_id}: "
+                  + ("done before with these settings; loaded"
+                     if status == "loaded" else "ran; kept"))
         return result
+
+    def _kept(self, key: str, measurement, settings: Dict[str, Any]):
+        """The stored result of *key* on *measurement*, if it still stands."""
+        from NanoOrganizer.analysis import store as _store
+
+        sample = self.project.get_sample(measurement.sample_id)
+        spec = _analysis.get_analysis(key)
+        for stored in sample.get_measurements(modality="fit"):
+            meta = stored.meta or {}
+            if meta.get("analysis") != key or meta.get(
+                    "ran_on", meta.get("source_measurement")) \
+                    != measurement.measurement_id:
+                continue
+            # The resolver caches what it found; the file may have gone since.
+            paths = [path for path in stored.resolve(self.resolver)
+                     if Path(path).exists()]
+            if not paths:
+                return None                       # the file is gone
+            kept = _store.peek(paths[0])
+            if kept.get("settings") != settings or not kept.get("ok", True):
+                return None                       # other settings, or failed
+            if spec.results_of:
+                inputs = measurement.resolve(self.resolver)
+                now = _store.peek(inputs[0]).get("settings", {}) if inputs else None
+                if kept.get("diagnostics", {}).get("of_settings") != now:
+                    return None                   # its input was redone
+            return _store.load_result(paths[0])
+        return None
+
+    def kept_settings(self, key: str, sample_id: str = "") -> Dict[str, Any]:
+        """The settings *key*'s kept results were made with — the most
+        common, if they differ; ``{}`` when nothing is kept. With
+        *sample_id*, the settings of that sample's kept result.
+
+        Pass them on and new samples are analysed the way the others were,
+        while the kept ones load::
+
+            wb.batch(key, settings=wb.kept_settings(key), link=True)
+        """
+        import json
+        from collections import Counter
+
+        from NanoOrganizer.analysis import store as _store
+
+        if sample_id:
+            sample = self.project.get_sample(sample_id)
+            found = sample.get_measurements(modality="fit") if sample else []
+        else:
+            found = self.project.measurements(modality="fit")
+        counts: Counter = Counter()
+        for stored in found:
+            if (stored.meta or {}).get("analysis") != key:
+                continue
+            paths = [path for path in stored.resolve(self.resolver)
+                     if Path(path).exists()]
+            settings = _store.peek(paths[0]).get("settings") if paths else None
+            if settings:
+                counts[json.dumps(settings, sort_keys=True)] += 1
+        return json.loads(counts.most_common(1)[0][0]) if counts else {}
+
+    def _run_one(self, key: str, measurement, options: Dict[str, Any], *,
+                 overwrite: bool, link: bool, folder, write: bool,
+                 prefix: Optional[str] = None):
+        """Load or run one measurement; keep and write as asked.
+        Returns ``(result, status)``, status ``loaded``, ``ran`` or ``failed``."""
+        spec = _analysis.get_analysis(key)
+        settings = spec.settings_for(options, strict=spec.kernel is not None)
+        sample = self.project.get_sample(measurement.sample_id)
+        prefix = spec.prefix_for(measurement) if prefix is None else prefix
+
+        result = None if overwrite else self._kept(key, measurement, settings)
+        if result is not None:
+            if write:
+                result.write_to(sample, prefix=prefix)
+            return result, "loaded"
+
+        result = _analysis.run(key, measurement, self.resolver, **options)
+        if result.ok and write:
+            result.write_to(sample, prefix=prefix)
+        if result.ok and link:
+            self.link_result(result, folder=folder, write=False)
+        return result, ("ran" if result.ok else "failed")
 
     def fit(self, sample_id: str, modality: str = "", *,
             analysis: str = "peak_fit", stage: str = "", role: str = "",
@@ -1006,29 +1164,63 @@ class Workbench:
 
         return _show.result_figure(result, engine=engine, ax=ax, **options)
 
-    def batch(self, key: str, *, write: bool = True, verbose: bool = True,
-              link: bool = False, **options):
-        """Run an analysis over the basket and write the derived values back.
+    def batch(self, key: str, sample_ids: Union[str, Sequence[str], None] = None,
+              *, settings: Optional[Dict[str, Any]] = None,
+              overwrite: bool = False, write: bool = True, link: bool = False,
+              folder: Union[str, Path, None] = None, verbose: bool = True,
+              modality: str = "", stage: str = "", role: str = "",
+              prefix: Optional[str] = None, progress=None, **options):
+        """Run an analysis over many samples — :meth:`run`, sample by sample.
 
-        With *link*, each result's curves are also saved beside the organiser
-        and linked onto its sample, so the fits can be redrawn later without
-        being recomputed. Off by default: a batch over a large selection
-        writes one file per sample, which should be asked for.
+        *sample_ids* is one id, a list, or ``None`` for the basket (every
+        sample when nothing is selected). *settings* (a dict) and keyword
+        *options* are the analysis' settings, the same for every sample.
+
+        A sample whose result was kept with the same settings is loaded, not
+        run again (``overwrite=True`` runs everything). With *link* each new
+        result is saved — in *folder*, or :attr:`results_dir` beside the
+        organiser — and linked onto its sample; *write* puts the values in
+        the ``derived.*`` columns. ``write=False, link=True`` keeps the values
+        in the files only.
+
+        Returns one row per measurement, with ``status`` = ``ran``,
+        ``loaded`` or ``failed`` and, for a failure, the ``message``.
         """
-        outcome = _analysis.batch(self.project, key, sample_ids=self.active,
-                                  write=write, keep_results=link, **options)
-        frame, results = outcome if link else (outcome, [])
+        import pandas as pd
 
-        linked = 0
-        for result in results:
-            if not result.ok:
-                continue
-            self.link_result(result, write=False)
-            linked += 1
+        from NanoOrganizer.analysis.result import AnalysisResult
 
+        if sample_ids is None:
+            ids = self.active
+        elif isinstance(sample_ids, str):
+            ids = [sample_ids]
+        else:
+            ids = list(sample_ids)
+        options = {**(settings or {}), **options}
+        spec = _analysis.get_analysis(key)
+        spec.settings_for(options, strict=spec.kernel is not None)
+
+        found = _analysis.targets(self.project, key, sample_ids=ids,
+                                  modality=modality, stage=stage, role=role)
+        rows = []
+        for index, measurement in enumerate(found):
+            if progress is not None:
+                progress(index, len(found), measurement)
+            try:
+                result, status = self._run_one(
+                    key, measurement, options, overwrite=overwrite, link=link,
+                    folder=folder, write=write, prefix=prefix)
+            except Exception as exc:  # one bad run must not end the batch
+                result = AnalysisResult.failure(
+                    key, f"{type(exc).__name__}: {exc}",
+                    sample_id=measurement.sample_id,
+                    measurement_id=measurement.measurement_id)
+                status = "failed"
+            rows.append({**result.to_row(), "status": status})
+
+        frame = pd.DataFrame(rows)
         if verbose:
-            note = f", linked {linked}" if link else ""
-            print(f"{key}: {_analysis.batch_report(frame)}{note}")
+            print(f"{key}: {_analysis.batch_report(frame)}")
         return frame
 
     def run_all(self, keys: Sequence[str] = (), *, write: bool = True,

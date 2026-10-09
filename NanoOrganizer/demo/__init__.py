@@ -90,7 +90,7 @@ from NanoOrganizer.demo.materials import (
 from NanoOrganizer.demo.showcase import build_showcase_project
 from NanoOrganizer.demo.simple import (
     AXIS, DEFAULT_TEMPERATURES, band_centre_nm, build_demo_project, demo_truth,
-    particle_diameter_nm,
+    particle_diameter_nm, write_micrographs,
 )
 
 __all__ = [
@@ -98,7 +98,7 @@ __all__ = [
     "demo_root", "DEMO_ROOT_ENV", "DEFAULT_DEMO_ROOT",
     # the quick demo
     "build_demo_project", "demo_truth", "AXIS", "DEFAULT_TEMPERATURES",
-    "band_centre_nm", "particle_diameter_nm",
+    "band_centre_nm", "particle_diameter_nm", "write_micrographs",
     # the multimodal showcase
     "build_showcase_project", "showcase_truth", "DEFAULT_FRACTIONS",
     "PRODUCTS", "lattice_parameter_A", "lspr_nm", "alloy_particle_diameter_nm",

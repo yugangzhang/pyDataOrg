@@ -294,6 +294,14 @@ Promoted stage fields (`run_id`, `batch_tag`, `campaign`, `status`, `error`,
 timings) are set on the `Stage`; everything else lands in `params`. Calling it
 again merges.
 
+Reading it back is `metadata` — the whole record of a stage, as it was
+ingested or set, not just the columns flattened from it:
+
+```python
+wb.metadata("CuAu05")                    # {"synthesis": {...}, ...}: every stage
+wb.metadata("CuAu05", "synthesis")       # one; a copy — editing it changes nothing
+```
+
 `wb.add_sample("CuAu09", status="error")` creates a sample with no data at all,
 which is a state worth being able to record: a synthesis that failed is a
 result, and leaving it out biases every comparison drawn afterwards.
@@ -368,6 +376,22 @@ later.results()                           # one row per stored result
 later.result("CuAu05", "peak_fit")        # the AnalysisResult back
 later.plot_result("CuAu05", "peak_fit")   # redrawn, not refitted
 ```
+
+`folder=` puts the files somewhere else — a project's own `Results/` when
+several organizers share one folder — and the link records it relative to the
+organizer's folder (`../Project/Results/…`). `write=False, link=True` keeps
+the values in the files only; `results(analysis="peak_fit")` reads them back
+as a table.
+
+```python
+org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6),
+          write=False, link=True, folder="../Project/Results")
+```
+
+A kept result is also what makes the next run cheap: run the same analysis
+with the same settings again and it is loaded, not recomputed
+(`overwrite=True` to recompute) — see *One settings dict, three levels* in
+[analysis.md](analysis.md).
 
 A stored fit is linked as a measurement of modality **`fit`**, stage
 `analysis`, role = ``{analysis}-{source_modality}`` — the modality is in the
