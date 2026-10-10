@@ -88,8 +88,9 @@ class Plugin:
 
     *register* runs once when the plugin is loaded — import the modules that
     register analyses, campaigns, servers. *on_page* runs on every GUI page
-    render before the page itself (open a default organizer, draw sidebar
-    extras); keep it fast and side-effect free beyond the session.
+    render before the page itself, **when this plugin is the app**
+    (``--app``): open its default organizer, draw its sidebar extras. Keep
+    it fast and side-effect free beyond the session.
     """
 
     name: str

@@ -151,12 +151,13 @@ with st.sidebar:
         st.caption(f"⚠️ plugin `{name}` did not load: "
                    f"{error.splitlines()[0]}")
 
-for plugin in _plugins.PLUGINS.values():
-    if plugin.on_page is not None:
-        try:
-            plugin.on_page()
-        except Exception as exc:                       # never fatal
-            st.sidebar.caption(f"⚠️ `{plugin.name}`: {exc}")
+# Only the app's hook runs: an installed plugin must not take over the
+# session of someone using the general app (or another plugin's).
+if app is not None and app.on_page is not None:
+    try:
+        app.on_page()
+    except Exception as exc:                           # never fatal
+        st.sidebar.caption(f"⚠️ `{app.name}`: {exc}")
 
 sidebar_status()
 floating_sidebar_toggle()

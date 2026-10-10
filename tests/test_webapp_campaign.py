@@ -104,11 +104,19 @@ def test_a_plugin_runs_as_the_app(tmp_path, monkeypatch, cuau):
     assert seen
 
 
-def test_the_general_app_still_opens_on_its_overview(monkeypatch):
+def test_the_general_app_still_opens_on_its_overview(tmp_path, monkeypatch):
+    """An installed plugin shows its pages, but only the app's hook runs."""
+    view = tmp_path / "welcome.py"
+    view.write_text("import streamlit as st\nst.title('Plugin home')\n")
     monkeypatch.setattr(plugins, "PLUGINS", {})
     monkeypatch.setattr(plugins, "_LOADED", True)
+    seen = []
+    plugins.register_plugin(plugins.Plugin(
+        "other", pages=[plugins.Page(view, "Welcome")],
+        on_page=lambda: seen.append(1)))
     monkeypatch.delenv("PYDATAORG_APP", raising=False)
     app = AppTest.from_file(str(HOME), default_timeout=300)
     app.run()
     clean(app)
     assert [t.value for t in app.title] == ["🔬 pyDataOrg"]
+    assert not seen

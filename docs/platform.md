@@ -53,7 +53,7 @@ def _on_page():
 PLUGIN = Plugin(
     name="myproj", title="My project", icon="⚗️",
     register=_register,                   # runs once, when the plugin loads
-    on_page=_on_page,                     # runs on every GUI page, before the page
+    on_page=_on_page,                     # every GUI page, when this plugin is the app
     defaults={"campaign": "my-screen"},   # what the general pages open with
     pages=[
         Page("myproj.web:views/overview.py", "Overview", "⚗️", default=True),
