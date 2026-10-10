@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from NanoOrganizer.core import modality
-from NanoOrganizer.core.project import Project
-from NanoOrganizer.core.schema import Measurement, Sample, Stage, flatten_dict
-from NanoOrganizer.ingest import choose_adapter
-from NanoOrganizer.ingest.sampledict import modality_from_name
+from pyDataOrg.core import modality
+from pyDataOrg.core.project import Project
+from pyDataOrg.core.schema import Measurement, Sample, Stage, flatten_dict
+from pyDataOrg.ingest import choose_adapter
+from pyDataOrg.ingest.sampledict import modality_from_name
 
 # A metadata module shaped like the ones written at the instrument: a helper
 # function builds the repeated parts, and the paths point at a prefix that is
@@ -402,7 +402,7 @@ def test_aliases_survive_a_reopen(project):
 
 def test_metadata_sources_are_remembered(project):
     project.save()
-    config = json.loads((project.root / ".nanoorganizer" / "project.json").read_text())
+    config = json.loads((project.root / ".pydataorg" / "project.json").read_text())
     recorded = [Path(s["path"]).name for s in config["metadata_sources"]]
     assert sorted(recorded) == ["Catalysis_dict_Test.py", "Synthesis_dict_Test.py"]
 
@@ -447,7 +447,7 @@ def test_merging_a_stage_keeps_existing_parameters():
 
 
 def test_a_key_with_a_space_does_not_drop_the_whole_dict(tmp_path):
-    from NanoOrganizer.ingest.pydict import find_sample_dicts
+    from pyDataOrg.ingest.pydict import find_sample_dicts
 
     meta = tmp_path / "Catalysis_dict.py"
     meta.write_text(
@@ -460,7 +460,7 @@ def test_a_key_with_a_space_does_not_drop_the_whole_dict(tmp_path):
 
 
 def test_a_refused_records_dict_is_reported_not_dropped_silently(tmp_path):
-    from NanoOrganizer.ingest.pydict import find_sample_dicts
+    from pyDataOrg.ingest.pydict import find_sample_dicts
 
     meta = tmp_path / "Synthesis_dict.py"
     meta.write_text(
@@ -470,7 +470,7 @@ def test_a_refused_records_dict_is_reported_not_dropped_silently(tmp_path):
 
 
 def test_failed_records_get_their_own_stage():
-    from NanoOrganizer.ingest.pydict import stage_from_name
+    from pyDataOrg.ingest.pydict import stage_from_name
 
     assert stage_from_name("Synthesis_dict") == "synthesis"
     assert stage_from_name("Catalysis_dict_2026") == "catalysis"

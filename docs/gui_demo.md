@@ -30,7 +30,7 @@ relative to its own folder.
 
 ```bash
 pip install -e ".[web,image]"                    # once: Streamlit, Plotly, Pillow, scikit-image
-streamlit run NanoOrganizer/web_app/Home.py      # → http://localhost:8501
+streamlit run pyDataOrg/web_app/Home.py      # → http://localhost:8501
 ```
 
 That is the open mode, for your own machine. On a shared machine use the
@@ -42,8 +42,8 @@ viz 8900 s3cret      # port and password given
 ```
 
 Either way the server binds every interface so the app is reachable by
-hostname; set `NANOORGANIZER_HOST=127.0.0.1` to keep it local. Demo data goes
-in `../OrgDemo`, beside the source checkout — set `NANOORGANIZER_DEMO_ROOT` to
+hostname; set `PYDATAORG_HOST=127.0.0.1` to keep it local. Demo data goes
+in `../OrgDemo`, beside the source checkout — set `PYDATAORG_DEMO_ROOT` to
 put it elsewhere.
 
 The sidebar lists the pages. **Workflow** is the part that matters:
@@ -104,7 +104,7 @@ volcano.
 answer key beside it:
 
 ```python
-from NanoOrganizer.demo import build_showcase_project, demo_root, showcase_truth
+from pyDataOrg.demo import build_showcase_project, demo_root, showcase_truth
 
 ROOT = demo_root("CuAu")                                  # ../OrgDemo/CuAu
 build_showcase_project(ROOT)                              # files + four metadata dicts
@@ -335,8 +335,8 @@ The Demo page writes the same files notebooks 10–12 do, so the two take turns
 on them:
 
 ```python
-from NanoOrganizer import Organizer
-from NanoOrganizer.demo import demo_root
+from pyDataOrg import Organizer
+from pyDataOrg.demo import demo_root
 
 org = Organizer(demo_root("CuAu", "cuau.json"))   # what the page built
 org.describe()

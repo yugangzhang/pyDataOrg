@@ -3,17 +3,17 @@
 import numpy as np
 import pytest
 
-from NanoOrganizer.analysis import (
+from pyDataOrg.analysis import (
     analyses_for, batch, batch_report, get_analysis, run,
 )
-from NanoOrganizer.analysis.frames import (
+from pyDataOrg.analysis.frames import (
     KINETIC, STATIC, detect_grammar, load_series,
 )
-from NanoOrganizer.analysis.linear import linear_fit, linear_region
-from NanoOrganizer.analysis.result import AnalysisResult
-from NanoOrganizer.analysis.series import FrameSeries
-from NanoOrganizer.core.project import Project
-from NanoOrganizer.core.schema import Measurement, Sample
+from pyDataOrg.analysis.linear import linear_fit, linear_region
+from pyDataOrg.analysis.result import AnalysisResult
+from pyDataOrg.analysis.series import FrameSeries
+from pyDataOrg.core.project import Project
+from pyDataOrg.core.schema import Measurement, Sample
 
 AXIS = np.linspace(300.0, 900.0, 601)
 
@@ -127,7 +127,7 @@ def test_a_custom_grammar_can_be_registered():
     """An instrument with its own convention adds one call."""
     import re
 
-    from NanoOrganizer.analysis.frames import FrameGrammar, register_grammar
+    from pyDataOrg.analysis.frames import FrameGrammar, register_grammar
 
     grammar = FrameGrammar(
         key="test_custom", label="custom",
@@ -136,7 +136,7 @@ def test_a_custom_grammar_can_be_registered():
         register_grammar(grammar)
         assert detect_grammar(["shot0100ms.npy"]).key == "test_custom"
     finally:
-        from NanoOrganizer.analysis.frames import GRAMMAR_REGISTRY
+        from pyDataOrg.analysis.frames import GRAMMAR_REGISTRY
         GRAMMAR_REGISTRY.pop("test_custom", None)
 
 
@@ -422,7 +422,7 @@ def _disc_image(size=512, radius=12, spacing=48, background=200, particle=60):
 
 
 def test_segmentation_finds_separated_discs():
-    from NanoOrganizer.analysis.imaging import measure_particles, segment_particles
+    from pyDataOrg.analysis.imaging import measure_particles, segment_particles
 
     image, expected = _disc_image()
     labels, _ = segment_particles(image, dark_particles=True, min_area_px=20)
@@ -432,7 +432,7 @@ def test_segmentation_finds_separated_discs():
 
 
 def test_calibration_converts_pixels_to_nanometres():
-    from NanoOrganizer.analysis.imaging import measure_particles, segment_particles
+    from pyDataOrg.analysis.imaging import measure_particles, segment_particles
 
     image, _ = _disc_image()
     labels, _ = segment_particles(image, dark_particles=True, min_area_px=20)
@@ -448,7 +448,7 @@ def test_faint_blobs_are_rejected_before_strong_ones():
     the behaviour instead: tightening the contrast floor only removes more, and
     the faint blob goes before any real particle.
     """
-    from NanoOrganizer.analysis.imaging import segment_particles
+    from pyDataOrg.analysis.imaging import segment_particles
 
     image, expected = _disc_image(particle=60)
     yy, xx = np.ogrid[:512, :512]
@@ -474,7 +474,7 @@ def test_faint_blobs_are_rejected_before_strong_ones():
 
 def test_seed_spacing_adapts_to_particle_size():
     """A fixed spacing suiting one magnification bisects particles at another."""
-    from NanoOrganizer.analysis.imaging import segment_particles
+    from pyDataOrg.analysis.imaging import segment_particles
 
     big, expected = _disc_image(radius=24, spacing=96)
     labels, info = segment_particles(big, dark_particles=True, min_area_px=50)
@@ -506,7 +506,7 @@ def test_banner_rows_are_cropped(tmp_path):
     """Some instruments append an info bar, making the frame non-square."""
     from PIL import Image
 
-    from NanoOrganizer.analysis.imaging import read_micrograph
+    from pyDataOrg.analysis.imaging import read_micrograph
 
     image, _ = _disc_image(size=256)
     tall = np.vstack([image, np.full((40, 256), 255.0)])
@@ -629,7 +629,7 @@ def test_segmentation_reads_the_polarity_off_the_image(value, background,
                                                        expect_dark):
     """Getting this backwards segments the support and reports its size with
     the same confidence, which is the worst possible failure mode."""
-    from NanoOrganizer.analysis.imaging import segment_particles
+    from pyDataOrg.analysis.imaging import segment_particles
 
     labels, info = segment_particles(_disc_field(value, background))
     assert info["dark_particles"] is expect_dark
@@ -638,7 +638,7 @@ def test_segmentation_reads_the_polarity_off_the_image(value, background,
 
 
 def test_an_explicit_polarity_still_wins():
-    from NanoOrganizer.analysis.imaging import segment_particles
+    from pyDataOrg.analysis.imaging import segment_particles
 
     _, info = segment_particles(_disc_field(40, 200), dark_particles=False)
     assert info["dark_particles"] is False
@@ -671,9 +671,9 @@ def test_peak_fit_on_per_file_frames_honours_reduce(tmp_path):
     ``reduce='last_decile'`` answers a different question from the one asked,
     and says it did the right thing while doing so.
     """
-    from NanoOrganizer.analysis import peaks
-    from NanoOrganizer.core.pathmap import PathResolver
-    from NanoOrganizer.core.schema import Measurement
+    from pyDataOrg.analysis import peaks
+    from pyDataOrg.core.pathmap import PathResolver
+    from pyDataOrg.core.schema import Measurement
 
     folder = tmp_path / "spectra"
     _two_column_series(folder, [500.0, 520.0, 540.0, 560.0])
@@ -696,9 +696,9 @@ def test_peak_fit_on_per_file_frames_honours_reduce(tmp_path):
 
 def test_peak_fit_reports_which_curve_it_actually_read(tmp_path):
     """The diagnostic has to describe what happened, not what was requested."""
-    from NanoOrganizer.analysis import peaks
-    from NanoOrganizer.core.pathmap import PathResolver
-    from NanoOrganizer.core.schema import Measurement
+    from pyDataOrg.analysis import peaks
+    from pyDataOrg.core.pathmap import PathResolver
+    from pyDataOrg.core.schema import Measurement
 
     folder = tmp_path / "spectra"
     _two_column_series(folder, [500.0, 530.0, 560.0])
@@ -715,9 +715,9 @@ def test_peak_fit_reports_which_curve_it_actually_read(tmp_path):
 def test_a_single_file_is_unaffected_by_the_reduce_path(tmp_path):
     import numpy as np
 
-    from NanoOrganizer.analysis import peaks
-    from NanoOrganizer.core.pathmap import PathResolver
-    from NanoOrganizer.core.schema import Measurement
+    from pyDataOrg.analysis import peaks
+    from pyDataOrg.core.pathmap import PathResolver
+    from pyDataOrg.core.schema import Measurement
 
     x = np.linspace(2.0, 4.0, 400)
     y = 100 * np.exp(-0.5 * ((x - 3.0) / 0.05) ** 2) + 5.0
@@ -734,7 +734,7 @@ def test_a_single_file_is_unaffected_by_the_reduce_path(tmp_path):
 
 def test_a_bare_csv_header_row_is_not_a_corrupt_file(tmp_path):
     """Instruments export ``wavelength,absorbance`` on line one constantly."""
-    from NanoOrganizer.analysis.reading import read_array
+    from pyDataOrg.analysis.reading import read_array
 
     folder = tmp_path / "spectra"
     _two_column_series(folder, [520.0], header="wavelength_nm,absorbance")
@@ -746,7 +746,7 @@ def test_a_bare_csv_header_row_is_not_a_corrupt_file(tmp_path):
 
 
 def test_two_header_rows_are_reported_not_guessed_at(tmp_path):
-    from NanoOrganizer.analysis.reading import read_array
+    from pyDataOrg.analysis.reading import read_array
 
     path = tmp_path / "odd.csv"
     path.write_text("instrument,LabSpec\nwavelength,absorbance\n400,0.1\n")

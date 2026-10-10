@@ -1,0 +1,12 @@
+{
+  "admin": {
+    "password": "REPLACE_WITH_SHA256_HASH",
+    "admin": true
+  },
+  "alice": {
+    "password": "REPLACE_WITH_SHA256_HASH",
+    "roots": [
+      "/data/shared/alice_project"
+    ]
+  }
+}

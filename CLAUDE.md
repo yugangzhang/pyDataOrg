@@ -25,7 +25,7 @@ reasoning is in [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md).
 4. **Public, standalone, domain-neutral.** No dependency on a personal repo,
    project data, or beamline vocabulary — that belongs in `a project package`.
 5. **Generated data goes under `demo_root()`** (`../OrgDemo` beside the
-   checkout, or `$NANOORGANIZER_DEMO_ROOT`). Nothing writes into the home
+   checkout, or `$PYDATAORG_DEMO_ROOT`). Nothing writes into the home
    directory itself.
 6. **No absolute paths in anything published.** A relative path is relative
    to the project root (the organizer's folder); generators, links and stored
@@ -35,7 +35,7 @@ reasoning is in [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md).
 7. **Link, don't auto-attach.** `attach_folders()` is the exception for a tidy
    `<Modality>Data/<SampleID>/` layout; documentation leads with `link()`.
 8. **One generator per demo.** Notebooks and the web app call the same
-   functions in `NanoOrganizer/demo/` — never a copy pasted into a cell.
+   functions in `pyDataOrg/demo/` — never a copy pasted into a cell.
 
 ## Web app
 

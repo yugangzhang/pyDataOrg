@@ -7,7 +7,7 @@ Debug
 debug
 HANDOFF.md
 # Local access configuration contains machine paths and password hashes.
-.config/pyViz.conf
+.config/pydataorg.conf
 .config/pyviz.conf
 # ...but keep the checked-in template.
 !users.example.json

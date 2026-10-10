@@ -5,11 +5,11 @@ from pathlib import Path
 
 import streamlit as st
 
-from NanoOrganizer.core.access_config import (
+from pyDataOrg.core.access_config import (
     config_users, configured_extra_roots, configured_start_dir,
     load_access_config,
 )
-from NanoOrganizer.web_app.components.security import (
+from pyDataOrg.web_app.components.security import (
     initialize_security_context, is_path_allowed,
 )
 
@@ -19,7 +19,7 @@ def _sha256(value: str) -> str:
 
 
 def _write(tmp_path, body: str) -> Path:
-    path = tmp_path / "pyViz.conf"
+    path = tmp_path / "pydataorg.conf"
     path.write_text(body)
     return path
 
@@ -29,9 +29,9 @@ def _write(tmp_path, body: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def test_missing_config_is_not_an_error(tmp_path, monkeypatch):
-    monkeypatch.delenv("NANOORGANIZER_CONFIG", raising=False)
-    monkeypatch.delenv("NANOORGANIZER_MODE", raising=False)
-    monkeypatch.delenv("NANOORGANIZER_START_DIR", raising=False)
+    monkeypatch.delenv("PYDATAORG_CONFIG", raising=False)
+    monkeypatch.delenv("PYDATAORG_MODE", raising=False)
+    monkeypatch.delenv("PYDATAORG_START_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
 
@@ -135,7 +135,7 @@ roots = /data/frank
 
 def test_environment_overrides_the_file(tmp_path, monkeypatch):
     path = _write(tmp_path, "[application]\naccess_mode = local\n")
-    monkeypatch.setenv("NANOORGANIZER_MODE", "admin")
+    monkeypatch.setenv("PYDATAORG_MODE", "admin")
     assert load_access_config(path).access_mode == "admin"
 
 
@@ -150,11 +150,11 @@ def test_allowed_roots_fence_the_browser(tmp_path, monkeypatch):
     outside.mkdir()
 
     st.session_state.clear()
-    monkeypatch.setenv("NANOORGANIZER_USER_MODE", "1")
-    monkeypatch.setenv("NANOORGANIZER_ALLOWED_ROOTS", str(tmp_path / "allowed"))
-    monkeypatch.setenv("NANOORGANIZER_START_DIR", str(tmp_path / "allowed"))
-    monkeypatch.delenv("NANOORGANIZER_CONFIG", raising=False)
-    monkeypatch.delenv("NANOORGANIZER_USERS_FILE", raising=False)
+    monkeypatch.setenv("PYDATAORG_USER_MODE", "1")
+    monkeypatch.setenv("PYDATAORG_ALLOWED_ROOTS", str(tmp_path / "allowed"))
+    monkeypatch.setenv("PYDATAORG_START_DIR", str(tmp_path / "allowed"))
+    monkeypatch.delenv("PYDATAORG_CONFIG", raising=False)
+    monkeypatch.delenv("PYDATAORG_USERS_FILE", raising=False)
 
     initialize_security_context()
 

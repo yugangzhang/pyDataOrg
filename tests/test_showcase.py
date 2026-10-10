@@ -12,10 +12,10 @@ teaches the pipeline is working when it is not.
 import numpy as np
 import pytest
 
-from NanoOrganizer import analysis, open_project
-from NanoOrganizer.demo import build_showcase_project, showcase_truth
-from NanoOrganizer.demo import materials as mat
-from NanoOrganizer.demo import signals as sig
+from pyDataOrg import analysis, open_project
+from pyDataOrg.demo import build_showcase_project, showcase_truth
+from pyDataOrg.demo import materials as mat
+from pyDataOrg.demo import signals as sig
 
 FRACTIONS = (0.0, 0.5, 1.0)
 
@@ -234,7 +234,7 @@ def test_micrographs_carry_a_pixel_calibration(workbench):
 
 def test_the_tem_banner_is_cropped_off(workbench):
     """It is below the image; nothing downstream should ever see those rows."""
-    from NanoOrganizer.analysis.reading import load_image
+    from pyDataOrg.analysis.reading import load_image
 
     _, info = load_image(workbench.measurement("CuAu01", modality="tem"),
                          workbench.resolver)
@@ -244,7 +244,7 @@ def test_the_tem_banner_is_cropped_off(workbench):
 def test_sem_contrast_polarity_is_detected_not_assumed(workbench):
     """SEM particles are bright, TEM particles are dark, and the user should
     not have to remember which."""
-    from NanoOrganizer.analysis.imaging import read_micrograph, segment_particles
+    from pyDataOrg.analysis.imaging import read_micrograph, segment_particles
 
     for modality, expected_dark in (("tem", True), ("sem", False)):
         path = workbench.measurement("CuAu01", modality=modality).resolve(
@@ -255,7 +255,7 @@ def test_sem_contrast_polarity_is_detected_not_assumed(workbench):
 
 
 def test_the_tomogram_is_a_volume(workbench):
-    from NanoOrganizer.analysis.reading import load_volume
+    from pyDataOrg.analysis.reading import load_volume
 
     volume, info = load_volume(workbench.measurement("CuAu01", modality="tomo"),
                                workbench.resolver)
@@ -265,7 +265,7 @@ def test_the_tomogram_is_a_volume(workbench):
 def test_every_measurement_can_be_read_by_its_group(workbench):
     """The viewer dispatches on group, so every measurement has to survive the
     reader for its own group — in one of fifteen file layouts."""
-    from NanoOrganizer.analysis.reading import (
+    from pyDataOrg.analysis.reading import (
         load_curve_set, load_image, load_volume,
     )
 
@@ -284,7 +284,7 @@ def test_every_measurement_can_be_read_by_its_group(workbench):
 def test_one_electrochemistry_measurement_holds_every_product(workbench):
     """Faradaic efficiencies arrive as one file per product, so the viewer
     gets several curves on one axis without any special case."""
-    from NanoOrganizer.analysis.reading import load_curve_set
+    from pyDataOrg.analysis.reading import load_curve_set
 
     measurement = workbench.measurement("CuAu01", modality="ec", role="co2-rr-fe")
     _, values, info = load_curve_set(measurement, workbench.resolver)
@@ -343,7 +343,7 @@ def test_line_intensities_give_the_composition_after_their_factors():
 
 
 def test_the_hand_built_organizer_matches_the_attached_project(project_root):
-    from NanoOrganizer import Organizer
+    from pyDataOrg import Organizer
 
     # Beside its data: the metadata names files relative to this folder, and
     # the hand links below are relative too. Nothing is saved.
@@ -364,9 +364,9 @@ def test_the_hand_built_organizer_matches_the_attached_project(project_root):
 
 
 def test_the_campaign_command_writes_data_and_answer_key(tmp_path, monkeypatch):
-    from NanoOrganizer.demo.__main__ import main
+    from pyDataOrg.demo.__main__ import main
 
-    monkeypatch.setenv("NANOORGANIZER_DEMO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PYDATAORG_DEMO_ROOT", str(tmp_path))
     assert main(["--campaign", "--no-images"]) == 0
     assert (tmp_path / "CuAu" / "MetaData" / "Synthesis_dict.py").exists()
     assert (tmp_path / "CuAu" / "truth.csv").exists()
@@ -374,7 +374,7 @@ def test_the_campaign_command_writes_data_and_answer_key(tmp_path, monkeypatch):
 
 
 def test_ingesting_a_metadata_module_writes_nothing_beside_it(tmp_path):
-    from NanoOrganizer import Organizer
+    from pyDataOrg import Organizer
 
     meta = tmp_path / "MetaData"
     meta.mkdir()
@@ -394,7 +394,7 @@ def test_the_campaign_records_no_absolute_path(project_root):
 def test_a_campaign_folder_moved_elsewhere_still_opens(project_root, tmp_path):
     import shutil
 
-    from NanoOrganizer import Organizer
+    from pyDataOrg import Organizer
 
     org = Organizer(project_root / "moved.json")
     org.ingest("MetaData/Characterization_dict.py")

@@ -72,7 +72,7 @@ Anything that assumes a chemistry belongs in a package of its own, which
 registers itself on import:
 
 ```python
-from NanoOrganizer.analysis import Analysis, register_analysis
+from pyDataOrg.analysis import Analysis, register_analysis
 
 # KERNEL — the science. Arrays in, result out. No files, no project.
 def measure_my_assay(x, y, *, window=None):
@@ -81,7 +81,7 @@ def measure_my_assay(x, y, *, window=None):
 
 # ADAPTER — the plumbing. Register this one.
 def my_assay(measurement, resolver, *, window=None, **io):
-    from NanoOrganizer.analysis.peaks import load_curve
+    from pyDataOrg.analysis.peaks import load_curve
 
     try:
         x, y, info = load_curve(measurement, resolver, **io)
@@ -159,7 +159,7 @@ made with — how a page tells a sample redone with other settings from the rest
 An analysis can also run on another analysis' stored result: declare
 `modalities=("fit",), stages=("analysis",), results_of=("my_assay",)` and its
 adapter is handed the linked result file of `my_assay` (read it with
-`NanoOrganizer.analysis.store.load_result`). It applies to those results only
+`pyDataOrg.analysis.store.load_result`). It applies to those results only
 — not to its own, so running it twice does not run it on itself.
 
 ## Derived names carry the modality
@@ -323,7 +323,7 @@ convention adds one call:
 
 ```python
 import re
-from NanoOrganizer.analysis.frames import FrameGrammar, register_grammar
+from pyDataOrg.analysis.frames import FrameGrammar, register_grammar
 
 register_grammar(FrameGrammar(
     key="my_rig", label="…",
@@ -363,7 +363,7 @@ analyses together. The GUI uses the same class, so a page and a notebook cannot
 drift apart in behaviour.
 
 ```python
-from NanoOrganizer import open_project
+from pyDataOrg import open_project
 
 wb = open_project("/data/MyProject")
 wb.filter("`synthesis.conditions.temperature_C` >= 90")
@@ -384,7 +384,7 @@ wb.save()
 
 ## Plot colours
 
-`NanoOrganizer.viz.plots` applies one house style. Categorical hues are assigned
+`pyDataOrg.viz.plots` applies one house style. Categorical hues are assigned
 in fixed order and never cycled, so adding a series cannot repaint the others.
 Scatter plots cap at three categories and fold the rest into a neutral "Other" —
 a scatter asks the eye to separate every pair at once, not just neighbours.

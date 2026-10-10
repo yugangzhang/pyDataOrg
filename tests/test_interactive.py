@@ -13,7 +13,7 @@ import pytest
 plotly = pytest.importorskip("plotly")
 go = pytest.importorskip("plotly.graph_objects")
 
-from NanoOrganizer.viz import interactive as iv   # noqa: E402
+from pyDataOrg.viz import interactive as iv   # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -96,7 +96,7 @@ def test_point_cloud_is_capped_and_deterministic(volume):
 def test_every_offered_colorscale_actually_exists():
     """Plotly raises on an unknown scale, so an unchecked name is a crash
     waiting for whoever picks it from the menu."""
-    from NanoOrganizer.web_app.components.plot_controls import COLORMAPS
+    from pyDataOrg.web_app.components.plot_controls import COLORMAPS
 
     for name in list(COLORMAPS.values()) + list(iv.COLORSCALES):
         go.Figure(go.Heatmap(z=[[0, 1]], colorscale=name))
@@ -109,7 +109,7 @@ def test_grey_and_diverging_scales_run_the_same_way_as_matplotlib():
     import matplotlib
     from plotly.colors import sample_colorscale
 
-    from NanoOrganizer.web_app.components.plot_controls import COLORMAPS
+    from pyDataOrg.web_app.components.plot_controls import COLORMAPS
 
     for mpl_name in ("gray", "viridis", "coolwarm", "hot"):
         cmap = matplotlib.colormaps[mpl_name]

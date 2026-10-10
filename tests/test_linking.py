@@ -17,11 +17,11 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt                                    # noqa: E402
 
-from NanoOrganizer import new_organizer, open_project               # noqa: E402
-from NanoOrganizer.analysis import frames as _frames                # noqa: E402
-from NanoOrganizer.core import linking                              # noqa: E402
-from NanoOrganizer.demo import build_showcase_project               # noqa: E402
-from NanoOrganizer.viz import show                                  # noqa: E402
+from pyDataOrg import new_organizer, open_project               # noqa: E402
+from pyDataOrg.analysis import frames as _frames                # noqa: E402
+from pyDataOrg.core import linking                              # noqa: E402
+from pyDataOrg.demo import build_showcase_project               # noqa: E402
+from pyDataOrg.viz import show                                  # noqa: E402
 
 FRACTIONS = (0.0, 0.5, 1.0)
 

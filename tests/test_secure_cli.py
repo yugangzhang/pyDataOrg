@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from NanoOrganizer.web_app import app_cli
+from pyDataOrg.web_app import app_cli
 
 
 def test_main_secure_sets_port_and_security_env(monkeypatch, tmp_path: Path):
@@ -27,14 +27,14 @@ def test_main_secure_sets_port_and_security_env(monkeypatch, tmp_path: Path):
     assert captured["port"] == 6011
 
     env = captured["env"]
-    assert env["NANOORGANIZER_SECURE_MODE"] == "1"
-    assert env["NANOORGANIZER_USER_MODE"] == "1"
-    assert env["NANOORGANIZER_START_DIR"] == str(tmp_path.resolve())
-    assert env["NANOORGANIZER_PASSWORD_HASH"] == hashlib.sha256(
+    assert env["PYDATAORG_SECURE_MODE"] == "1"
+    assert env["PYDATAORG_USER_MODE"] == "1"
+    assert env["PYDATAORG_START_DIR"] == str(tmp_path.resolve())
+    assert env["PYDATAORG_PASSWORD_HASH"] == hashlib.sha256(
         b"top-secret"
     ).hexdigest()
 
-    allowed_roots = env["NANOORGANIZER_ALLOWED_ROOTS"].split(os.pathsep)
+    allowed_roots = env["PYDATAORG_ALLOWED_ROOTS"].split(os.pathsep)
     assert str(tmp_path.resolve()) in allowed_roots
     assert str(Path.home().resolve()) in allowed_roots
 
@@ -58,7 +58,7 @@ def test_main_secure_uses_ini_users_without_shared_password(
 
     config_dir = tmp_path / ".config"
     config_dir.mkdir()
-    (config_dir / "pyViz.conf").write_text(
+    (config_dir / "pydataorg.conf").write_text(
         """[application]
 access_mode = admin
 start_dir = {start}
@@ -82,11 +82,11 @@ all_paths = true
 
     assert exc.value.code == 0
     env = captured["env"]
-    assert env["NANOORGANIZER_CONFIG"] == str(config_dir / "pyViz.conf")
-    assert env["NANOORGANIZER_START_DIR"] == str(
+    assert env["PYDATAORG_CONFIG"] == str(config_dir / "pydataorg.conf")
+    assert env["PYDATAORG_START_DIR"] == str(
         (tmp_path / "configured-start").resolve()
     )
-    assert "NANOORGANIZER_PASSWORD_HASH" not in env
+    assert "PYDATAORG_PASSWORD_HASH" not in env
 
 
 def test_main_user_sets_restricted_env(monkeypatch, tmp_path: Path):
@@ -105,6 +105,6 @@ def test_main_user_sets_restricted_env(monkeypatch, tmp_path: Path):
 
     assert exc.value.code == 0
     assert captured["port"] == app_cli.DEFAULT_PORT
-    assert captured["env"]["NANOORGANIZER_USER_MODE"] == "1"
-    assert captured["env"]["NANOORGANIZER_START_DIR"] == str(tmp_path.resolve())
-    assert captured["env"]["NANOORGANIZER_ALLOWED_ROOTS"] == str(tmp_path.resolve())
+    assert captured["env"]["PYDATAORG_USER_MODE"] == "1"
+    assert captured["env"]["PYDATAORG_START_DIR"] == str(tmp_path.resolve())
+    assert captured["env"]["PYDATAORG_ALLOWED_ROOTS"] == str(tmp_path.resolve())

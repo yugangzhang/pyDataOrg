@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""
+Generate example data from the command line.
+
+    python -m pyDataOrg.demo --campaign     # the data for notebooks 10-12
+    python -m pyDataOrg.demo                # the same campaign, as a project
+    python -m pyDataOrg.demo --quick        # the small two-technique project
+    python -m pyDataOrg.demo ~/elsewhere/Showcase --no-images
+
+Without a path, everything goes under ``demo_root()`` — ``~/Repos/OrgDemo`` by
+default, ``$PYDATAORG_DEMO_ROOT`` to move it.
+
+``--campaign`` writes the Cu–Au showcase as **raw data only** — the files, the
+four metadata dicts and the answer key (``truth.csv``) — into ``CuAu/``,
+because building the organizer from it is the part worth doing yourself
+(notebook 11, or the web app's Demo page). Without it the same campaign is
+written to ``Showcase/`` and opened as a project.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m pyDataOrg.demo",
+        description="Generate example data to explore.")
+    parser.add_argument("root", type=Path, nargs="?", default=None,
+                        help="where to write it (default: under demo_root())")
+    kind = parser.add_mutually_exclusive_group()
+    kind.add_argument("--campaign", action="store_true",
+                      help="the Cu-Au campaign as raw data for notebooks "
+                           "10-12 and the Demo page, plus its answer key "
+                           "truth.csv — no organizer")
+    kind.add_argument("--quick", action="store_true",
+                      help="the small two-technique demo project instead of "
+                           "the fifteen-technique showcase")
+    parser.add_argument("--no-images", action="store_true",
+                        help="skip micrographs and tomography (projects only)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="random seed (default: the generator's own)")
+    args = parser.parse_args(argv)
+
+    from pyDataOrg.core.pathmap import display_path
+    from pyDataOrg.demo import demo_root
+
+    if args.campaign:
+        from pyDataOrg.demo import build_showcase_project, showcase_truth
+
+        root = (args.root or demo_root("CuAu")).expanduser()
+        options = {"with_images": not args.no_images,
+                   "with_tomography": not args.no_images}
+        if args.seed is not None:
+            options["seed"] = args.seed
+        campaign = build_showcase_project(root, **options)
+        showcase_truth().to_csv(campaign / "truth.csv", index=False)
+        print(f"Campaign and answer key written to {display_path(campaign)}")
+        print("Next: notebook/11_build_organizer, or the web app's Demo page.")
+        return 0
+
+    from pyDataOrg.demo import build_demo_project, build_showcase_project
+
+    options = {"with_images": not args.no_images}
+    if args.seed is not None:
+        options["seed"] = args.seed
+
+    if args.quick:
+        root = build_demo_project(args.root or demo_root("Quick"), **options)
+    else:
+        root = build_showcase_project(
+            args.root or demo_root("Showcase"),
+            with_tomography=not args.no_images, **options)
+
+    from pyDataOrg import open_project
+
+    workbench = open_project(root)
+    print(workbench.summary())
+    print(f"\nProject written to {root}")
+    print("Open it with:  viz          (then Project → Open → paste the path)")
+    print("           or:  open_project(r'%s')" % root)
+    return 0
+
+
+if __name__ == "__main__":       # pragma: no cover - console entry point
+    raise SystemExit(main())

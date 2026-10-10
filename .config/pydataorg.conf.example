@@ -1,0 +1,52 @@
+# Example access configuration for the pyDataOrg web app.
+#
+# Copy to ~/.config/pydataorg.conf, or set PYDATAORG_CONFIG to point elsewhere.
+# A project-local .config/pydataorg.conf is also found automatically.
+#
+# DO NOT COMMIT THE REAL FILE: it contains local filesystem paths and password
+# hashes. Keep it readable only by you (chmod 600 — viz-adduser does this).
+#
+# None of this is needed on a single-user workstation. With no configuration
+# file at all the app runs in `local` mode and browses whatever the account
+# running it can read.
+
+[application]
+# admin — login required, then the whole filesystem the process can read
+# user  — login required, each account sees only its own roots
+# local — no login; trusts whoever is at the keyboard (the default)
+access_mode = user
+
+# Folder the file browser opens on. Optional.
+start_dir = /data/projects
+
+[paths]
+# Extra roots offered to every logged-in user, on top of their own.
+# One per line, or separated by commas or semicolons.
+extra_roots =
+    /data/shared
+    /data/reference
+
+[admin]
+# A single privileged account. all_paths grants everything readable by the
+# server process; omit it and the account is limited to its own roots.
+username = owner
+password_hash = REPLACE_WITH_SHA256_HASH
+all_paths = true
+
+[users]
+# Who may log in, and whether they are privileged.
+alice = user
+bob = user
+
+[user:alice]
+# Each account's credentials and the folders it may browse. Subfolders are
+# included automatically; a non-admin with no roots gets no access at all.
+# A leading ~ expands, and {username} becomes the account name.
+password_hash = REPLACE_WITH_SHA256_HASH
+roots =
+    /data/projects/alice
+    /scratch/{username}
+
+[user:bob]
+password_hash = REPLACE_WITH_SHA256_HASH
+roots = /data/projects/bob

@@ -1,4 +1,4 @@
-# NanoOrganizer
+# pyDataOrg
 
 Organise experimental metadata, visualise any measurement, analyse in batch,
 and compare across samples.
@@ -6,7 +6,7 @@ and compare across samples.
 A laboratory accumulates data faster than it accumulates structure: a folder of
 spectra here, a drive of micrographs there, a beamline mount, a potentiostat's
 export folder, and the conditions that produced all of it in a notebook or a
-script. NanoOrganizer gives that material one sample-centric model, so a
+script. pyDataOrg gives that material one sample-centric model, so a
 question like *which composition is the best CO₂-reduction catalyst, and why?*
 is a filter, a batch and a plot rather than a week.
 
@@ -37,7 +37,7 @@ for micrographs; Streamlit and Plotly for the GUI. Nothing else.
 ## Run the GUI
 
 ```bash
-streamlit run NanoOrganizer/web_app/Home.py   # local, no login → http://localhost:8501
+streamlit run pyDataOrg/web_app/Home.py   # local, no login → http://localhost:8501
 viz                                           # password + folder fence, port 8800
 viz 8900                                      # the same, on another port
 ```
@@ -89,12 +89,12 @@ data never lets you check.
 ### 0 · Get the data
 
 ```bash
-python -m NanoOrganizer.demo --campaign     # writes ../OrgDemo/CuAu, beside this repository
+python -m pyDataOrg.demo --campaign     # writes ../OrgDemo/CuAu, beside this repository
 ```
 
 (or run notebook `10_simulate_data`, or **Demo → 1 Simulate** in the GUI —
 all three call the same generator.) Generated data goes under one parent,
-`../OrgDemo` beside the repository by default; set `$NANOORGANIZER_DEMO_ROOT`
+`../OrgDemo` beside the repository by default; set `$PYDATAORG_DEMO_ROOT`
 to move it.
 
 What lands on disk is a campaign as the groups that ran it left it — one tree
@@ -140,8 +140,8 @@ hidden folder — a document you can copy, diff, version and email. It records
 *where* things are; the data never moves.
 
 ```python
-from NanoOrganizer import Organizer
-from NanoOrganizer.demo import demo_root
+from pyDataOrg import Organizer
+from pyDataOrg.demo import demo_root
 
 ROOT = demo_root("CuAu")                     # ../OrgDemo/CuAu, beside this repository
 
@@ -269,8 +269,8 @@ gallery at the top of the page:
 
 ```python
 import matplotlib.pyplot as plt
-from NanoOrganizer.viz.plots import plot_curves, plot_image, plot_series
-from NanoOrganizer.viz.show import project_volume
+from pyDataOrg.viz.plots import plot_curves, plot_image, plot_series
+from pyDataOrg.viz.show import project_volume
 
 done = org.ids("`synthesis.status` == 'done'")
 x_nominal = org.table(sample_ids=done)["synthesis.composition.nominal_x_Au"]
@@ -341,7 +341,7 @@ A projection says what is in there; only rotation says what shape it is. The
 same volume, as something you can turn around:
 
 ```python
-from NanoOrganizer.viz import interactive as iv
+from pyDataOrg.viz import interactive as iv
 
 tomo = iv.volume_figure(volume, mode="volume", level=130, voxel_size=voxel, unit="nm")
 # tomo.show()   — drag to rotate; mode="isosurface", "points" or "slices" for the other views
@@ -359,9 +359,9 @@ gracefully on a 128³ translucent volume, it locks the tab.
 either is a second, separate call:
 
 ```python
-from NanoOrganizer.analysis import fit_peaks, segment_micrograph
-from NanoOrganizer.demo import materials as mat
-from NanoOrganizer.viz.plots import plot_fit, plot_segmentation
+from pyDataOrg.analysis import fit_peaks, segment_micrograph
+from pyDataOrg.demo import materials as mat
+from pyDataOrg.viz.plots import plot_fit, plot_segmentation
 
 fit = fit_peaks(q, W[0], n_peaks=2, x_range=(2.5, 3.6),
                 shape="pseudo_voigt", background="linear")
@@ -423,8 +423,8 @@ back.
 
 ```python
 import pandas as pd
-from NanoOrganizer.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
-from NanoOrganizer.viz.plots import plot_compare
+from pyDataOrg.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
+from pyDataOrg.viz.plots import plot_compare
 
 table = org.table(sample_ids=org.ids("`synthesis.status` == 'done'"))
 truth = pd.read_csv(ROOT / "truth.csv").set_index("sample_id")   # the answer key
@@ -492,7 +492,7 @@ strong and it never leaves — peaking at **CuAu05**, *x* = 0.55.
 off disk.
 
 ```python
-from NanoOrganizer.viz.plots import plot_peak_fit
+from pyDataOrg.viz.plots import plot_peak_fit
 
 later = Organizer(ROOT / "cuau.json")
 later.results()                                              # what has been analysed, and how
@@ -586,7 +586,7 @@ dispatch on what the data *is*:
 Adding a technique is one registry entry and changes no page and no function:
 
 ```python
-from NanoOrganizer.core.modality import Modality, register
+from pyDataOrg.core.modality import Modality, register
 
 register(Modality(key="pl", label="Photoluminescence", domain="wavelength",
                   shape="series", x_label="Wavelength (nm)",
@@ -617,8 +617,8 @@ Chemistry-specific analyses belong in a package of their own and register
 themselves on import — the same adapter shape, under a new key:
 
 ```python
-from NanoOrganizer.analysis import Analysis, register_analysis
-from NanoOrganizer.analysis.curves import curve_metrics
+from pyDataOrg.analysis import Analysis, register_analysis
+from pyDataOrg.analysis.curves import curve_metrics
 
 register_analysis(Analysis(key="pl_band", func=curve_metrics,
                            label="PL band metrics", modalities=("pl",)))
@@ -634,8 +634,8 @@ register_analysis(Analysis(key="pl_band", func=curve_metrics,
 ## Other generated data
 
 ```bash
-python -m NanoOrganizer.demo            # the same campaign as a ready project → ../OrgDemo/Showcase
-python -m NanoOrganizer.demo --quick    # a small two-technique project       → ../OrgDemo/Quick
+python -m pyDataOrg.demo            # the same campaign as a ready project → ../OrgDemo/Showcase
+python -m pyDataOrg.demo --quick    # a small two-technique project       → ../OrgDemo/Quick
 ```
 
 The first opens the campaign with folder conventions instead of building an

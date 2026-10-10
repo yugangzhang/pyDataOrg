@@ -16,8 +16,8 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt                                    # noqa: E402
 
-from NanoOrganizer import Organizer, open_project                   # noqa: E402
-from NanoOrganizer.analysis import store as result_store            # noqa: E402
+from pyDataOrg import Organizer, open_project                   # noqa: E402
+from pyDataOrg.analysis import store as result_store            # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +90,7 @@ def test_the_organizer_is_the_file_you_named(tmp_path):
 
     assert (tmp_path / "study.json").exists()
     # No hidden directory: the document is the whole store.
-    assert not (tmp_path / ".nanoorganizer").exists()
+    assert not (tmp_path / ".pydataorg").exists()
 
 
 def test_reopening_restores_everything(org, data):
@@ -212,7 +212,7 @@ def test_a_new_record_is_appended(org, records):
 # ---------------------------------------------------------------------------
 
 def test_a_result_file_round_trips(tmp_path):
-    from NanoOrganizer.analysis.result import AnalysisResult
+    from pyDataOrg.analysis.result import AnalysisResult
 
     result = AnalysisResult(
         analysis="peak_fit", sample_id="S01", measurement_id="S01:uvvis",
@@ -234,7 +234,7 @@ def test_a_result_file_round_trips(tmp_path):
 def test_loading_something_that_is_not_a_result_says_so(tmp_path):
     path = tmp_path / "plain.npz"
     np.savez(path, data=np.arange(4.0))
-    with pytest.raises(ValueError, match="not a NanoOrganizer result"):
+    with pytest.raises(ValueError, match="not a pyDataOrg result"):
         result_store.load_result(path)
 
 
@@ -327,9 +327,9 @@ def test_results_can_live_in_a_project_folder_beside_the_organizer(
 
 
 def test_an_analysis_can_run_on_another_analysis_stored_result(org, data):
-    from NanoOrganizer.analysis import (ANALYSIS_REGISTRY, Analysis,
+    from pyDataOrg.analysis import (ANALYSIS_REGISTRY, Analysis,
                                         AnalysisResult, register_analysis)
-    from NanoOrganizer.analysis import store as result_store
+    from pyDataOrg.analysis import store as result_store
 
     def peak_shift(measurement, resolver, **_):
         fit = result_store.load_result(measurement.resolve(resolver)[0])
@@ -360,9 +360,9 @@ def test_an_analysis_can_run_on_another_analysis_stored_result(org, data):
 @pytest.fixture()
 def toy(org, data):
     """A registered analysis with a method on arrays, counting its runs."""
-    from NanoOrganizer.analysis import (ANALYSIS_REGISTRY, Analysis,
+    from pyDataOrg.analysis import (ANALYSIS_REGISTRY, Analysis,
                                         AnalysisResult, register_analysis)
-    from NanoOrganizer.analysis.peaks import load_curve
+    from pyDataOrg.analysis.peaks import load_curve
 
     calls = []
 
@@ -457,7 +457,7 @@ def test_a_mistyped_setting_is_refused_not_ignored(org, toy):
 
 
 def test_run_method_is_run_on_arrays_you_hold(org, toy):
-    from NanoOrganizer.analysis.peaks import load_curve
+    from pyDataOrg.analysis.peaks import load_curve
 
     settings = {"scale": 2.0, "window": (2.5, 3.5)}
     x, y, _ = load_curve(org.measurement("S01", "waxs1d"), org.resolver)
@@ -471,9 +471,9 @@ def test_run_method_is_run_on_arrays_you_hold(org, toy):
 
 def test_a_result_built_on_another_reruns_when_that_one_is_redone(
         org, toy, tmp_path):
-    from NanoOrganizer.analysis import (ANALYSIS_REGISTRY, Analysis,
+    from pyDataOrg.analysis import (ANALYSIS_REGISTRY, Analysis,
                                         AnalysisResult, register_analysis)
-    from NanoOrganizer.analysis import store as result_store
+    from pyDataOrg.analysis import store as result_store
 
     calls = []
 

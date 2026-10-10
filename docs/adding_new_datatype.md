@@ -1,4 +1,4 @@
-# Adding a New Data Type to NanoOrganizer
+# Adding a New Data Type to pyDataOrg
 
 This guide walks you through every file you need to touch to add a first-class
 data type — from loader through plotter to web-app selector — with minimal
@@ -20,7 +20,7 @@ import numpy as np
 from pathlib import Path
 from typing import Any, Dict, List
 
-from NanoOrganizer.loaders.base import BaseLoader
+from pyDataOrg.loaders.base import BaseLoader
 
 
 class MyTypeLoader(BaseLoader):
@@ -65,7 +65,7 @@ class MyTypeLoader(BaseLoader):
 Add one import and one dict entry:
 
 ```python
-from NanoOrganizer.loaders.mytype import MyTypeLoader   # ← add
+from pyDataOrg.loaders.mytype import MyTypeLoader   # ← add
 
 LOADER_REGISTRY = {
     ...
@@ -87,7 +87,7 @@ with a dispatch dict.
 import numpy as np
 from typing import Any, Dict
 
-from NanoOrganizer.viz.base import BasePlotter
+from pyDataOrg.viz.base import BasePlotter
 
 
 class MyTypePlotter(BasePlotter):
@@ -157,7 +157,7 @@ class MyTypePlotter(BasePlotter):
 Same pattern as the loader:
 
 ```python
-from NanoOrganizer.viz.mytype import MyTypePlotter   # ← add
+from pyDataOrg.viz.mytype import MyTypePlotter   # ← add
 
 PLOTTER_REGISTRY = {
     ...
@@ -200,19 +200,19 @@ def simulate_mytype_time_series_data(
 Register it in `simulations/__init__.py`:
 
 ```python
-from NanoOrganizer.simulations.mytype import simulate_mytype_time_series_data
+from pyDataOrg.simulations.mytype import simulate_mytype_time_series_data
 ```
 
 ---
 
-## Step 7 — Update `NanoOrganizer/__init__.py`
+## Step 7 — Update `pyDataOrg/__init__.py`
 
 Add the new names to the imports and `__all__`:
 
 ```python
-from NanoOrganizer.loaders import MyTypeLoader          # already pulled in via loaders/__init__
-from NanoOrganizer.viz    import MyTypePlotter          # already pulled in via viz/__init__
-from NanoOrganizer.simulations import simulate_mytype_time_series_data   # if Step 6 done
+from pyDataOrg.loaders import MyTypeLoader          # already pulled in via loaders/__init__
+from pyDataOrg.viz    import MyTypePlotter          # already pulled in via viz/__init__
+from pyDataOrg.simulations import simulate_mytype_time_series_data   # if Step 6 done
 
 __all__ = [
     ...
@@ -227,7 +227,7 @@ __all__ = [
 ## Step 8 — Add a row to `SELECTORS` in `web/app.py`
 
 If the web app should expose a dynamic selector for your new type, add one (or
-more) rows to the `SELECTORS` dict at the top of `NanoOrganizer/web/app.py`:
+more) rows to the `SELECTORS` dict at the top of `pyDataOrg/web/app.py`:
 
 ```python
 SELECTORS = {
@@ -248,7 +248,7 @@ Paste this into a Python REPL after a fresh `pip install -e .`:
 
 ```python
 import tempfile, os
-from NanoOrganizer import (
+from pyDataOrg import (
     DataOrganizer, RunMetadata, ReactionParams, ChemicalSpec,
     save_time_series_to_csv,
     simulate_mytype_time_series_data,   # if Step 6 done

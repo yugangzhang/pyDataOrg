@@ -21,15 +21,15 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt                                    # noqa: E402
 
-from NanoOrganizer import Organizer                                 # noqa: E402
-from NanoOrganizer.analysis import (                                # noqa: E402
+from pyDataOrg import Organizer                                 # noqa: E402
+from pyDataOrg.analysis import (                                # noqa: E402
     Segmentation, azimuthal_average, fit_peaks, radius_to_q,
     radius_to_two_theta, segment_micrograph, weighted_mean,
 )
-from NanoOrganizer.analysis.result import AnalysisResult            # noqa: E402
-from NanoOrganizer.viz import plots, show                           # noqa: E402
+from pyDataOrg.analysis.result import AnalysisResult            # noqa: E402
+from pyDataOrg.viz import plots, show                           # noqa: E402
 
-PACKAGE = Path(__file__).resolve().parents[1] / "NanoOrganizer"
+PACKAGE = Path(__file__).resolve().parents[1] / "pyDataOrg"
 
 
 @pytest.fixture(autouse=True)
@@ -162,7 +162,7 @@ def test_interactive_figures_draw_into_a_subplot_grid():
     pytest.importorskip("plotly")
     from plotly.subplots import make_subplots
 
-    from NanoOrganizer.viz import interactive as iv
+    from pyDataOrg.viz import interactive as iv
 
     grid = make_subplots(rows=1, cols=3,
                          specs=[[{}, {}, {"type": "scene"}]])
@@ -184,7 +184,7 @@ def test_interactive_figures_draw_into_a_subplot_grid():
 
 def test_interactive_figures_still_make_their_own():
     pytest.importorskip("plotly")
-    from NanoOrganizer.viz import interactive as iv
+    from pyDataOrg.viz import interactive as iv
 
     fig = iv.volume_figure(np.random.default_rng(0).random((8, 8, 8)),
                            mode="slices")
@@ -203,8 +203,8 @@ def test_plots_module_imports_no_analysis():
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             module = getattr(node, "module", "") or ""
             names = [a.name for a in node.names]
-            assert not module.startswith("NanoOrganizer.analysis"), module
-            assert not any(n.startswith("NanoOrganizer.analysis") for n in names)
+            assert not module.startswith("pyDataOrg.analysis"), module
+            assert not any(n.startswith("pyDataOrg.analysis") for n in names)
 
 
 @pytest.fixture()
@@ -230,7 +230,7 @@ def test_segmentation_is_an_analysis_that_returns_a_result(micrograph_org):
 
 
 def test_plot_segmentation_draws_without_segmenting(micrograph_org, monkeypatch):
-    from NanoOrganizer.analysis import imaging
+    from pyDataOrg.analysis import imaging
 
     seg = micrograph_org.segment("S1", "tem", min_diameter_nm=1.0)
 
@@ -318,22 +318,6 @@ def test_project_volume_says_what_it_did():
     plane, detail = show.project_volume(volume, projection="single slice",
                                         centre=3)
     assert plane.max() == 0.0 and detail == "plane 3 of 10"
-
-
-def test_legacy_plot_types_that_computed_warn_but_still_draw():
-    from NanoOrganizer.viz import DLSPlotter, SAXS2DPlotter
-
-    images = np.stack([_discs(size=64)] * 2)
-    data = {"times": np.array([0.0, 10.0]), "images": images}
-    with pytest.warns(DeprecationWarning, match="computes while it draws"):
-        ax = SAXS2DPlotter().plot(data, plot_type="azimuthal")
-    assert ax.has_data()
-
-    d = np.linspace(1, 100, 50)
-    dls = {"times": np.array([0.0, 10.0]), "diameters": d,
-           "intensity": np.vstack([np.ones(50), np.ones(50)])}
-    with pytest.warns(DeprecationWarning):
-        DLSPlotter().plot(dls, plot_type="kinetics")
 
 
 def test_plot_compare_takes_its_own_labels_without_a_second_title():

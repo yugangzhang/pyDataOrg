@@ -9,8 +9,8 @@ than merely producing numbers.
 import numpy as np
 import pytest
 
-from NanoOrganizer import analysis, open_project
-from NanoOrganizer.demo import (
+from pyDataOrg import analysis, open_project
+from pyDataOrg.demo import (
     band_centre_nm, build_demo_project, demo_truth, particle_diameter_nm,
 )
 
@@ -129,7 +129,7 @@ def test_demo_root_is_one_parent_not_the_home_directory():
     """Generated data must not scatter directories across $HOME."""
     from pathlib import Path
 
-    from NanoOrganizer.demo import demo_root
+    from pyDataOrg.demo import demo_root
 
     root = demo_root()
     assert root.parent != Path.home(), (
@@ -138,7 +138,7 @@ def test_demo_root_is_one_parent_not_the_home_directory():
 
 
 def test_demo_root_joins_and_is_overridable(monkeypatch, tmp_path):
-    from NanoOrganizer.demo import DEMO_ROOT_ENV, demo_root
+    from pyDataOrg.demo import DEMO_ROOT_ENV, demo_root
 
     assert demo_root("Lab", "lab.json").name == "lab.json"
     assert demo_root("Lab").name == "Lab"
@@ -148,7 +148,7 @@ def test_demo_root_joins_and_is_overridable(monkeypatch, tmp_path):
 
 
 def test_asking_where_data_would_go_creates_nothing(monkeypatch, tmp_path):
-    from NanoOrganizer.demo import DEMO_ROOT_ENV, demo_root
+    from pyDataOrg.demo import DEMO_ROOT_ENV, demo_root
 
     monkeypatch.setenv(DEMO_ROOT_ENV, str(tmp_path / "untouched"))
     demo_root("Lab", "lab.json")

@@ -1,7 +1,7 @@
 # The web app
 
 ```bash
-streamlit run NanoOrganizer/web_app/Home.py     # or the `viz` console command
+streamlit run pyDataOrg/web_app/Home.py     # or the `viz` console command
 ```
 
 The app used to be a flat list of single-technique pages. It is now a
@@ -57,7 +57,7 @@ failing. No helper on the page both computes and draws: it calls an analysis,
 then a plot.
 
 Everything lives in **one folder**, `demo_root("CuAu")` — `../OrgDemo/CuAu`
-beside the source checkout, or under `$NANOORGANIZER_DEMO_ROOT`: the
+beside the source checkout, or under `$PYDATAORG_DEMO_ROOT`: the
 campaign's files and `MetaData/`, the answer key `truth.csv`, the organizer
 `cuau.json` and its stored fits in `results/` — the same files notebooks 10–12
 write, so a notebook and the page can take turns on them. Every path the
@@ -73,7 +73,7 @@ folder outside the allowed roots is refused.
 ### Paths on screen are relative
 
 No page shows an absolute path. A location is displayed with
-`NanoOrganizer.core.pathmap.display_path` — relative to the folder the app was
+`pyDataOrg.core.pathmap.display_path` — relative to the folder the app was
 started in (`../OrgDemo/CuAu`), or under `~` when that would take more than
 three `..` — in captions, tables, code blocks and the default value of every
 path box. What you type may be relative too: it is read against the app's
@@ -102,7 +102,7 @@ The page is the only one that writes, so all of it lives here.
 
 **Open or create.** The path box takes either shape a project comes in:
 
-* a **folder** — `MetaData/`, data folders, a store in `.nanoorganizer/`;
+* a **folder** — `MetaData/`, data folders, a store in `.pydataorg/`;
 * a path ending in **`.json`** — a single-document organizer, the kind
   `Organizer("lab.json")` writes in a notebook.
 
@@ -135,7 +135,7 @@ their recorded path and file count, and can be removed one at a time.
 *Link a whole campaign from a table* takes a CSV — `sample_id`, `modality`,
 `source`, optionally `stage` / `role` / `aux`, anything else becoming metadata.
 
-**Save and export.** Saving writes `.nanoorganizer/` into the project folder
+**Save and export.** Saving writes `.pydataorg/` into the project folder
 and nothing else. Three exports:
 
 | | |
@@ -158,7 +158,7 @@ and `notebook/11_build_organizer`.
 ## Visualize dispatches on shape, not technique
 
 The tabs are the four visualisation groups from
-`NanoOrganizer/core/modality.py`:
+`pyDataOrg/core/modality.py`:
 
 | tab | shapes | techniques |
 |---|---|---|
@@ -167,7 +167,7 @@ The tabs are the four visualisation groups from
 | **Volumes (3D)** | volume, stack | tomography, z-stack |
 | **Correlation** | corr, twotime | XPCS g₂, two-time |
 
-The dispatch itself is library code in `NanoOrganizer/viz/show.py`, which is
+The dispatch itself is library code in `pyDataOrg/viz/show.py`, which is
 what `wb.plot(sample, modality)` calls in a notebook. The page keeps its own
 widget layer — sliders and colour pickers have no meaning in a notebook — but
 the decisions that affect the *numbers* are shared: which frame a time or a
@@ -233,7 +233,7 @@ address is a path optionally followed by `::` and a path inside the file —
 `run.h5::entry/instrument` — which is what lets "descend into a folder" and
 "descend into a file" be the same operation.
 
-The traversal is `NanoOrganizer.structure`, so the same walk works from a
+The traversal is `pyDataOrg.structure`, so the same walk works from a
 notebook: `print(structure.tree(path, depth=3))`.
 
 Reading a `.py` metadata module **executes it**. The page says so before it
@@ -287,7 +287,7 @@ auto-discovery**. The older single-purpose pages (CSV Plotter, Image Viewer, Mul
 Plotter, Data Viewer) remain on disk and can still be run directly:
 
 ```bash
-streamlit run NanoOrganizer/web_app/pages/2_CSV_Plotter.py
+streamlit run pyDataOrg/web_app/pages/2_CSV_Plotter.py
 ```
 
 They are superseded by Visualize and the Universal Plotter. Re-listing one is a

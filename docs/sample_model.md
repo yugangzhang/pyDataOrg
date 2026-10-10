@@ -1,6 +1,6 @@
 # The sample-centric model
 
-NanoOrganizer started out organised around *runs* (`project/experiment/run_id`)
+pyDataOrg started out organised around *runs* (`project/experiment/run_id`)
 with a fixed set of nine loader attributes bolted onto every `Run`. That shape
 does not survive contact with a real campaign: one sample is synthesised once,
 used in several reactions, and characterised repeatedly over weeks by different
@@ -52,11 +52,11 @@ raman, tem, xpcs_g2, …) is then only a label plus defaults: axis captions, log
 scaling, file extensions, which analyses apply.
 
 Adding a technique is one `register()` call in
-`NanoOrganizer/core/modality.py`. It needs no new page, no new loader branch,
+`pyDataOrg/core/modality.py`. It needs no new page, no new loader branch,
 and no change anywhere else:
 
 ```python
-from NanoOrganizer.core.modality import Modality, register
+from pyDataOrg.core.modality import Modality, register
 
 register(Modality(
     key="pl", label="Photoluminescence", domain="wavelength", shape="series",
@@ -96,11 +96,11 @@ because directory names repeat.
 Instrument-side metadata is a plain Python module of sample-keyed dicts, often
 built by a helper function so ten samples sharing a protocol are not ten
 hand-copied blocks. That convenience is why the file must be *executed* to be
-read — see the warning in `NanoOrganizer/ingest/pydict.py`; only ingest modules
+read — see the warning in `pyDataOrg/ingest/pydict.py`; only ingest modules
 you or your collaborators wrote.
 
 `project.ingest(path)` reads it into the canonical store at
-`.nanoorganizer/samples.json`. The authored file is never edited. Re-ingesting
+`.pydataorg/samples.json`. The authored file is never edited. Re-ingesting
 merges onto the same sample ids rather than duplicating them, so the file at the
 instrument can keep growing and the project simply re-reads it
 (`project.reingest()`).
@@ -120,7 +120,7 @@ storing `"first_frame": "scan_000.npy"` is naming a file
 inside a directory, not locating it.
 
 To support another authoring format, register an adapter in
-`NanoOrganizer/ingest/__init__.py`. Adapters never write to disk.
+`pyDataOrg/ingest/__init__.py`. Adapters never write to disk.
 
 ### Ingesting a dict rather than a file
 
@@ -189,7 +189,7 @@ that afternoon, and none of it is going to move.
 `link()` records where data is instead of collecting it:
 
 ```python
-from NanoOrganizer import Organizer
+from pyDataOrg import Organizer
 
 org = Organizer("../OrgDemo/cuau.json")          # the file is the store
 
@@ -278,7 +278,7 @@ up to the first real mount point), mapping the prefix onto itself. That is a
 no-op where the data was linked, and the one line to edit anywhere else:
 
 ```python
-wb.project.add_alias("/mnt/data", ["/facility/data"])    # on the next machine
+wb.project.add_alias("/mnt/instrument", ["/data/instrument"])    # on the next machine
 ```
 
 ### Giving links something to filter on
@@ -328,7 +328,7 @@ wb.overlay("waxs1d", reduce="last")           # one curve per selected sample
 ```
 
 `wb.plot` returns a matplotlib `Axes`, or a Plotly `Figure` with
-`engine="interactive"`. The dispatch lives in `NanoOrganizer/viz/show.py`, so
+`engine="interactive"`. The dispatch lives in `pyDataOrg/viz/show.py`, so
 the notebooks and the Visualize page make the same decisions about the numbers
 — which frame a time selects, how a long series is strided down, where an
 image's display range comes from.
@@ -516,7 +516,7 @@ select from.
 The whole loop, from an empty file to a fit you can read again next year.
 
 ```python
-from NanoOrganizer import Organizer
+from pyDataOrg import Organizer
 
 org = Organizer("../OrgDemo/cuau.json", name="Cu-Au CO2RR")
 org.project.add_alias("/instrument/share", ["/mnt/instrument"])

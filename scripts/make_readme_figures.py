@@ -72,15 +72,15 @@ def build(base: Path):
     """Write the campaign under *base* and build the organizer from it."""
     # demo_root() reads the variable, so the README's own ROOT line lands in
     # the scratch folder rather than in somebody's working demo.
-    os.environ["NANOORGANIZER_DEMO_ROOT"] = str(base)
+    os.environ["PYDATAORG_DEMO_ROOT"] = str(base)
 
-    from NanoOrganizer import Organizer
-    from NanoOrganizer.demo import (
+    from pyDataOrg import Organizer
+    from pyDataOrg.demo import (
         build_showcase_project, demo_root, showcase_truth,
     )
 
     ROOT = demo_root("CuAu")
-    # step 0 — what `python -m NanoOrganizer.demo --campaign` does
+    # step 0 — what `python -m pyDataOrg.demo --campaign` does
     build_showcase_project(ROOT)
     showcase_truth().to_csv(ROOT / "truth.csv", index=False)
 
@@ -107,8 +107,8 @@ def build(base: Path):
 # ---------------------------------------------------------------------------
 
 def gallery(org) -> None:
-    from NanoOrganizer.viz.plots import plot_curves, plot_image, plot_series
-    from NanoOrganizer.viz.show import project_volume
+    from pyDataOrg.viz.plots import plot_curves, plot_image, plot_series
+    from pyDataOrg.viz.show import project_volume
 
     # -- the README's step C, verbatim --------------------------------------
     done = org.ids("`synthesis.status` == 'done'")
@@ -176,9 +176,9 @@ def gallery(org) -> None:
 # ---------------------------------------------------------------------------
 
 def fit_and_segment(org) -> None:
-    from NanoOrganizer.analysis import fit_peaks, segment_micrograph
-    from NanoOrganizer.demo import materials as mat
-    from NanoOrganizer.viz.plots import plot_fit, plot_segmentation
+    from pyDataOrg.analysis import fit_peaks, segment_micrograph
+    from pyDataOrg.demo import materials as mat
+    from pyDataOrg.viz.plots import plot_fit, plot_segmentation
 
     q, W, _ = org.data("CuAu05", "waxs1d")
 
@@ -227,9 +227,9 @@ def batch(org) -> None:
 
 
 def compare(org, ROOT: Path) -> None:
-    from NanoOrganizer.demo import materials as mat
-    from NanoOrganizer.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
-    from NanoOrganizer.viz.plots import plot_compare
+    from pyDataOrg.demo import materials as mat
+    from pyDataOrg.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
+    from pyDataOrg.viz.plots import plot_compare
 
     table = org.table(sample_ids=org.ids("`synthesis.status` == 'done'"))
     truth = pd.read_csv(ROOT / "truth.csv").set_index("sample_id")
@@ -299,7 +299,7 @@ def compare(org, ROOT: Path) -> None:
 
 def tomogram(org) -> None:
     try:
-        from NanoOrganizer.viz import interactive as iv
+        from pyDataOrg.viz import interactive as iv
         volume, _ = org.data("CuAu01", "tomo")
         # `volume` rather than `isosurface`: the aggregate is only ~3% solid
         # by voxel, and after striding an isosurface of it fragments.
@@ -351,7 +351,7 @@ def main(argv=None) -> int:
 
     # A scratch folder: the README figures must not depend on, or disturb, a
     # campaign someone is working in under demo_root().
-    with tempfile.TemporaryDirectory(prefix="nano_readme_") as scratch:
+    with tempfile.TemporaryDirectory(prefix="org_readme_") as scratch:
         print(f"building the campaign in {scratch} …")
         org, ROOT = build(Path(scratch))
         if args.only in (None, "campaign"):

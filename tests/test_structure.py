@@ -12,7 +12,7 @@ import json
 import numpy as np
 import pytest
 
-from NanoOrganizer import structure as S
+from pyDataOrg import structure as S
 
 
 @pytest.fixture()
@@ -281,7 +281,7 @@ def test_hdf5_groups_datasets_and_attributes(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_it_walks_the_demo_project(tmp_path):
-    from NanoOrganizer.demo import build_showcase_project
+    from pyDataOrg.demo import build_showcase_project
 
     root = build_showcase_project(tmp_path / "Demo", fractions=(0.0, 1.0),
                                   n_frames=2, with_images=False,
@@ -337,7 +337,7 @@ RECORDS = {
 
 
 def test_dict_tree_draws_a_live_dict_like_tree():
-    from NanoOrganizer import dict_tree
+    from pyDataOrg import dict_tree
 
     text = dict_tree(RECORDS, depth=3, limit=2, name="records")
     lines = text.splitlines()
@@ -349,7 +349,7 @@ def test_dict_tree_draws_a_live_dict_like_tree():
 
 
 def test_dict_tree_depth_and_width():
-    from NanoOrganizer import dict_tree
+    from pyDataOrg import dict_tree
 
     assert dict_tree(RECORDS, depth=0) == "🔑 dict  3 keys"
     uv = RECORDS["S1"]["UV"]

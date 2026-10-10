@@ -16,10 +16,10 @@ AppTest = pytest.importorskip("streamlit.testing.v1").AppTest
 
 from pathlib import Path  # noqa: E402
 
-from NanoOrganizer.demo import build_showcase_project  # noqa: E402
-from NanoOrganizer.workbench import open_project  # noqa: E402
+from pyDataOrg.demo import build_showcase_project  # noqa: E402
+from pyDataOrg.workbench import open_project  # noqa: E402
 
-VIEWS = Path(__file__).resolve().parents[1] / "NanoOrganizer" / "web_app" / "views"
+VIEWS = Path(__file__).resolve().parents[1] / "pyDataOrg" / "web_app" / "views"
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +37,7 @@ def workbench(showcase_root):
 
 def page(name, workbench, **state):
     app = AppTest.from_file(str(VIEWS / name), default_timeout=300)
-    app.session_state["nano_workbench"] = workbench
+    app.session_state["org_workbench"] = workbench
     for key, value in state.items():
         app.session_state[key] = value
     return app
@@ -84,7 +84,7 @@ def test_analyze_lists_the_generic_analyses(workbench):
 
     # AppTest reports a selectbox's options already run through format_func,
     # so these are the labels; select() still takes the raw key.
-    options = set(app.selectbox(key="nano_analysis_key").options)
+    options = set(app.selectbox(key="org_analysis_key").options)
     assert {"1D peak fitting", "Curve metrics in a window",
             "Particle sizing from micrographs"} <= options
     assert {"peak_fit", "curve_metrics",
@@ -121,10 +121,10 @@ def test_project_page_offers_to_generate_one_when_empty():
 def _style_keys(app):
     """The plot-control keys on the page — curve and correlation styles are
     keyed by the technique on show, so read which one that is."""
-    curve = app.session_state["nano_curve_modality"]
-    corr = app.session_state["nano_corr_modality"]
-    return (f"nano_curve_cmp_{curve}", f"nano_curve_one_style_{curve}",
-            "nano_image_style", "nano_vol", f"nano_corr_curve_{corr}")
+    curve = app.session_state["org_curve_modality"]
+    corr = app.session_state["org_corr_modality"]
+    return (f"org_curve_cmp_{curve}", f"org_curve_one_style_{curve}",
+            "org_image_style", "org_vol", f"org_corr_curve_{corr}")
 
 
 def _with_engine(workbench, engine):
@@ -146,7 +146,7 @@ def test_volumes_are_interactive_by_default(workbench):
 
 
 def test_every_group_can_be_drawn_interactively(workbench):
-    from NanoOrganizer.web_app.components.plot_controls import INTERACTIVE
+    from pyDataOrg.web_app.components.plot_controls import INTERACTIVE
 
     app = _with_engine(workbench, INTERACTIVE)
     assert not app.exception, _why(app)
@@ -156,7 +156,7 @@ def test_every_group_can_be_drawn_interactively(workbench):
 
 @pytest.mark.parametrize("mode", ["isosurface", "volume", "points", "slices"])
 def test_each_volume_render_mode_works_through_the_page(workbench, mode):
-    app = page("visualize.py", workbench, nano_vol_mode=mode)
+    app = page("visualize.py", workbench, org_vol_mode=mode)
     app.run()
     assert not app.exception, f"{mode}: {_why(app)}"
 
@@ -164,7 +164,7 @@ def test_each_volume_render_mode_works_through_the_page(workbench, mode):
 def test_static_engine_draws_no_plotly_at_all(workbench):
     """The engine switch has to actually switch. (`st.pyplot` surfaces as an
     UnknownElement in AppTest, so the absence of Plotly is what to assert.)"""
-    from NanoOrganizer.web_app.components.plot_controls import STATIC
+    from pyDataOrg.web_app.components.plot_controls import STATIC
 
     app = _with_engine(workbench, STATIC)
     assert not app.exception, _why(app)
@@ -172,29 +172,29 @@ def test_static_engine_draws_no_plotly_at_all(workbench):
 
 
 def test_axis_limits_and_log_scales_are_offered(workbench):
-    app = page("visualize.py", workbench, nano_curve_modality="waxs1d",
-               nano_curve_cmp_waxs1d_logy=True)
+    app = page("visualize.py", workbench, org_curve_modality="waxs1d",
+               org_curve_cmp_waxs1d_logy=True)
     app.run()
     assert not app.exception, _why(app)
-    assert app.session_state["nano_curve_cmp_waxs1d_logy"] is True
+    assert app.session_state["org_curve_cmp_waxs1d_logy"] is True
 
 
 def test_switching_technique_switches_the_axis_labels(workbench):
     """A widget's value outlives its default: with one shared key, WAXS kept
     the DLS labels and log axis it inherited."""
-    from NanoOrganizer.core import modality
+    from pyDataOrg.core import modality
 
-    app = page("visualize.py", workbench, nano_curve_modality="dls")
+    app = page("visualize.py", workbench, org_curve_modality="dls")
     app.run()
-    assert app.session_state["nano_curve_cmp_dls_xlabel"] == \
+    assert app.session_state["org_curve_cmp_dls_xlabel"] == \
         modality.get("dls").x_label
 
-    app.session_state["nano_curve_modality"] = "waxs1d"
+    app.session_state["org_curve_modality"] = "waxs1d"
     app.run()
     assert not app.exception, _why(app)
     waxs = modality.get("waxs1d")
-    assert app.session_state["nano_curve_cmp_waxs1d_xlabel"] == waxs.x_label
-    assert app.session_state["nano_curve_cmp_waxs1d_logx"] is bool(waxs.log_x)
+    assert app.session_state["org_curve_cmp_waxs1d_xlabel"] == waxs.x_label
+    assert app.session_state["org_curve_cmp_waxs1d_logx"] is bool(waxs.log_x)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ def test_structure_page_opens_empty(workbench):
 
 def test_structure_lists_the_project_root(workbench, showcase_root):
     app = page("structure.py", workbench,
-               nano_structure_address=str(showcase_root))
+               org_structure_address=str(showcase_root))
     app.run()
     assert not app.exception, _why(app)
 
@@ -221,7 +221,7 @@ def test_structure_lists_the_project_root(workbench, showcase_root):
 
 def test_structure_drills_into_a_metadata_module(workbench, showcase_root):
     module = showcase_root / "MetaData" / "Characterization_dict.py"
-    app = page("structure.py", workbench, nano_structure_address=str(module))
+    app = page("structure.py", workbench, org_structure_address=str(module))
     app.run()
     assert not app.exception, _why(app)
 
@@ -232,7 +232,7 @@ def test_structure_drills_into_a_metadata_module(workbench, showcase_root):
 
 def test_structure_reports_a_bad_path_without_crashing(workbench):
     app = page("structure.py", workbench,
-               nano_structure_address="/no/such/place/at/all")
+               org_structure_address="/no/such/place/at/all")
     app.run()
     assert not app.exception, _why(app)
     assert any("does not exist" in str(e.value) for e in app.error)

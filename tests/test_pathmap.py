@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from NanoOrganizer.core.pathmap import (
+from pyDataOrg.core.pathmap import (
     ALIASED, LOCAL, MISSING, PathAlias, PathResolver, suggest_aliases,
 )
 
@@ -177,9 +177,9 @@ def test_a_relative_path_resolves_against_the_base_not_the_cwd(tmp_path,
 
 
 def test_display_path_says_where_from_here(tmp_path):
-    from NanoOrganizer.core.pathmap import display_path
+    from pyDataOrg.core.pathmap import display_path
 
-    repo = tmp_path / "Repos" / "NanoOrganizer"
+    repo = tmp_path / "Repos" / "pyDataOrg"
     target = tmp_path / "Repos" / "OrgDemo" / "CuAu"
     assert display_path(target, start=repo) == "../OrgDemo/CuAu"
     assert display_path(target, start=repo / "notebook") == "../../OrgDemo/CuAu"
@@ -189,7 +189,7 @@ def test_display_path_says_where_from_here(tmp_path):
 
 
 def test_display_path_never_climbs_to_the_filesystem_root(monkeypatch, tmp_path):
-    from NanoOrganizer.core.pathmap import display_path
+    from pyDataOrg.core.pathmap import display_path
 
     # Seen from /tmp, a folder in the home directory is ~/…, not ../home/you/….
     home = tmp_path / "home" / "you"

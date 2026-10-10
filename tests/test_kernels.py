@@ -16,12 +16,12 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt                                    # noqa: E402
 
-from NanoOrganizer.analysis import CurveMetrics, PeakFitResult      # noqa: E402
-from NanoOrganizer.analysis import fit_peaks, measure_curve         # noqa: E402
-from NanoOrganizer.analysis.imaging import (                        # noqa: E402
+from pyDataOrg.analysis import CurveMetrics, PeakFitResult      # noqa: E402
+from pyDataOrg.analysis import fit_peaks, measure_curve         # noqa: E402
+from pyDataOrg.analysis.imaging import (                        # noqa: E402
     size_from_image, size_statistics,
 )
-from NanoOrganizer.viz.plots import (                               # noqa: E402
+from pyDataOrg.viz.plots import (                               # noqa: E402
     plot_distribution, plot_fit, plot_marked_curve, plot_outlines, plot_series,
 )
 
@@ -453,7 +453,7 @@ def test_plot_outlines_refuses_a_mismatched_label_map():
 
 
 def test_series_indices_keep_the_first_and_last_row():
-    from NanoOrganizer.viz.plots import series_indices
+    from pyDataOrg.viz.plots import series_indices
 
     assert list(series_indices(100, "log", 5)) == [0, 1, 3, 9, 31, 99]
     assert list(series_indices(11, "linear", 3)) == [0, 5, 10]

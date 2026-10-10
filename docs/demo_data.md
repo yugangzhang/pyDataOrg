@@ -4,10 +4,10 @@ Two projects ship as generators rather than as files. Nothing is committed,
 nothing is downloaded, and either can be deleted freely.
 
 ```bash
-python -m NanoOrganizer.demo --campaign     # the showcase as raw data → ../OrgDemo/CuAu
-python -m NanoOrganizer.demo                # the showcase as a project → ../OrgDemo/Showcase
-python -m NanoOrganizer.demo --quick        # the small one            → ../OrgDemo/Quick
-python -m NanoOrganizer.demo ~/elsewhere/Showcase --no-images
+python -m pyDataOrg.demo --campaign     # the showcase as raw data → ../OrgDemo/CuAu
+python -m pyDataOrg.demo                # the showcase as a project → ../OrgDemo/Showcase
+python -m pyDataOrg.demo --quick        # the small one            → ../OrgDemo/Quick
+python -m pyDataOrg.demo ~/elsewhere/Showcase --no-images
 ```
 
 Both refuse to overwrite a directory that does not carry their own marker
@@ -151,12 +151,12 @@ accidental:
 ### The answer key
 
 ```python
-from NanoOrganizer.demo import showcase_truth
+from pyDataOrg.demo import showcase_truth
 showcase_truth()
 ```
 
 One row per sample with every quantity a technique in the project is supposed
-to be able to recover. `NanoOrganizer/demo/materials.py` holds the model
+to be able to recover. `pyDataOrg/demo/materials.py` holds the model
 itself, one documented function per property — change a number there and the
 whole project follows.
 
@@ -199,6 +199,6 @@ notebook uses. Nothing in them is special-cased for the documentation, so a
 figure that stops reproducing means the pipeline changed.
 
 To change the science rather than the size, edit
-`NanoOrganizer/demo/materials.py`: every property is one function of *x*, and
+`pyDataOrg/demo/materials.py`: every property is one function of *x*, and
 `showcase_truth` reads the same functions the generator does, so the answer key
 cannot drift from the data.

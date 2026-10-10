@@ -32,8 +32,8 @@ Every path in it — in the metadata, the links, the stored fits — is relative
 to that folder, so it moves as one piece, and no notebook output names
 anyone's home directory.
 
-`10` calls `NanoOrganizer.demo.build_showcase_project`. The same function is
-behind `python -m NanoOrganizer.demo --campaign` (all of `10` in one command)
+`10` calls `pyDataOrg.demo.build_showcase_project`. The same function is
+behind `python -m pyDataOrg.demo --campaign` (all of `10` in one command)
 and the web app's **🎓 Demo** page, which walks `10` → `11` → `12` with
 buttons — so the three routes write identical files and cannot drift apart.
 
@@ -131,21 +131,21 @@ fraction, and diffraction and EDS recover it to within a couple of percent; in
 the small project (`legacy/00`–`04`) it is the synthesis temperature.
 
 ```python
-from NanoOrganizer.demo import showcase_truth
+from pyDataOrg.demo import showcase_truth
 showcase_truth()      # the answer key; 10 also writes it to CuAu/truth.csv
 ```
 
 Or from a shell, without opening a notebook at all:
 
 ```bash
-python -m NanoOrganizer.demo --campaign       # what 10 writes
+python -m pyDataOrg.demo --campaign       # what 10 writes
 ```
 
 ## Where generated data goes
 
 Everything these notebooks write lands under **one parent**,
-`NanoOrganizer.demo.demo_root()` — `../OrgDemo` beside the repository by default. Set
-`$NANOORGANIZER_DEMO_ROOT` to put it somewhere else. Nothing is written to your
+`pyDataOrg.demo.demo_root()` — `../OrgDemo` beside the repository by default. Set
+`$PYDATAORG_DEMO_ROOT` to put it somewhere else. Nothing is written to your
 home directory itself, so a few runs cannot leave a scatter of folders behind.
 
 ```
@@ -160,7 +160,7 @@ home directory itself, so a few runs cannot leave a scatter of folders behind.
 Everything in these notebooks is on the web app, driving the same `Workbench`:
 
 ```bash
-streamlit run NanoOrganizer/web_app/Home.py       # or: viz
+streamlit run pyDataOrg/web_app/Home.py       # or: viz
 ```
 
 **🎓 Demo** is these three notebooks with buttons — simulate, ingest, link,
