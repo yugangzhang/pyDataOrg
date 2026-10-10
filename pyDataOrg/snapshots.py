@@ -363,7 +363,8 @@ def write_snapshots(plan: SyncPlan, *, force: bool = False) -> List[Path]:
         target.parent.mkdir(parents=True, exist_ok=True)
         origin = Path(plan.origins.get(stage, "")).name or stage
         header = (
-            f"# Snapshot of {origin}: {plan.revision.describe()}\n"
+            f"# Snapshot of {origin}\n"
+            f"# {plan.revision.describe()}\n"
             f"# Written by pyDataOrg.snapshots on "
             f"{_dt.date.today().isoformat()}. Do not edit; take a new "
             f"snapshot instead.\n")

@@ -62,22 +62,34 @@ VIEWS = HERE / "views"
 TOOLS = HERE / "tools"
 
 
-def view(name: str, title: str, icon: str, default: bool = False):
-    return st.Page(VIEWS / name, title=title, icon=icon,
-                   default=default and app is None)
-
-
 def plugin_pages(plugin):
+    """A plugin's pages. The app's keep plain URLs (``/project``); another
+    plugin's are prefixed with its name, so two ``overview.py`` cannot
+    collide."""
     pages = []
     for page in plugin.pages:
         path = page.file()
         if not path.exists():
             continue
-        pages.append(st.Page(
-            path, title=page.title, icon=page.icon or None,
-            url_path=page.url_path or f"{plugin.name}_{path.stem}",
-            default=page.default and plugin is app))
+        url = page.url_path or (path.stem if plugin is app
+                                else f"{plugin.name}_{path.stem}")
+        pages.append(st.Page(path, title=page.title, icon=page.icon or None,
+                             url_path=url, default=page.default and plugin is app))
     return pages
+
+
+app_pages = plugin_pages(app) if app is not None else []
+# From the files, not the pages: a default page reports an empty url_path.
+taken = {page.url_path or page.file().stem for page in app.pages} \
+    if app is not None else set()
+
+
+def view(name: str, title: str, icon: str, default: bool = False):
+    """A general page — under ``general_<name>`` when the app has its own."""
+    stem = Path(name).stem
+    return st.Page(VIEWS / name, title=title, icon=icon,
+                   url_path=f"general_{stem}" if stem in taken else None,
+                   default=default and app is None)
 
 
 general = {
@@ -100,7 +112,7 @@ general = {
 
 sections = {}
 if app is not None:
-    sections[app.heading] = plugin_pages(app)
+    sections[app.heading] = app_pages
 sections.update(general)
 for plugin in _plugins.PLUGINS.values():
     if plugin is not app and plugin.pages:
