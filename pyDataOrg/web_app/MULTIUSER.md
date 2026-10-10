@@ -23,7 +23,7 @@ path; a project-local `.config/pydataorg.conf` is also discovered automatically.
 Copy [`.config/pydataorg.conf.example`](../../.config/pydataorg.conf.example) to start.
 
 **Real configuration files are git-ignored and should stay that way** — they
-contain local filesystem paths and password hashes. `viz-adduser` writes them
+contain local filesystem paths and password hashes. `dataorg adduser` writes them
 `chmod 600`.
 
 ```ini
@@ -67,8 +67,8 @@ Where both exist, the JSON file wins for duplicate usernames.
 ## Managing users
 
 ```bash
-viz-adduser /path/to/users.json owner --admin
-viz-adduser /path/to/users.json alice --root /data/projects/alice
+dataorg adduser /path/to/users.json owner --admin
+dataorg adduser /path/to/users.json alice --root /data/projects/alice
 ```
 
 The password is prompted for, never echoed, and only its hash is written. Run
@@ -79,7 +79,7 @@ first use and merged afterwards.
 
 ```bash
 export PYDATAORG_USERS_FILE=/path/to/users.json
-viz 5646
+dataorg gui 5646
 ```
 
 Every visitor gets a username and password form. The restriction is enforced in

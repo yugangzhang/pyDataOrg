@@ -494,6 +494,48 @@ def plot_segmentation(segmentation, ax=None, *, window: int = 700,
                         f"{segmentation.n_particles} particles, {scale_text}"))
 
 
+def plot_frame_map(t, x, frames, ax=None, *,
+                   xlim: Optional[Tuple[float, float]] = None,
+                   tlim: Optional[Tuple[float, float]] = None,
+                   percentile: Tuple[float, float] = (1.0, 99.5),
+                   cmap: str = "magma", xlabel: str = "x",
+                   tlabel: str = "time", zlabel: str = "signal",
+                   title: str = "", colorbar: bool = True):
+    """A whole series as an image: frames up the page, *x* across, value as
+    colour — a kinetic run, a temperature ramp, a scan.
+
+    *t* is ``(n,)``, *x* ``(m,)`` and *frames* ``(n, m)``, in whatever units
+    the labels say. Contrast is clipped at *percentile* of the shown region,
+    because a few spikes would otherwise flatten everything else to one
+    colour (display arithmetic, nothing kept).
+    """
+    import matplotlib.pyplot as plt
+
+    ax = _axes(ax, (7.0, 4.8))
+    t = np.asarray(t, dtype=float)
+    x = np.asarray(x, dtype=float)
+    z = np.asarray(frames, dtype=float)
+    cols = np.ones(x.size, bool) if xlim is None else \
+        (x >= xlim[0]) & (x <= xlim[1])
+    rows = np.ones(t.size, bool) if tlim is None else \
+        (t >= tlim[0]) & (t <= tlim[1])
+    if not cols.any() or not rows.any():
+        raise ValueError("nothing inside the limits")
+    block = z[np.ix_(rows, cols)]
+    finite = block[np.isfinite(block)]
+    lo, hi = np.percentile(finite, percentile) if finite.size else (0.0, 1.0)
+    image = ax.imshow(block, aspect="auto", origin="lower", cmap=cmap,
+                      vmin=lo, vmax=hi, interpolation="nearest",
+                      extent=(x[cols][0], x[cols][-1], t[rows][0], t[rows][-1]))
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(tlabel)
+    if title:
+        ax.set_title(title, loc="left")
+    if colorbar:
+        plt.colorbar(image, ax=ax, label=zlabel, pad=0.02)
+    return ax
+
+
 def plot_image(array, ax=None, *, extent=None, cmap: str = "viridis",
                vmin: Optional[float] = None, vmax: Optional[float] = None,
                title: str = "", xlabel: str = "", ylabel: str = "",

@@ -10,12 +10,9 @@ from pathlib import Path
 import json
 
 from pyDataOrg.core.pathmap import display_path
-import sys
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from components.floating_button import floating_sidebar_toggle
-from components.security import (
+from pyDataOrg.demo import demo_root
+from pyDataOrg.web_app.components.floating_button import floating_sidebar_toggle
+from pyDataOrg.web_app.components.security import (
     assert_path_allowed,
     initialize_security_context,
     is_path_allowed,
@@ -40,9 +37,10 @@ with st.sidebar:
 
     output_dir = st.text_input(
         "Output directory",
-        value="TestData",
-        # Relative to where the app runs: no absolute path on screen.
-        help="Where to save generated data"
+        value=display_path(demo_root("TestData")),
+        # Generated data goes under demo_root(), shown relative.
+        help="Where to save generated data — the Universal Plotter's "
+             "'Load Test Data' reads it from here"
     )
     if output_dir and not is_path_allowed(output_dir, allow_nonexistent=True):
         st.error("Output directory is outside your allowed folders.")
@@ -387,9 +385,5 @@ with st.expander("📖 About Test Data"):
 
     ### Use Cases
 
-    - **CSV Plotter**: Use csv_data/ or npz_data/
-    - **Image Viewer**: Use images_2d/ or image_stacks/
-    - **3D Plotter**: Use data_3d/
-    - **Multi-Axes**: Use csv_data/ (multiple files)
-    - **Data Viewer**: Create pyDataOrg project first
+    - **Universal Plotter**: every folder above — 1D, 2D and 3D
     """)

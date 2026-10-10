@@ -655,4 +655,59 @@ Regenerate or delete it freely - nothing here is source.
 """
 
 
-__all__ = ["build_showcase_project", "CAMPAIGN", "MARKER"]
+
+
+# ---------------------------------------------------------------------------
+# The campaign, as the Campaign and Next-experiments pages read it
+# ---------------------------------------------------------------------------
+
+def showcase_campaign():
+    """The Cu–Au library as a :class:`~pyDataOrg.campaign.Campaign`.
+
+    One input — the nominal gold fraction the synthesis chose — and three
+    goals from the electrochemistry: CO selectivity and CO current up,
+    hydrogen down. The CO current is a Sabatier volcano in *x*, so the
+    optimiser has a real maximum to find. Kept results join in when they
+    exist: the WAXS peak (``peak_fit`` with ``link=True``) and the TEM size
+    (``particle_sizing``).
+    """
+    from pyDataOrg.campaign import Campaign, Column, Objective
+
+    s, t = "synthesis.", "testing."
+    return Campaign(
+        name=CAMPAIGN,
+        description="Cu–Au alloy nanocatalysts for CO₂ electroreduction "
+                    "(generated demo data)",
+        columns=[
+            Column("x_Au", s + "composition.nominal_x_Au", "nominal Au fraction",
+                   kind="input"),
+            Column("batch", s + "synthesis_batch.batch_tag", "library"),
+            Column("status", s + "synthesis_batch.status", "synthesis status"),
+            Column("made_at", s + "synthesis_batch.started_at", "synthesised at"),
+            Column("tested_at", t + "testing_batch.started_at", "tested at"),
+            Column("test_status", t + "testing_batch.status", "test status",
+                   kind="protocol"),
+            Column("electrolyte", t + "cell.electrolyte", "electrolyte",
+                   kind="protocol"),
+            Column("q111", "derived.waxs1d_peak1_center", "WAXS (111) peak",
+                   "1/Å", "result"),
+            Column("d_tem_nm", "particle_sizing:d_median", "TEM diameter",
+                   "nm", "result"),
+            Column("FE_CO", t + "performance.FE_CO_pct", "CO selectivity", "%",
+                   "objective"),
+            Column("j_CO", t + "performance.j_CO_mA_cm2", "CO current",
+                   "mA/cm²", "objective"),
+            Column("FE_H2", t + "performance.FE_H2_pct", "H₂ selectivity", "%",
+                   "objective"),
+        ],
+        objectives=[Objective("j_CO", True), Objective("FE_CO", True),
+                    Objective("FE_H2", False)],
+        when="tested_at",
+        done=("test_status", "done"),
+        protocol=("electrolyte",),
+        bounds={"x_Au": (0.0, 1.0)},
+        rounding={"x_Au": 0.01},
+    )
+
+
+__all__ = ["build_showcase_project", "showcase_campaign", "CAMPAIGN", "MARKER"]

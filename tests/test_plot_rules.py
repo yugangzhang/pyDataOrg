@@ -27,6 +27,8 @@ from pyDataOrg.analysis import (                                # noqa: E402
     radius_to_two_theta, segment_micrograph, weighted_mean,
 )
 from pyDataOrg.analysis.result import AnalysisResult            # noqa: E402
+from pyDataOrg.campaign import Objective                          # noqa: E402
+from pyDataOrg.viz import campaign as figures                     # noqa: E402
 from pyDataOrg.viz import plots, show                           # noqa: E402
 
 PACKAGE = Path(__file__).resolve().parents[1] / "pyDataOrg"
@@ -70,7 +72,35 @@ CASES = {
     "plot_image": lambda ax: plots.plot_image(_discs(), ax=ax),
     "plot_fit without residual": lambda ax: plots.plot_fit(
         X, _peak(X), _peak(X), ax=ax),
+    "plot_frame_map": lambda ax: plots.plot_frame_map(
+        [0, 60, 120], X, np.vstack([_peak(X)] * 3), ax=ax, colorbar=False),
 }
+
+# The campaign figures: a frame with a sample column and known numbers.
+_CAMPAIGN = pd.DataFrame({"sample": ["a", "b", "c", "d"],
+                          "x": [0.1, 0.4, 0.6, 0.9], "x2": [1.0, 2.0, 3.0, 4.0],
+                          "y1": [1.0, 3.0, 2.0, np.nan], "y2": [4.0, 1.0, 3.0, 5.0]})
+_GOALS = [Objective("y1"), Objective("y2")]
+_GRID = np.meshgrid(np.linspace(0, 1, 5), np.linspace(0, 1, 5))
+CASES.update({
+    "plot_by_sample": lambda ax: figures.plot_by_sample(
+        _CAMPAIGN, "y1", x="x", ax=ax, color="y2", colorbar=False),
+    "plot_design_map": lambda ax: figures.plot_design_map(
+        _CAMPAIGN, "x", "x2", ax=ax, color="y1", colorbar=False),
+    "plot_design_map, one input": lambda ax: figures.plot_design_map(
+        _CAMPAIGN, "x", ax=ax, color="y1"),
+    "plot_pareto": lambda ax: figures.plot_pareto(
+        _CAMPAIGN, _GOALS, ax=ax, front=[True, True, False, False]),
+    "plot_progress": lambda ax: figures.plot_progress(
+        [1.0, 3.0, 2.0], [1.0, 3.0, 3.0], ax=ax, name="y1"),
+    "plot_surrogate": lambda ax: figures.plot_surrogate(
+        _GRID[0], _GRID[1], _GRID[0] + _GRID[1], ax=ax, colorbar=False),
+    "plot_surrogate_line": lambda ax: figures.plot_surrogate_line(
+        X, _peak(X), 0.1 + 0 * X, ax=ax),
+    "plot_parity": lambda ax: figures.plot_parity(pd.DataFrame(
+        {"sample": ["a", "b"], "y": [1.0, 2.0], "y_pred": [1.1, 1.9],
+         "y_sd": [0.1, 0.1]}), "y", ax=ax),
+})
 
 
 @pytest.mark.parametrize("name", CASES)
@@ -98,6 +128,9 @@ def test_every_public_plot_function_takes_ax():
         if not callable(func) or not name.startswith("plot_"):
             continue
         assert "ax" in inspect.signature(func).parameters, name
+
+    for name in figures.__all__:
+        assert "ax" in inspect.signature(getattr(figures, name)).parameters, name
 
     for name in ("curve_figure", "image_figure", "volume_figure",
                  "result_figure", "overlay"):
@@ -143,7 +176,8 @@ def test_no_plotting_module_shows_or_saves():
     """Showing and saving belong to the caller."""
     banned = {"show", "savefig", "close"}
     for path in [PACKAGE / "viz" / "plots.py", PACKAGE / "viz" / "show.py",
-                 PACKAGE / "viz" / "interactive.py"]:
+                 PACKAGE / "viz" / "interactive.py",
+                 PACKAGE / "viz" / "campaign.py"]:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if (isinstance(node, ast.Call)

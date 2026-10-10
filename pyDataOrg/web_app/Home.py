@@ -4,60 +4,83 @@ pyDataOrg web app — navigation entry point.
 
 Run with::
 
+    dataorg gui                       # password + folder fence, port 8800
+    dataorg gui 8900 --app myproj     # a plugin as the app
     streamlit run pyDataOrg/web_app/Home.py
 
-or the ``viz`` console command.
+Sections:
 
-The app used to be a flat list of fourteen pages, most of them one X-ray
-scattering technique each. It is now a five-step workflow plus a tools section,
-with technique chosen *inside* the Visualize page from the modality registry.
-Adding a technique therefore changes no page.
+**Workflow** — the general pages: organise, explore, draw, analyse, compare.
 
-Navigation is declared here with ``st.navigation``, which also means the
-``pages/`` directory is no longer auto-discovered — the older scattering pages
-remain on disk and can still be run directly, but they do not clutter the
-sidebar. Scattering visualisation proper lives in **a scattering package**.
+**Campaign** — the campaign table (inputs → results → objectives), Pareto
+front and progress; and the next experiments proposed by a surrogate model.
+
+**One section per installed plugin** (see :mod:`pyDataOrg.plugins`) — a
+project package's own pages, working on the same open organizer and
+selection. ``PYDATAORG_APP=<plugin>`` (``dataorg gui --app``) puts that
+plugin first, makes its default page the app's, and uses its title.
+
+**Tools** — standalone utilities that need no organizer.
+
+Navigation is declared here with ``st.navigation``; only this file calls
+``st.set_page_config``.
 """
 
+import os
 from pathlib import Path
 
 import streamlit as st
 
+from pyDataOrg import plugins as _plugins
+
+_plugins.load_plugins()
+APP = os.environ.get("PYDATAORG_APP", "").strip()
+app = _plugins.PLUGINS.get(APP) if APP else None
+
 st.set_page_config(
-    page_title="pyDataOrg",
-    page_icon="🔬",
+    page_title=app.heading if app else "pyDataOrg",
+    page_icon=app.icon if app else "🔬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-from pyDataOrg.web_app.components.floating_button import (     # noqa: E402
+from pyDataOrg.web_app.components.floating_button import (         # noqa: E402
     floating_sidebar_toggle,
 )
-from pyDataOrg.web_app.components.security import (            # noqa: E402
+from pyDataOrg.web_app.components.security import (                # noqa: E402
     current_user, format_allowed_roots, initialize_security_context,
     is_admin, require_authentication,
 )
-from pyDataOrg.core.pathmap import display_path                # noqa: E402
-from pyDataOrg.web_app.state import sidebar_status             # noqa: E402
+from pyDataOrg.core.pathmap import display_path                    # noqa: E402
+from pyDataOrg.web_app.state import sidebar_status                 # noqa: E402
 
 initialize_security_context()
 require_authentication()
 
 HERE = Path(__file__).resolve().parent
 VIEWS = HERE / "views"
-PAGES = HERE / "pages"
+TOOLS = HERE / "tools"
 
 
 def view(name: str, title: str, icon: str, default: bool = False):
-    return st.Page(VIEWS / name, title=title, icon=icon, default=default)
+    return st.Page(VIEWS / name, title=title, icon=icon,
+                   default=default and app is None)
 
 
-def tool(name: str, title: str, icon: str):
-    """Mount a retained general-purpose tool from the old pages folder."""
-    return st.Page(PAGES / name, title=title, icon=icon)
+def plugin_pages(plugin):
+    pages = []
+    for page in plugin.pages:
+        path = page.file()
+        if not path.exists():
+            continue
+        pages.append(st.Page(
+            path, title=page.title, icon=page.icon or None,
+            url_path=page.url_path or f"{plugin.name}_{path.stem}",
+            default=page.default and plugin is app))
+    return pages
 
 
-sections = {
+general = {
     "Workflow": [
         view("overview.py", "Overview", "🔬", default=True),
         # Notebooks 10 → 11 → 12 with buttons: simulate, build, use.
@@ -69,20 +92,31 @@ sections = {
         view("analyze.py", "Analyze", "🧪"),
         view("compare.py", "Compare", "📊"),
     ],
+    "Campaign": [
+        view("campaign.py", "Campaign", "🏁"),
+        view("next.py", "Next experiments", "🎯"),
+    ],
 }
 
-# General-purpose utilities that survived the consolidation. Each is optional:
-# a missing file must not take the whole app down.
-TOOLS = [
-    ("8_🎯_Universal_Plotter.py", "Universal Plotter", "🎯"),
-    ("7_🧪_Test_Data_Generator.py", "Test Data Generator", "🧪"),
-    ("8_Data_Manager.py", "Data Manager", "🔧"),
-]
-tools = [tool(name, title, icon) for name, title, icon in TOOLS
-         if (PAGES / name).exists()]
+sections = {}
+if app is not None:
+    sections[app.heading] = plugin_pages(app)
+sections.update(general)
+for plugin in _plugins.PLUGINS.values():
+    if plugin is not app and plugin.pages:
+        sections[plugin.heading] = plugin_pages(plugin)
+
+# Standalone utilities. Each is optional: a missing file must not take the
+# whole app down.
+tools = [st.Page(TOOLS / name, title=title, icon=icon)
+         for name, title, icon in (
+             ("universal_plotter.py", "Universal Plotter", "🎯"),
+             ("test_data_generator.py", "Test Data Generator", "🧪"),
+         ) if (TOOLS / name).exists()]
 if tools:
     sections["Tools"] = tools
 
+sections = {title: pages for title, pages in sections.items() if pages}
 navigation = st.navigation(sections, position="sidebar")
 
 # ---------------------------------------------------------------------------
@@ -101,6 +135,16 @@ with st.sidebar:
             st.caption("🔒 Restricted to `"
                        + display_path(st.session_state["user_start_dir"],
                                       max_up=0) + "`")
+    for name, error in _plugins.ERRORS.items():
+        st.caption(f"⚠️ plugin `{name}` did not load: "
+                   f"{error.splitlines()[0]}")
+
+for plugin in _plugins.PLUGINS.values():
+    if plugin.on_page is not None:
+        try:
+            plugin.on_page()
+        except Exception as exc:                       # never fatal
+            st.sidebar.caption(f"⚠️ `{plugin.name}`: {exc}")
 
 sidebar_status()
 floating_sidebar_toggle()

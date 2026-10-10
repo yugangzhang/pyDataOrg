@@ -18,7 +18,7 @@ def test_main_secure_sets_port_and_security_env(monkeypatch, tmp_path: Path):
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(app_cli, "_launch_streamlit", fake_launch)
-    monkeypatch.setattr(sys, "argv", ["viz", "6011", "top-secret"])
+    monkeypatch.setattr(sys, "argv", ["dataorg-gui", "6011", "top-secret"])
 
     with pytest.raises(SystemExit) as exc:
         app_cli.main_secure()
@@ -40,7 +40,7 @@ def test_main_secure_sets_port_and_security_env(monkeypatch, tmp_path: Path):
 
 
 def test_main_secure_rejects_invalid_port(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["viz", "70000", "pw"])
+    monkeypatch.setattr(sys, "argv", ["dataorg-gui", "70000", "pw"])
     with pytest.raises(SystemExit) as exc:
         app_cli.main_secure()
     assert exc.value.code == 2
@@ -75,7 +75,7 @@ all_paths = true
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(app_cli, "_launch_streamlit", fake_launch)
-    monkeypatch.setattr(sys, "argv", ["viz", "6012"])
+    monkeypatch.setattr(sys, "argv", ["dataorg-gui", "6012"])
 
     with pytest.raises(SystemExit) as exc:
         app_cli.main_secure()

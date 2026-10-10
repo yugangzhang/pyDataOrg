@@ -1056,10 +1056,12 @@ class Workbench:
             return _store.load_result(paths[0])
         return None
 
-    def kept_settings(self, key: str, sample_id: str = "") -> Dict[str, Any]:
+    def kept_settings(self, key: str, sample_id: str = "", *,
+                      modality: str = "") -> Dict[str, Any]:
         """The settings *key*'s kept results were made with — the most
         common, if they differ; ``{}`` when nothing is kept. With
-        *sample_id*, the settings of that sample's kept result.
+        *sample_id*, the settings of that sample's kept result; with
+        *modality*, of its results on that technique only.
 
         Pass them on and new samples are analysed the way the others were,
         while the kept ones load::
@@ -1078,7 +1080,9 @@ class Workbench:
             found = self.project.measurements(modality="fit")
         counts: Counter = Counter()
         for stored in found:
-            if (stored.meta or {}).get("analysis") != key:
+            meta = stored.meta or {}
+            if meta.get("analysis") != key or (
+                    modality and meta.get("source_modality") != modality):
                 continue
             paths = [path for path in stored.resolve(self.resolver)
                      if Path(path).exists()]
@@ -1086,6 +1090,157 @@ class Workbench:
             if settings:
                 counts[json.dumps(settings, sort_keys=True)] += 1
         return json.loads(counts.most_common(1)[0][0]) if counts else {}
+
+    # ------------------------------------------------------------------
+    # kept results across the project: what is done, what is new
+    #
+    # A *target* is an analysis key, or ``key@modality`` for an analysis
+    # that runs on more than one technique: peak fitting the diffraction
+    # patterns and peak fitting the spectra are two things to keep up to
+    # date, with two sets of settings.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _split(target: str):
+        key, _, modality = str(target).partition("@")
+        return key, modality
+
+    def runnable(self, target: str) -> List[str]:
+        """Samples with the data *target* runs on. For an analysis of another
+        one's results (``results_of``), the samples that one runs on."""
+        key, modality = self._split(target)
+        upstream = _analysis.get_analysis(key).results_of
+        if upstream:
+            return self.runnable(upstream[0] + (f"@{modality}" if modality
+                                                else ""))
+        return list(dict.fromkeys(
+            m.sample_id for m in _analysis.targets(self.project, key,
+                                                   modality=modality)))
+
+    def kept_ids(self, target: str) -> List[str]:
+        """Samples with a readable kept result of *target*."""
+        key, modality = self._split(target)
+        table = self.results(all_samples=True, analysis=key)
+        if table.empty:
+            return []
+        rows = table["readable"].astype(bool)
+        if modality:
+            rows &= table["modality"].eq(modality)
+        return list(dict.fromkeys(table.loc[rows, "sample_id"]))
+
+    def new_samples(self, target: str) -> List[str]:
+        """Samples *target* could run on that have no kept result of it yet."""
+        kept = set(self.kept_ids(target))
+        return [s for s in self.runnable(target) if s not in kept]
+
+    def status(self, targets: Sequence[str]):
+        """One row per target: samples with data, kept, new."""
+        import pandas as pd
+
+        rows = []
+        for target in targets:
+            can, kept = self.runnable(target), set(self.kept_ids(target))
+            rows.append({"analysis": target, "samples with data": len(can),
+                         "kept": len(kept & set(can)),
+                         "new": sum(s not in kept for s in can)})
+        return pd.DataFrame(rows)
+
+    def kept_analyses(self) -> List[str]:
+        """The targets with at least one kept result — ``key``, or
+        ``key@modality`` for an analysis that runs on several techniques —
+        each after any whose results it runs on: the order
+        :meth:`analyse_new` wants."""
+        table = self.results(all_samples=True)
+        found: List[str] = []
+        for _, row in table.iterrows():
+            key = row["analysis"]
+            if key not in _analysis.ANALYSIS_REGISTRY:
+                continue
+            spec = _analysis.get_analysis(key)
+            several = not spec.results_of and len(spec.modalities) != 1
+            target = f"{key}@{row['modality']}" if several and \
+                row.get("modality") else key
+            if target not in found:
+                found.append(target)
+        ordered: List[str] = []
+
+        def visit(target: str) -> None:
+            if target in ordered:
+                return
+            for upstream in _analysis.get_analysis(
+                    self._split(target)[0]).results_of:
+                for other in found:
+                    if self._split(other)[0] == upstream:
+                        visit(other)
+            ordered.append(target)
+
+        for target in found:
+            visit(target)
+        return ordered
+
+    def analyse_new(self, targets: Sequence[str], *, overwrite: bool = False,
+                    progress=None, link: bool = True, write: bool = False,
+                    folder: Union[str, Path, None] = None):
+        """Run *targets*, in order, on the samples that have no kept result
+        yet — every sample, with *overwrite* — with the settings the kept
+        ones were made with (:meth:`kept_settings`), and keep the results.
+
+        This is what keeps a growing campaign up to date: new records come
+        in, and one call analyses exactly the new samples the way the others
+        were. List an analysis of another's results after that one
+        (:meth:`kept_analyses` does). Nothing is saved: call :meth:`save`.
+        Returns ``{target: batch table}``; *progress* is called as
+        ``progress(index, target, n_samples)``.
+        """
+        done = {}
+        for index, target in enumerate(targets):
+            key, modality = self._split(target)
+            ids = self.runnable(target) if overwrite \
+                else self.new_samples(target)
+            if progress is not None:
+                progress(index, target, len(ids))
+            if ids:                            # an empty list would mean all
+                done[target] = self.batch(
+                    key, ids, settings=self.kept_settings(key,
+                                                          modality=modality),
+                    modality=modality, overwrite=overwrite, verbose=False,
+                    link=link, write=write, folder=folder)
+        return done
+
+    def keep_results(self, target: str,
+                     sample_ids: Union[str, Sequence[str], None] = None, *,
+                     settings: Optional[Dict[str, Any]] = None,
+                     upstream: Optional[Dict[str, Any]] = None,
+                     progress=None, link: bool = True, write: bool = False,
+                     folder: Union[str, Path, None] = None):
+        """Keep *target* with *settings* on *sample_ids* (default: every
+        sample it runs on) — kept results with the same settings load, the
+        rest run.
+
+        For an analysis of another's results, that one is kept first, with
+        *upstream* settings (default: its kept ones). Returns
+        ``{key: batch table}`` for each analysis run.
+        """
+        key, modality = self._split(target)
+        if isinstance(sample_ids, str):
+            sample_ids = [sample_ids]
+        can = self.runnable(target)
+        ids = can if sample_ids is None else [s for s in sample_ids if s in can]
+        done = {}
+        if not ids:
+            return done
+        keep = dict(verbose=False, progress=progress, link=link, write=write,
+                    folder=folder)
+        before = _analysis.get_analysis(key).results_of
+        if before:
+            done[before[0]] = self.batch(
+                before[0], ids, modality=modality,
+                settings=(self.kept_settings(before[0], modality=modality)
+                          if upstream is None else upstream), **keep)
+            modality = ""            # the analysis runs on the stored results
+        done[key] = self.batch(key, ids, settings=settings or {},
+                               modality=modality, **keep)
+        return done
 
     def _run_one(self, key: str, measurement, options: Dict[str, Any], *,
                  overwrite: bool, link: bool, folder, write: bool,
@@ -1411,21 +1566,36 @@ class Organizer(Workbench):
     aliases : dict, optional
         ``{recorded_prefix: local_path_or_list}``, applied before anything
         else so an availability report means something straight away.
+    server : str or Server, optional
+        Which machine this is (see :mod:`pyDataOrg.servers`): its prefixes
+        become aliases, under any given in *aliases*, and :meth:`local`
+        rewrites a recorded path to this machine. ``None`` keeps the
+        recorded paths; ``"auto"`` picks the server mounted here.
     """
 
     def __init__(self, store: Union[str, Path], name: str = "", *,
                  aliases: Optional[Dict[str, Union[str, Sequence[str]]]] = None,
-                 basket: Sequence[str] = ()):
+                 server=None, basket: Sequence[str] = ()):
+        from pyDataOrg import servers as _servers
+
         path = Path(store).expanduser()
         if path.is_dir() or not path.suffix:
             path = path / "organizer.json"
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        self.server = _servers.server(server)
+        table: Dict[str, Union[str, Sequence[str]]] = dict(self.server.aliases())
+        table.update(aliases or {})
+
         project = Project(path.parent, name=name, store_file=path)
-        for prefix, candidates in (aliases or {}).items():
+        for prefix, candidates in table.items():
             project.add_alias(prefix, candidates)
 
         super().__init__(project, basket=basket)
+
+    def local(self, path) -> str:
+        """A path (or glob) as recorded → the same path on this machine."""
+        return self.server.local(path)
 
     @property
     def path(self) -> Path:
@@ -1447,7 +1617,10 @@ class Organizer(Workbench):
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         chosen = f"{len(self._basket)} selected" if self._basket else "all"
-        return (f"<Organizer {self.project.config.name!r}: "
+        where = (f" on {self.server.name}"
+                 if getattr(self, "server", None) is not None
+                 and self.server.prefixes else "")
+        return (f"<Organizer {self.project.config.name!r}{where}: "
                 f"{len(self.project)} samples, {chosen} — "
                 f"{display_path(self.path)}>")
 

@@ -52,32 +52,18 @@ with st.expander("Settings", expanded=False):
 # ---------------------------------------------------------------------------
 
 def draw(result) -> None:
-    """Draw whatever this analysis produced, if there is a plot for it."""
+    """Draw a result the way its analysis says to (``Analysis.plot``)."""
+    painter = analysis_api.get_analysis(result.analysis).plot
+    if painter is None:
+        return
     try:
-        if result.analysis == "uvvis_kinetics":
-            figure, axes = plt.subplots(1, 2, figsize=(12, 4.5))
-            plots.plot_kinetics(result, ax=axes)
-            figure.tight_layout()
-        elif result.analysis == "uvvis_spectra":
-            figure, axes = plt.subplots(1, 2, figsize=(13, 4.8))
-            plots.plot_spectra(result, ax=axes[0], colorbar=False)
-            plots.plot_endpoint_spectrum(result, ax=axes[1])
-            figure.tight_layout()
-        elif result.analysis == "particle_sizing":
-            figure, ax = plt.subplots(figsize=(7.5, 4.5))
-            plots.plot_size_distribution(result, ax=ax)
-            figure.tight_layout()
-        elif result.analysis == "peak_fit":
-            figure, axes = plt.subplots(
-                2, 1, figsize=(8, 6), sharex=True,
-                gridspec_kw={"height_ratios": [3, 1], "hspace": 0.08})
-            plots.plot_peak_fit(result, ax=axes)
-        else:
-            return
+        drawn = painter(result)
     except Exception as exc:
         st.warning(f"Could not plot: {exc}", icon="⚠️")
         return
-
+    first = drawn[0] if isinstance(drawn, (tuple, list)) else drawn
+    first = first.flat[0] if hasattr(first, "flat") else first
+    figure = first.figure
     st.pyplot(figure, width="stretch")
     plt.close(figure)
 
@@ -86,7 +72,9 @@ def draw(result) -> None:
 # Single sample
 # ---------------------------------------------------------------------------
 
-single, batch = st.tabs(["One sample", f"Batch — {basket_label(workbench)}"])
+single, batch, current = st.tabs(["One sample",
+                                   f"Batch — {basket_label(workbench)}",
+                                   "Up to date?"])
 
 with single:
     candidates = [
@@ -178,6 +166,37 @@ with batch:
         st.download_button(
             "⬇️ Download results CSV", frame[columns].to_csv(index=False),
             file_name=f"{project.config.name}_{key}.csv", mime="text/csv")
+
+# ---------------------------------------------------------------------------
+# Kept results: analyse exactly what is new
+# ---------------------------------------------------------------------------
+
+with current:
+    st.caption(
+        "Analyses whose results are **kept** (saved as files and linked, "
+        "`link=True`). New records arrive; this runs each one on the samples "
+        "that have none yet, with the settings the others were kept with.")
+    kept = workbench.kept_analyses()
+    if not kept:
+        st.info("Nothing is kept yet — run a batch with results linked "
+                "(`org.batch(key, link=True)`) and it will be tracked here.",
+                icon="📭")
+    else:
+        st.dataframe(workbench.status(kept), hide_index=True, width="stretch")
+        if st.button("Analyse what is new", type="primary",
+                     key="org_analyse_new"):
+            progress = st.progress(0.0, text="starting…")
+
+            def step(index, key, count):
+                progress.progress(index / len(kept),
+                                  text=f"{key}: {count} new samples")
+
+            with st.spinner("Analysing…"):
+                done = workbench.analyse_new(kept, progress=step)
+            progress.empty()
+            ran = sum(len(frame) for frame in done.values())
+            st.success(f"{ran} results kept across {len(done)} analyses — "
+                       f"save the project to keep the links.")
 
 # ---------------------------------------------------------------------------
 # Save

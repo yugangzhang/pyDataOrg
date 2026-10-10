@@ -41,6 +41,10 @@ class Analysis:
     prefix: str = ""                     # prepended to derived names
     results_of: Tuple[str, ...] = ()     # runs on these analyses' stored results
     kernel: Optional[Callable[..., AnalysisResult]] = None   # the same, on arrays
+    # How to draw a finished result: ``plot(result, ax=None) -> Axes`` (or a
+    # tuple). It makes its own figure when given no Axes, so a page or a
+    # notebook can call it without knowing how many panels it has.
+    plot: Optional[Callable[..., Any]] = None
 
     def settings_for(self, options: Optional[Dict[str, Any]] = None, *,
                      strict: bool = False) -> Dict[str, Any]:
@@ -114,6 +118,16 @@ class Analysis:
 
 
 ANALYSIS_REGISTRY: Dict[str, Analysis] = {}
+
+def same_settings(key: str, a: Optional[Dict[str, Any]],
+                  b: Optional[Dict[str, Any]]) -> bool:
+    """Whether two settings dicts of *key* run the same — defaults filled
+    in, tuples and lists alike, ``480 == 480.0``."""
+    if not a or not b:
+        return not a and not b
+    spec = get_analysis(key)
+    return spec.settings_for(a) == spec.settings_for(b)
+
 
 
 def register_analysis(analysis: Analysis, overwrite: bool = False) -> Analysis:
@@ -320,12 +334,31 @@ from pyDataOrg.analysis import curves as _curves    # noqa: E402
 from pyDataOrg.analysis import imaging as _imaging  # noqa: E402
 from pyDataOrg.analysis import peaks as _peaks      # noqa: E402
 
+def _plot_sizes(result, ax=None):
+    from pyDataOrg.viz import plots
+
+    return plots.plot_size_distribution(result, ax=ax)
+
+
+def _plot_peak_fit(result, ax=None):
+    from pyDataOrg.viz import plots
+
+    return plots.plot_peak_fit(result, ax=ax)
+
+
+def _plot_curves(result, ax=None):
+    from pyDataOrg.viz import show
+
+    return show.result_figure(result, ax=ax)
+
+
 register_analysis(Analysis(
     key="particle_sizing",
     func=_imaging.particle_sizing,
     label="Particle sizing from micrographs",
     modalities=("tem", "sem", "optical"),
     description="Otsu threshold plus watershed separation, calibrated to nm.",
+    plot=_plot_sizes,
 ))
 
 register_analysis(Analysis(
@@ -334,6 +367,7 @@ register_analysis(Analysis(
     label="1D peak fitting",
     groups=("curve",),
     description="Fit one or more peaks on any 1D curve, with a background.",
+    plot=_plot_peak_fit,
 ))
 
 register_analysis(Analysis(
@@ -343,6 +377,7 @@ register_analysis(Analysis(
     groups=("curve", "correlation"),
     description="Height, position, area, centroid and threshold crossing — "
                 "no model fitted.",
+    plot=_plot_curves,
 ))
 
 # Kernels, re-exported so the numeric half of every analysis is one import
@@ -361,6 +396,7 @@ from pyDataOrg.analysis.profiles import (                          # noqa: E402
 __all__ = [
     "Analysis", "ANALYSIS_REGISTRY", "AnalysisResult",
     "register_analysis", "get_analysis", "list_analyses", "analyses_for",
+    "same_settings",
     "run", "run_method", "targets", "batch", "batch_report", "jsonable",
     # kernels: arrays in, result out — no files, no project
     "fit_peaks", "PeakFitResult", "measure_curve", "CurveMetrics",

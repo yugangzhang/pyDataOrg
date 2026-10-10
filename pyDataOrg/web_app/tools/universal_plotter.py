@@ -19,13 +19,11 @@ import pandas as pd
 from pathlib import Path
 from scipy.interpolate import griddata
 import io
-import sys
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from components.folder_browser import folder_browser
-from components.floating_button import floating_sidebar_toggle
-from components.security import (
+from pyDataOrg.demo import demo_root
+from pyDataOrg.web_app.components.folder_browser import folder_browser
+from pyDataOrg.web_app.components.floating_button import floating_sidebar_toggle
+from pyDataOrg.web_app.components.security import (
     initialize_security_context,
     is_path_allowed,
     require_authentication,
@@ -446,10 +444,8 @@ with st.sidebar:
     # Quick-load TestData button (always visible)
     st.divider()
     _test_data_dir = None
-    for _candidate in [
-        Path(__file__).resolve().parent.parent.parent.parent / "TestData",
-        Path.cwd() / "TestData",
-    ]:
+    # Written by the Test Data Generator tool, under demo_root().
+    for _candidate in [demo_root("TestData"), Path.cwd() / "TestData"]:
         if _candidate.is_dir() and is_path_allowed(_candidate):
             _test_data_dir = _candidate
             break

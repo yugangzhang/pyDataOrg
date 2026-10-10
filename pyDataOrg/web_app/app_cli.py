@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""Console-script entry points for pyDataOrg web app.
-
-Commands
---------
-viz                 Secure mode: viz [port] [password]
-viz-adduser         Add/update a user in the multi-user JSON store
+"""Launching the pyDataOrg web app — what ``dataorg gui`` and
+``dataorg adduser`` run (see :mod:`pyDataOrg.cli`).
 """
 
 import argparse
@@ -85,10 +81,10 @@ def main_user():
     sys.exit(_launch_streamlit(DEFAULT_PORT, env=env))
 
 
-def main_secure():
-    """Launch secure mode via `viz [port] [password]`."""
+def main_secure(argv=None, prog: str = "dataorg gui"):
+    """Launch secure mode: ``dataorg gui [port] [password] [--app NAME]``."""
     parser = argparse.ArgumentParser(
-        prog="viz",
+        prog=prog,
         description=(
             "Launch pyDataOrg in secure mode with password protection and "
             "filesystem restrictions."
@@ -106,8 +102,21 @@ def main_secure():
         nargs="?",
         help="Access password. If omitted, you will be prompted securely.",
     )
+    parser.add_argument(
+        "--app", default="",
+        help="An installed plugin to run as the app: its title, its pages "
+             "first (see `dataorg plugins`).")
+    parser.add_argument(
+        "--local", action="store_true",
+        help="This machine only (localhost), no password, no folder fence.")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.app:
+        os.environ["PYDATAORG_APP"] = args.app
+    if args.local:
+        env = os.environ.copy()
+        env["PYDATAORG_HOST"] = "127.0.0.1"
+        sys.exit(_launch_streamlit(_validate_port(args.port), env=env))
 
     try:
         port = _validate_port(args.port)
@@ -171,19 +180,19 @@ def main_secure():
     sys.exit(_launch_streamlit(port, env=env))
 
 
-def main_adduser():
+def main_adduser(argv=None, prog: str = "dataorg adduser"):
     """Add or update a user in the multi-user JSON store.
 
     Usage::
 
-        viz-adduser USERS_FILE USERNAME [--admin] [--root PATH ...]
+        dataorg adduser USERS_FILE USERNAME [--admin] [--root PATH ...]
 
     Prompts for a password (never echoed) and writes its SHA-256 hash. The file
     is created if missing. Point the app at it with
     PYDATAORG_USERS_FILE=USERS_FILE.
     """
     parser = argparse.ArgumentParser(
-        prog="viz-adduser",
+        prog=prog,
         description="Add or update a user in the pyDataOrg multi-user store.",
     )
     parser.add_argument("users_file", help="Path to the JSON user store.")
@@ -192,7 +201,7 @@ def main_adduser():
                         help="Grant full filesystem access (ignores --root).")
     parser.add_argument("--root", action="append", default=[], metavar="PATH",
                         help="Allowed folder for this user (repeatable).")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     users_path = Path(args.users_file).expanduser()
     users = {}

@@ -87,7 +87,7 @@ from pyDataOrg.demo.materials import (
 from pyDataOrg.demo.materials import (
     particle_diameter_nm as alloy_particle_diameter_nm,
 )
-from pyDataOrg.demo.showcase import build_showcase_project
+from pyDataOrg.demo.showcase import build_showcase_project, showcase_campaign
 from pyDataOrg.demo.simple import (
     AXIS, DEFAULT_TEMPERATURES, band_centre_nm, build_demo_project, demo_truth,
     particle_diameter_nm, write_micrographs,
@@ -100,8 +100,14 @@ __all__ = [
     "build_demo_project", "demo_truth", "AXIS", "DEFAULT_TEMPERATURES",
     "band_centre_nm", "particle_diameter_nm", "write_micrographs",
     # the multimodal showcase
-    "build_showcase_project", "showcase_truth", "DEFAULT_FRACTIONS",
+    "build_showcase_project", "showcase_campaign", "showcase_truth",
+    "DEFAULT_FRACTIONS",
     "PRODUCTS", "lattice_parameter_A", "lspr_nm", "alloy_particle_diameter_nm",
     "surface_au_fraction", "d_band_centre_eV", "co_binding_eV",
     "faradaic_efficiency", "co_partial_current",
 ]
+
+# The demo campaign is offered by name on the Campaign pages.
+from pyDataOrg.campaign import register_campaign as _register  # noqa: E402
+
+_register(showcase_campaign())
