@@ -1,11 +1,14 @@
 # The web app
 
 ```bash
-streamlit run pyDataOrg/web_app/Home.py     # or the `viz` console command
+dataorg gui --local                         # this machine, no login
+dataorg gui [PORT] [PASSWORD]               # password + folder fence
+dataorg gui --app myproj                    # a project plugin as the app
+streamlit run pyDataOrg/web_app/Home.py
 ```
 
-The app used to be a flat list of single-technique pages. It is now a
-**five-step workflow** plus a tools section, with technique chosen *inside* the
+The app is a **five-step workflow**, a **campaign** section, one section per
+installed project plugin, and a tools section. Technique is chosen *inside* the
 Visualize page from the modality registry — so adding a technique changes no
 page. A **Demo** page in front of the workflow walks the three notebooks with
 buttons; [`gui_demo.md`](gui_demo.md) is the illustrated tour.
@@ -19,8 +22,11 @@ buttons; [`gui_demo.md`](gui_demo.md) is the illustrated tour.
 | **🌳 Structure** | Drill into a folder, a metadata file or an archive, one layer at a time |
 | **🔎 Explore & Filter** | Filter the sample table; this sets the **selection** every later page uses |
 | **📈 Visualize** | Draw any measurement, grouped by what the data *is* |
-| **🧪 Analyze** | Run an analysis on one sample or the whole selection; results become new, filterable columns |
+| **🧪 Analyze** | Run an analysis on one sample or the whole selection; results become new, filterable columns. **Up to date?** shows, per kept analysis, how many samples are new, and analyses just those |
 | **📊 Compare** | Plot a measured quantity against a synthesis parameter |
+| **🏁 Campaign** | A registered campaign (or one built from columns): the input map, any pairing, the Pareto front and ranking, progress over time, the table |
+| **🎯 Next experiments** | Fit a surrogate per goal, propose a batch of inputs with predicted mean ± sd, see what the model believes, check it by leave-one-out, save the proposal with its evidence |
+| *one section per plugin* | a project package's own pages, on the same organizer ([`platform.md`](platform.md)) |
 
 The loop is the point: **filter → analyse → new columns → filter again.**
 
@@ -274,32 +280,37 @@ It also reports the case where every group holds a single sample, since the
 two effects are then arithmetically inseparable and no warning dressed up as
 statistics would help.
 
+## Campaign and Next experiments
+
+Both read the campaign chosen in the sidebar: a registered `Campaign` (the
+app plugin's `defaults["campaign"]` first, the demo's `CuAu-CO2RR` always
+there) or one **built from columns** — pick inputs and goals from the sample
+table. Rows measured unlike most (the campaign's *protocol* columns) and
+unfinished rows are left out by default, and references (no inputs) are drawn
+as benchmarks rather than points of the front. The pages call
+`pyDataOrg.campaign`, `pyDataOrg.optimize` and `pyDataOrg.viz.campaign` and
+compute nothing themselves; saving a proposal writes
+`Proposals/<stamp>_proposals.csv` and its settings beside the organizer.
+
 ## Tools
 
-Retained general-purpose utilities, mounted from the old pages folder:
-**Universal Plotter**, **Test Data Generator**, **Data Manager**. Each is
-optional — a missing file is skipped rather than taking the app down.
-
-## What happened to the old pages
-
-Navigation is declared with `st.navigation`, which **disables `pages/`
-auto-discovery**. The older single-purpose pages (CSV Plotter, Image Viewer, Multi-Axes, 3D
-Plotter, Data Viewer) remain on disk and can still be run directly:
-
-```bash
-streamlit run pyDataOrg/web_app/pages/2_CSV_Plotter.py
-```
-
-They are superseded by Visualize and the Universal Plotter. Re-listing one is a
-single line in `sections` in `Home.py`.
+Standalone utilities in `web_app/tools/`, needing no organizer: the
+**Universal Plotter** and the **Test Data Generator** (which writes under
+`demo_root("TestData")`, where the plotter's *Load Test Data* finds it). Each
+is optional — a missing file is skipped rather than taking the app down.
 
 ## Extending it
 
 - **A new technique** → one `register()` in `core/modality.py`. Visualize picks
   it up; no page changes.
-- **A new analysis** → one `register_analysis()` in `analysis/__init__.py`.
-  Analyze offers it, builds its form, and batches it.
+- **A new analysis** → one `register_analysis()`, with `plot=` for how its
+  result is drawn. Analyze offers it, builds its form, batches it and draws it.
 - **A new authoring format** → one `register_adapter()` in `ingest/__init__.py`.
+- **A campaign** → one `register_campaign()`; Campaign and Next experiments
+  offer it.
+- **Pages of your own** → a project plugin ([`platform.md`](platform.md)).
+  Its pages share the open organizer through `web_app/state.py`, and the
+  controls every project page needs are in `components/controls.py`.
 
 ## Testing
 

@@ -1,7 +1,7 @@
 # pyDataOrg
 
 Organise experimental metadata, visualise any measurement, analyse in batch,
-and compare across samples.
+compare across samples — and decide what to make next.
 
 A laboratory accumulates data faster than it accumulates structure: a folder of
 spectra here, a drive of micrographs there, a beamline mount, a potentiostat's
@@ -9,6 +9,26 @@ export folder, and the conditions that produced all of it in a notebook or a
 script. pyDataOrg gives that material one sample-centric model, so a
 question like *which composition is the best CO₂-reduction catalyst, and why?*
 is a filter, a batch and a plot rather than a week.
+
+**pyDataOrg is a foundation.** It knows how to keep track of samples, the data
+measured on them and the results derived from them — and nothing about any
+particular material, instrument or facility. A *project package* adds that: its
+file formats, its analyses, its campaign, its GUI pages. It registers them
+through one plugin hook, and they appear beside the general tools, working on
+the same organizer ([Build on it](#build-on-it-project-packages)). The same
+operations are exposed to scripts, to [AI agents](#for-agents-and-machine-learning)
+(as tools, or over MCP) and to machine learning (a samples × features table).
+
+```
+                 ┌──────────── project packages (yours) ────────────┐
+                 │ formats · analyses · campaigns · pages · machines │
+                 └──────────────────────────┬───────────────────────┘
+                                            │ register (plugins)
+ notebooks ─┐                               ▼
+ GUI ───────┼──►  pyDataOrg: samples → stages → measurements → results
+ agents ────┤      organise · visualise · analyse · campaign · next experiments
+ ML ────────┘
+```
 
 **The loop is the point: filter → analyse → new columns → filter again.**
 
@@ -28,25 +48,26 @@ your own data.
 ## Install
 
 ```bash
-pip install -e ".[web,image]"
+pip install -e ".[web,image,optimize]"
 ```
 
 Dependencies are numpy, scipy, matplotlib and pandas; Pillow and scikit-image
-for micrographs; Streamlit and Plotly for the GUI. Nothing else.
+for micrographs; Streamlit and Plotly for the GUI; scikit-learn for proposing
+the next experiments. Nothing else.
 
 ## Run the GUI
 
 ```bash
-streamlit run pyDataOrg/web_app/Home.py   # local, no login → http://localhost:8501
-viz                                           # password + folder fence, port 8800
-viz 8900                                      # the same, on another port
+dataorg gui --local                    # this machine only, no login → http://localhost:8800
+dataorg gui                            # password + folder fence, port 8800
+dataorg gui 8900 --app myproj          # another port, with a project plugin as the app
 ```
 
-`streamlit run` is the plain local app. `viz` is the console command the
-package installs: it asks for an access password, binds to every interface so
+`dataorg gui` asks for an access password, binds to every interface so
 colleagues can reach it by hostname, and only lets the file pickers see the
 folder you started it in, your home directory, and any extra roots you
-configure — the mode for a shared machine.
+configure (`PYDATAORG_EXTRA_ROOTS`) — the mode for a shared machine.
+`streamlit run pyDataOrg/web_app/Home.py` is the plain local app.
 
 **First thing to click: 🎓 Demo.** Six tabs — *Simulate, Build, Look,
 Visualize, Analyze, Compare* — run the walkthrough below on the same Cu–Au
@@ -89,7 +110,7 @@ data never lets you check.
 ### 0 · Get the data
 
 ```bash
-python -m pyDataOrg.demo --campaign     # writes ../OrgDemo/CuAu, beside this repository
+dataorg demo --campaign     # writes ../OrgDemo/CuAu, beside this repository
 ```
 
 (or run notebook `10_simulate_data`, or **Demo → 1 Simulate** in the GUI —
@@ -519,7 +540,138 @@ samples** ingest in 0.15 s, save in 0.9 s (13 MB), load in 0.4 s and filter in
 0.1 s on an ordinary laptop. A plate-based campaign uses the same calls as this
 nine-sample one.
 
+### 3 · The campaign, and what to make next
+
+A campaign is the same organizer read as *inputs → results → goals*: about
+twenty numbers under names a person can type, out of the hundreds of recorded
+fields. A `Campaign` names them once — a project package registers its own;
+the demo's is built in:
+
+```python
+from pyDataOrg.campaign import get_campaign
+from pyDataOrg import optimize
+
+spec = get_campaign("CuAu-CO2RR")      # input x_Au; goals j_CO ↑, FE_CO ↑, FE_H2 ↓
+frame = spec.table(org)                # one row per sample, kept results joined in
+goals = [spec.objective("j_CO"), spec.objective("FE_H2")]
+spec.rank(frame, goals)                # CuAu06, 07, 05, 08 on the Pareto front
+
+plan = optimize.propose_for(spec, frame, objectives=goals, n=3)
+plan.suggestions                       # x_Au 0.74, 0.53, 0.96 — with predicted mean ± sd
+optimize.cross_validate(frame, variables=spec.inputs, objectives=goals,
+                        bounds=spec.bounds).summary()
+# j_CO   LOO error = 0.08 × its spread — predictive
+# FE_H2  LOO error = 0.35 × its spread — predictive
+```
+
+The proposals bracket the front: one at the CO-current volcano, one at its
+selective shoulder, one where hydrogen is lowest. The leave-one-out check comes
+before trusting any of it — a goal whose error is as large as its spread is
+not being learned, and its proposals are exploration. The model is a plain
+Gaussian process per goal; a project registers a stronger optimiser as another
+*engine* and passes `engine="name"`. The GUI's **Campaign** and **Next
+experiments** pages are the same calls.
+
+A campaign grows. When new records arrive, one call analyses exactly the new
+samples, the way the kept ones were analysed:
+
+```python
+org.status(org.kept_analyses())        # peak_fit@waxs1d: 8 with data, 8 kept, 0 new
+org.analyse_new(org.kept_analyses())   # runs only what is new, with the kept settings
+```
+
 ---
+
+## Build on it: project packages
+
+A project package is an ordinary Python package that registers what it knows:
+
+| to add | do |
+|---|---|
+| a technique | `register()` a `Modality` |
+| a filename convention | `register_grammar()` a `FrameGrammar` |
+| a metadata format | `register_adapter()` an `Adapter` |
+| an analysis (and how to draw it) | `register_analysis()` an `Analysis(..., plot=)` |
+| a campaign — inputs, goals, bounds | `register_campaign()` a `Campaign` |
+| a machine and its mounts | `register_server()` a `Server` |
+| an optimiser | `register_engine()` an `Engine` |
+| GUI pages | a `Plugin` with `pages=[Page(...)]` |
+
+and declares itself in its `setup.py`:
+
+```python
+entry_points={"pyDataOrg.plugins": ["myproj = myproj.plugin:PLUGIN"]}
+```
+
+```python
+from pyDataOrg.plugins import Page, Plugin
+
+PLUGIN = Plugin(
+    name="myproj", title="My project",
+    register=lambda: __import__("myproj.analyses"),       # runs once
+    pages=[Page("myproj.web:views/overview.py", "Overview", "⚗️", default=True)],
+    defaults={"campaign": "my-screen"},
+)
+```
+
+Installed, it shows in `dataorg plugins`; its pages appear as a section of
+`dataorg gui` on the same open organizer, and `dataorg gui --app myproj` makes
+it the app. A plugin that fails to load is reported, never fatal. The general
+page pieces a project's pages need — a settings form that starts from the kept
+settings, *keep for this sample / every sample*, the record viewer — are in
+`pyDataOrg.web_app.components.controls`. [`docs/platform.md`](docs/platform.md)
+has the whole contract.
+
+Keep the split clean: **nothing project-specific goes into pyDataOrg** — no
+real data (the demos are generated), no instrument or facility vocabulary, no
+dependency on a private package. That is what lets a collaboration share it.
+
+## For agents and machine learning
+
+The questions an agent helping with a campaign asks are the ones a person asks
+in a notebook. `pyDataOrg.agent` lists those operations once, each with a JSON
+schema — describe the project, find samples, read a record, list and run
+analyses, read kept results, the campaign table, propose the next experiments:
+
+```python
+from pyDataOrg import agent
+
+agent.tool_specs("anthropic")          # or "openai", "mcp" — tool definitions for a model
+agent.call(org, "list_samples", query="`testing.performance.FE_CO_pct` > 60")
+# ['CuAu05', 'CuAu06', 'CuAu07', 'CuAu08']
+```
+
+Results are plain JSON, errors come back as `{"error": ...}` for the model to
+read, and anything that writes (keeping results, saving) is refused unless the
+caller grants it. Any MCP client can use an organizer directly:
+
+```bash
+claude mcp add cuau -- dataorg mcp ../OrgDemo/CuAu/cuau.json      # read-only
+dataorg mcp project.json --allow-writes                             # may keep results and save
+```
+
+For a model of your own, the samples × features table — numeric, coverage-
+filtered, written by suffix:
+
+```python
+from pyDataOrg.export import feature_table, write_table
+
+X = feature_table(org, min_coverage=0.8)           # 9 samples × 61 features
+write_table(feature_table(org, campaign="CuAu-CO2RR"), "cuau.parquet")
+```
+
+## The `dataorg` command
+
+| | |
+|---|---|
+| `dataorg gui [PORT] [PASSWORD] [--app NAME] [--local]` | the web app |
+| `dataorg demo [--campaign \| --quick] [ROOT]` | generate example data under `../OrgDemo` |
+| `dataorg tree ADDRESS [--depth N]` | the structure of a folder, a data file or a record |
+| `dataorg plugins` | installed project packages and their pages |
+| `dataorg ops [NAME] [--store FILE] [--json ARGS]` | list, describe or call an agent operation |
+| `dataorg mcp STORE [--allow-writes]` | serve an organizer over MCP (stdio) |
+| `dataorg features STORE OUT [--campaign NAME]` | write the samples × features table |
+| `dataorg adduser USERS_FILE NAME [--admin] [--root PATH]` | an account for multi-user mode |
 
 ## Analysis and plotting are separate calls
 
@@ -624,24 +776,19 @@ register_analysis(Analysis(key="pl_band", func=curve_metrics,
                            label="PL band metrics", modalities=("pl",)))
 ```
 
-| to add | do |
-|---|---|
-| a technique | `register()` a `Modality` |
-| an analysis | `register_analysis()` an `Analysis` |
-| a metadata format | `register_adapter()` an `Adapter` |
-| a filename convention | `register_grammar()` a `FrameGrammar` |
+Every registry is listed in [Build on it](#build-on-it-project-packages).
 
 ## Other generated data
 
 ```bash
-python -m pyDataOrg.demo            # the same campaign as a ready project → ../OrgDemo/Showcase
-python -m pyDataOrg.demo --quick    # a small two-technique project       → ../OrgDemo/Quick
+dataorg demo            # the same campaign as a ready project → ../OrgDemo/Showcase
+dataorg demo --quick    # a small two-technique project       → ../OrgDemo/Quick
 ```
 
 The first opens the campaign with folder conventions instead of building an
 organizer by hand — what **Project → Generate an example one** in the GUI
-does, and what `notebook/legacy/05_multimodal_demo` tours. The second is the
-small project `notebook/legacy/00_quickstart` → `04_compare` walk.
+does. The second is small and quick, for tests and a first look. Everything is
+generated: **no real data ships with pyDataOrg**.
 [`docs/demo_data.md`](docs/demo_data.md) records what is in the campaign on
 purpose — including the failed run, the sparse matrix, and the one technique
 with no story to tell.
@@ -655,10 +802,10 @@ with no story to tell.
 | [`docs/web_app.md`](docs/web_app.md) | every page of the GUI, and how to extend it |
 | [`docs/sample_model.md`](docs/sample_model.md) | the data model, path aliases, ingest, linking, stored results |
 | [`docs/analysis.md`](docs/analysis.md) | analyses, the registry, and decisions that affect the numbers |
+| [`docs/platform.md`](docs/platform.md) | plugins, campaigns, next experiments, the agent operations and MCP, export, the `dataorg` command |
 | [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md) | the kernel/adapter and plotting rules every function follows |
 | [`docs/demo_data.md`](docs/demo_data.md) | the generated campaign, its physics, and what is in it on purpose |
 | [`CLAUDE.md`](CLAUDE.md) | the house rules for anyone — person or coding assistant — changing the code |
-| [`docs/archive/`](docs/archive/) | notes from earlier versions, kept for reference |
 
 ## Tests
 

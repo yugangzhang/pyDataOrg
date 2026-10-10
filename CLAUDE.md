@@ -22,8 +22,10 @@ reasoning is in [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md).
 
 ## Package
 
-4. **Public, standalone, domain-neutral.** No dependency on a personal repo,
-   project data, or beamline vocabulary — that belongs in `a project package`.
+4. **Public, standalone, domain-neutral.** No dependency on a private
+   package, no real or project data (every demo is generated), no instrument,
+   facility or collaboration vocabulary, no names of private projects. That
+   belongs in a *project package*, which builds on this one.
 5. **Generated data goes under `demo_root()`** (`../OrgDemo` beside the
    checkout, or `$PYDATAORG_DEMO_ROOT`). Nothing writes into the home
    directory itself.
@@ -36,11 +38,21 @@ reasoning is in [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md).
    `<Modality>Data/<SampleID>/` layout; documentation leads with `link()`.
 8. **One generator per demo.** Notebooks and the web app call the same
    functions in `pyDataOrg/demo/` — never a copy pasted into a cell.
+9. **Extend through a registry, never a special case.** A project adds
+   techniques, grammars, record formats, analyses (with their `plot`),
+   campaigns, servers, optimiser engines, agent operations and GUI pages by
+   registering them — usually from its `Plugin` (`pyDataOrg.plugins`). No
+   code here tests for a particular analysis, campaign or project by name.
+   See [`docs/platform.md`](docs/platform.md).
+10. **Agent operations return JSON and never raise.** Errors come back as
+   `{"error": ...}`; an operation that changes the organizer or writes a
+   file is declared `writes=True` and is refused unless writes are allowed.
 
 ## Web app
 
-9. Only `web_app/Home.py` calls `st.set_page_config()`.
-10. Pages drive the same `Workbench`/`Organizer` the notebooks use; a page
+11. Only `web_app/Home.py` calls `st.set_page_config()` — a plugin's pages
+   never do.
+12. Pages drive the same `Workbench`/`Organizer` the notebooks use; a page
    composes analysis and plotting calls, it does not reimplement them.
 
 ## Tests
@@ -48,3 +60,5 @@ reasoning is in [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md).
 `pytest` must stay green. Kernel tests use synthetic arrays with a known
 answer and touch no files; web pages are driven through `AppTest`
 (assert `not app.exception` — it is an empty list, not `None`, on success).
+The suite loads no installed plugin (`tests/conftest.py`), so it tests this
+package alone.

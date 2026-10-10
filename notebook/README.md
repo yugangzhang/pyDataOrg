@@ -1,6 +1,6 @@
 # Notebooks
 
-Two tracks, both on **generated** data — nothing to download, nothing to
+Four notebooks, all on **generated** data — nothing to download, nothing to
 configure.
 
 ## The workflow: simulate → build → use
@@ -16,6 +16,7 @@ sample, the gold fraction *x*.
 | `10_simulate_data` | the campaign on disk: four metadata dicts that describe most of it, four techniques in bare folders that nobody described, a sparse matrix, and the answer key |
 | `11_build_organizer` | `Organizer("cuau.json")` — `ingest` the four dicts, `link` the four folders by hand |
 | `12_use_organizer` | reopen it and work, in six parts |
+| `13_campaign_next` | the same organizer as a campaign: rank, Pareto front, propose the next experiments and check the model; then what an AI agent and an ML model see |
 
 Run them in order; `11` and `12` use what `10` leaves in `../OrgDemo/CuAu`,
 beside the repository:
@@ -33,7 +34,7 @@ to that folder, so it moves as one piece, and no notebook output names
 anyone's home directory.
 
 `10` calls `pyDataOrg.demo.build_showcase_project`. The same function is
-behind `python -m pyDataOrg.demo --campaign` (all of `10` in one command)
+behind `dataorg demo --campaign` (all of `10` in one command)
 and the web app's **🎓 Demo** page, which walks `10` → `11` → `12` with
 buttons — so the three routes write identical files and cannot drift apart.
 
@@ -100,73 +101,14 @@ Nothing in the model is per-pair or per-combination, so a plate-based
 high-throughput campaign uses exactly the same calls as a six-sample one.
 `tests/test_organizer.py` keeps a guard on it.
 
-## The pipeline tour
+## The campaign: `13`
 
-Kept in [`legacy/`](legacy/). The older track, on a project that *is* laid out
-as a directory.
-
-| | |
-|---|---|
-| `legacy/00_quickstart` | build the demo project, open it, link its micrographs, see what resolves |
-| `legacy/01_explore_filter` | the table, finding columns, filtering, the basket |
-| `legacy/02_visualize` | curves, time-coded series, images, segmentation |
-| `legacy/03_analyze_batch` | single runs, batches, derived columns |
-| `legacy/04_compare` | structure–property plots, checked against the generator's truth |
-| `legacy/05_multimodal_demo` | **the full tour** — fifteen techniques, one hidden number |
-
-Run `legacy/00`–`04` in order; they share one small project (UV-Vis and TEM, six
-samples) written to `../OrgDemo/DemoProject`.
-
-`legacy/05` is the same Cu–Au campaign `10`–`12` use, opened the older way —
-as a directory project with `open_project`, the four bare folders picked up by
-`attach_folders` — and with a few extra analyses (IR, the DFT d-band centre,
-oxygen evolution) worth reading once you have done `12`.
-
-## Both tracks hide a number on purpose
-
-Each generated project has a control variable the pipeline is meant to
-recover, so the notebooks can check the answer — the one thing real data never
-lets you do. In the Cu–Au campaign (`10`–`12`, `legacy/05`) it is the gold
-fraction, and diffraction and EDS recover it to within a couple of percent; in
-the small project (`legacy/00`–`04`) it is the synthesis temperature.
-
-```python
-from pyDataOrg.demo import showcase_truth
-showcase_truth()      # the answer key; 10 also writes it to CuAu/truth.csv
-```
-
-Or from a shell, without opening a notebook at all:
-
-```bash
-python -m pyDataOrg.demo --campaign       # what 10 writes
-```
-
-## Where generated data goes
-
-Everything these notebooks write lands under **one parent**,
-`pyDataOrg.demo.demo_root()` — `../OrgDemo` beside the repository by default. Set
-`$PYDATAORG_DEMO_ROOT` to put it somewhere else. Nothing is written to your
-home directory itself, so a few runs cannot leave a scatter of folders behind.
-
-```
-../OrgDemo/
-├── CuAu/           10 -> 12: the campaign, the answer key, cuau.json, results/
-├── DemoProject/    legacy 00 -> 04: the small project
-└── Showcase/       legacy 05: the same campaign, as a directory project
-```
-
-## The same objects, with buttons
-
-Everything in these notebooks is on the web app, driving the same `Workbench`:
-
-```bash
-streamlit run pyDataOrg/web_app/Home.py       # or: viz
-```
-
-**🎓 Demo** is these three notebooks with buttons — simulate, ingest, link,
-look, fit, batch, compare — each step showing the Python it ran.
-**📁 Project** opens either shape — a project folder, or a path ending in
-`.json` for an organizer a notebook wrote — and can create, link, edit
-parameters and export without any Python. [`docs/gui_demo.md`](../docs/gui_demo.md)
-walks through it with screenshots. A notebook and the GUI cannot drift
-apart, because there is one implementation.
+`13` reads the organizer `12` left as a **campaign** — the demo registers
+`CuAu-CO2RR`: one input (the gold fraction the synthesis chose), three goals
+(CO current and CO selectivity up, hydrogen down). It ranks the alloys, draws
+the Pareto front, fits a Gaussian process per goal and proposes three
+compositions to make next — at the CO-current volcano, on its selective
+shoulder, and where hydrogen is lowest — after checking by leave-one-out that
+the model has learned both goals. The last cells are the same organizer as an
+agent's tools (`pyDataOrg.agent`, or `dataorg mcp`) and as a samples ×
+features table. See [`docs/platform.md`](../docs/platform.md).

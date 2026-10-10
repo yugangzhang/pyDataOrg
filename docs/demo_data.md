@@ -33,8 +33,10 @@ folder — organizer and stored fits included.
 
 `--campaign` writes the first two and stops, because building the organizer
 is the lesson. Without it the same campaign goes to `Showcase/` and is opened
-with folder conventions — what **Project → Generate an example one** does, and
-what `notebook/legacy/05_multimodal_demo` tours.
+with folder conventions — what **Project → Generate an example one** does.
+The demo also registers the campaign as `CuAu-CO2RR` (`showcase_campaign()`):
+the gold fraction as the input, CO current and selectivity up and hydrogen
+down as the goals — what notebook `13` and the Campaign pages read.
 
 | | `build_demo_project` | `build_showcase_project` |
 |---|---|---|

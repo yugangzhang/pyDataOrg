@@ -156,6 +156,20 @@ samples the way the others were and loads the rest:
 `wb.kept_settings(key, sample_id)` is the dict one sample's kept result was
 made with — how a page tells a sample redone with other settings from the rest.
 
+**Keeping up.** `wb.kept_analyses()` lists what has kept results, as targets —
+an analysis key, or `key@modality` for one that runs on several techniques
+(`peak_fit@waxs1d` and `peak_fit@uvvis` are kept with two sets of settings).
+`wb.status(targets)` counts samples with data, kept and new, and
+`wb.analyse_new(targets)` runs each on its new samples only, with the kept
+settings; `wb.keep_results(target, samples, settings=…)` keeps with chosen
+settings (an analysis of another's results keeps that one first). The
+Analyze page's **Up to date?** tab is these calls.
+
+**Drawing a result.** `Analysis(..., plot=f)` says how a finished result is
+drawn: `f(result, ax=None)` returns what it drew on, making its own figure
+when given none. The Analyze page draws any registered analysis this way, so
+a project's analysis needs no change there.
+
 An analysis can also run on another analysis' stored result: declare
 `modalities=("fit",), stages=("analysis",), results_of=("my_assay",)` and its
 adapter is handed the linked result file of `my_assay` (read it with

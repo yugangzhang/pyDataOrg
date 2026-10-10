@@ -47,6 +47,10 @@ Five pages, used in order. Each one hands its state to the next.
 | **📊 Compare** | Plot a measured quantity against a synthesis parameter |
 
 The loop is the point: **filter → analyse → new columns → filter again.**
+
+Then the **campaign**: **🏁 Campaign** reads the organizer as inputs → results
+→ goals (ranking, Pareto front, progress), and **🎯 Next experiments**
+proposes what to make next from a model of it — checked before it is trusted.
 """)
 
     st.subheader("A sample is the unit")
@@ -75,15 +79,26 @@ with right:
                 for item in items:
                     st.caption(f"**{item.label}** — {item.domain}")
 
+    st.subheader("Project packages")
+    from pyDataOrg import plugins as _plugins
+    loaded = _plugins.plugins()
+    st.caption("A project adds its formats, analyses, campaign and pages as a "
+               "plugin; they appear in the sidebar beside these. "
+               + (f"Installed: {', '.join(p.heading for p in loaded)}."
+                  if loaded else "None installed — `dataorg plugins` lists "
+                                 "them."))
+
     st.subheader("Notebooks")
-    st.caption("The same engine, driven from Jupyter. `notebook/00…05` plus "
-               "`99_master`; they use the identical `Workbench` object, so the "
-               "two cannot drift apart.")
+    st.caption("The same engine, driven from Jupyter: `notebook/10…13` — "
+               "simulate, build, use, campaign. They use the identical "
+               "`Organizer`, so the two cannot drift apart.")
 
     st.subheader("Docs")
     st.caption("`docs/sample_model.md` — the data model.  \n"
                "`docs/analysis.md` — the analyses and the decisions that "
-               "affect the numbers.")
+               "affect the numbers.  \n"
+               "`docs/platform.md` — plugins, campaigns, next experiments, "
+               "agents.")
 
 st.divider()
 st.caption("Brookhaven National Laboratory · CFN · "

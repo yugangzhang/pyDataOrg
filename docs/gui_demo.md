@@ -37,12 +37,13 @@ That is the open mode, for your own machine. On a shared machine use the
 console command, which adds a password and fences the file browser:
 
 ```bash
-viz                  # port 8800, asks for a password to set
-viz 8900 s3cret      # port and password given
+dataorg gui                  # port 8800, asks for a password to set
+dataorg gui 8900 s3cret      # port and password given
+dataorg gui --local          # this machine only, no password
 ```
 
-Either way the server binds every interface so the app is reachable by
-hostname; set `PYDATAORG_HOST=127.0.0.1` to keep it local. Demo data goes
+The password mode binds every interface so the app is reachable by hostname;
+`--local` (or `PYDATAORG_HOST=127.0.0.1`) keeps it on this machine. Demo data goes
 in `../OrgDemo`, beside the source checkout — set `PYDATAORG_DEMO_ROOT` to
 put it elsewhere.
 

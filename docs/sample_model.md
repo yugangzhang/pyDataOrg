@@ -91,6 +91,17 @@ partially mounted tree cannot silently mix files from two different roots.
 against local trees. It is a setup convenience — review what it returns,
 because directory names repeat.
 
+When the same prefixes recur on every machine a project is opened on, name
+the machines once instead (`pyDataOrg.servers`):
+
+```python
+from pyDataOrg.servers import Server, register_server
+
+register_server(Server("workstation", {"/instrument/share": "/mnt/instrument"}))
+org = Organizer("project.json", server="workstation")   # or "auto": the one mounted here
+org.local("/instrument/share/spectra/S01/*.csv")        # the recorded path, as seen here
+```
+
 ## Ingest: the authored file stays the source of truth
 
 Instrument-side metadata is a plain Python module of sample-keyed dicts, often
