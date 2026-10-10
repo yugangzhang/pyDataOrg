@@ -40,7 +40,7 @@ def _record(sample_id, ratio, batch_index, status="done"):
             "hold_time_min": 40.0,
         },
         "chemical_injections": {
-            "HAuCl4": {"stock_concentration_mM": 2.0, "volume_uL": 666.0},
+            "precursor": {"stock_concentration_mM": 1.0, "volume_uL": 500.0},
         },
         "UV_Synthesis_data": {
             "spectrometer_serial": "SERIAL1",
@@ -202,7 +202,7 @@ def test_failed_stage_is_flagged(project):
 def test_authored_parameters_survive_verbatim(project):
     params = project.get_sample("Sample000001").stage("synthesis").params
     assert params["conditions"]["temperature_C"] == 6.0
-    assert params["chemical_injections"]["HAuCl4"]["volume_uL"] == 666.0
+    assert params["chemical_injections"]["precursor"]["volume_uL"] == 500.0
 
 
 def test_measurement_blocks_become_measurements(project):
