@@ -18,6 +18,7 @@ way from a notebook::
     print(tree("~/Repos/OrgDemo/Showcase", depth=3))
 """
 
+import os
 from pathlib import Path
 
 import streamlit as st
@@ -39,11 +40,29 @@ st.caption(
 )
 
 ADDRESS = "org_structure_address"
+FOLLOWS = "org_structure_follows"
 workbench = get_workbench()
 
 
 def go(address: str) -> None:
     st.session_state[ADDRESS] = str(address)
+
+
+def home_of(workbench) -> str:
+    """Where the open organizer lives: its ``.json``, or its folder."""
+    project = workbench.project
+    return os.path.normpath(Path(project.store_path if project.single_file
+                                 else project.root).absolute())
+
+
+# Follow the organizer open on **Project**: start at it, and move to the new
+# one when another is opened. An address set before this page ever ran (a
+# link, a test) is left alone the first time.
+home = home_of(workbench) if workbench is not None else ""
+if home and (st.session_state.get(FOLLOWS, home) != home
+             or not st.session_state.get(ADDRESS)):
+    go(home)
+st.session_state[FOLLOWS] = home
 
 
 # ---------------------------------------------------------------------------
@@ -55,13 +74,15 @@ with st.container(border=True):
 
     shortcuts = []
     if workbench is not None:
-        root = Path(workbench.project.root)
-        shortcuts.append(("📁 Project root", str(root)))
+        project = workbench.project
+        root = Path(os.path.normpath(Path(project.root).absolute()))
+        store = (Path(home) if project.single_file
+                 else store_dir(root) / "samples.json")
+        if store.is_file():
+            shortcuts.append((f"🗃️ {store.name}", str(store)))
+        shortcuts.append(("📁 Project folder", str(root)))
         if (root / "MetaData").is_dir():
             shortcuts.append(("🔑 MetaData", str(root / "MetaData")))
-        store = store_dir(root) / "samples.json"
-        if store.is_file():
-            shortcuts.append(("🗃️ Saved store", str(store)))
 
     if shortcuts:
         columns = st.columns(len(shortcuts) + 1)
@@ -91,7 +112,9 @@ with st.container(border=True):
 
 address = st.session_state.get(ADDRESS, "")
 if not address:
-    st.info("Choose a folder or paste a path to begin.", icon="👆")
+    st.info("Choose a folder or paste a path to begin — or open an "
+            "organizer on **📁 Project** and this page starts from it.",
+            icon="👆")
     st.stop()
 
 # The browser must not become a way around the allowed-roots rule.

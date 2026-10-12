@@ -33,7 +33,7 @@ reasoning is in [`docs/kernel_adapter_rule.md`](docs/kernel_adapter_rule.md).
    to the project root (the organizer's folder); generators, links and stored
    fits record relative paths when the data is inside it. Show locations with
    `core.pathmap.display_path` — in notebooks, the GUI and docs, a reader
-   should see `../OrgDemo/CuAu`, never `/home/<someone>/…`.
+   should see `../OrgDemo/Demo`, never `/home/<someone>/…`.
 7. **Link, don't auto-attach.** `attach_folders()` is the exception for a tidy
    `<Modality>Data/<SampleID>/` layout; documentation leads with `link()`.
 8. **One generator per demo.** Notebooks and the web app call the same

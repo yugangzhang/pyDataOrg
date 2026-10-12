@@ -30,10 +30,11 @@ where ``PLUGIN`` is a :class:`Plugin` (or a function returning one)::
                     default=True)],
     )
 
-Installed, it is found by :func:`load_plugins`: its ``register`` runs once,
-its pages appear as a section of the ``dataorg`` GUI beside the general ones,
-and they share the open organizer. ``dataorg gui --app myproj`` makes it the
-app: its title, its pages first, its default page.
+Installed, it is found by :func:`load_plugins` and its ``register`` runs
+once. ``dataorg gui --app myproj`` runs it as the app: its title, its pages
+first and its default page, then the general pages, all on the same open
+organizer. The general ``dataorg gui`` loads no plugin — it is the public
+tool, and shows pyDataOrg alone.
 
 A plugin that fails to load is reported (:func:`plugin_errors`, ``dataorg
 plugins``), never fatal: one broken package must not take the GUI down.
@@ -101,8 +102,7 @@ class Plugin:
     pages: Sequence[Page] = ()
     register: Optional[Callable[[], object]] = None
     on_page: Optional[Callable[[], object]] = None
-    # Shown on the general pages beside the generic ones (e.g. a campaign
-    # name the Campaign page should open with).
+    # Defaults the project's own pages read (e.g. which campaign to open).
     defaults: Dict[str, object] = field(default_factory=dict)
 
     @property

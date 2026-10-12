@@ -11,9 +11,9 @@ a second copy to keep in sync.
 
 So the organiser links instead of collecting::
 
-    project.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
-    project.link("CuAu05", "tem",   "/mnt/scope/session17/")
-    project.link("CuAu05", "waxs1d", ["/beamline/2024_3/w1.dat"])
+    project.link("S05", "uvvis", "/mnt/specs/S05/*.csv", stage="synthesis")
+    project.link("S05", "tem",   "/mnt/scope/session17/")
+    project.link("S05", "waxs1d", ["/beamline/2024_3/w1.dat"])
 
 Three forms of *source* are accepted and they mean different things:
 
@@ -42,8 +42,8 @@ A **relative** path is relative to the project root — the folder the
 organizer's JSON sits in — and is recorded relative, so data kept beside the
 organizer needs no alias at all: the folder moves as one piece::
 
-    org.link("CuAu05", "tem", "TEMData/CuAu05")          # beside cuau.json
-    org.link("CuAu05", "dls", "../shared/DLS/CuAu05")    # one level up
+    org.link("S05", "tem", "TEMData/S05")          # beside demo.json
+    org.link("S05", "dls", "../shared/DLS/S05")    # one level up
 """
 
 from __future__ import annotations
@@ -362,11 +362,11 @@ def link_many(project, mapping: Mapping[str, Mapping[str, Any]],
     entry carries a stage or instrument metadata::
 
         project.link_many({
-            "CuAu01": {
-                "uvvis": "/mnt/specs/CuAu01/*.csv",
-                "tem":   {"source": "/mnt/scope/CuAu01/", "kV": 200},
+            "S01": {
+                "uvvis": "/mnt/specs/S01/*.csv",
+                "tem":   {"source": "/mnt/scope/S01/", "kV": 200},
             },
-            "CuAu02": {"uvvis": "/mnt/specs/CuAu02/*.csv"},
+            "S02": {"uvvis": "/mnt/specs/S02/*.csv"},
         }, stage="characterization")
 
     Keyword *defaults* apply to every link and are overridden per entry.

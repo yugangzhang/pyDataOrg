@@ -280,7 +280,7 @@ def plot_pareto(frame, objectives, ax=None, *, front=None, proposals=None,
     if references is not None and len(references):
         rx = references[ox.name].astype(float).to_numpy()
         ry = references[oy.name].astype(float).to_numpy()
-        ax.scatter(rx, ry, marker="D", s=60, color="gold", edgecolors="k",
+        ax.scatter(rx, ry, marker="D", s=60, color="#eda100", edgecolors="k",
                    label="reference")
         for xi, yi, s in zip(rx, ry, references["sample"].to_numpy()):
             ax.annotate(str(s), (xi, yi), textcoords="offset points",

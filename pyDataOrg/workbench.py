@@ -117,11 +117,11 @@ def new_organizer(root: Union[str, Path], name: str = "", *,
     *root* is only where the store is written (``.pydataorg/``); none of
     the data has to live there, or anywhere near it.
 
-    >>> wb = new_organizer("~/Repos/OrgDemo/CuAuStudy")                     # doctest: +SKIP
-    >>> wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv")  # doctest: +SKIP
-    >>> wb.link("CuAu05", "tem", "/mnt/scope/session17/")      # doctest: +SKIP
-    >>> wb.set_params("CuAu05", au_fraction=0.55)              # doctest: +SKIP
-    >>> wb.plot("CuAu05", "uvvis")                             # doctest: +SKIP
+    >>> wb = new_organizer("~/Repos/OrgDemo/DemoStudy")                     # doctest: +SKIP
+    >>> wb.link("S05", "uvvis", "/mnt/specs/S05/*.csv")  # doctest: +SKIP
+    >>> wb.link("S05", "tem", "/mnt/scope/session17/")      # doctest: +SKIP
+    >>> wb.set_params("S05", au_fraction=0.55)              # doctest: +SKIP
+    >>> wb.plot("S05", "uvvis")                             # doctest: +SKIP
     >>> wb.save()                                              # doctest: +SKIP
     """
     project = Project(root, name=name)
@@ -290,7 +290,7 @@ class Workbench:
         return self.project.availability()
 
     def __getitem__(self, sample_id: str) -> Sample:
-        """``wb["CuAu05"]`` — the sample record itself."""
+        """``wb["S05"]`` — the sample record itself."""
         sample = self.project.get_sample(str(sample_id))
         if sample is None:
             raise KeyError(f"unknown sample {sample_id!r}")
@@ -334,7 +334,7 @@ class Workbench:
         on is recorded as a project alias, so the store moves to another
         machine by editing one line rather than every record.
 
-        >>> wb.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv",
+        >>> wb.link("S05", "uvvis", "/mnt/specs/S05/*.csv",
         ...         stage="synthesis", instrument="HR4000")   # doctest: +SKIP
 
         See :func:`pyDataOrg.core.linking.link` for every option.
@@ -401,7 +401,7 @@ class Workbench:
         """Record the conditions a sample was made or measured under.
 
         Linking gives an organiser files; this gives it something to filter
-        on. ``wb.set_params("CuAu05", au_fraction=0.55)`` becomes the column
+        on. ``wb.set_params("S05", au_fraction=0.55)`` becomes the column
         ``synthesis.au_fraction``.
         """
         return self.project.set_params(sample_id, stage=stage, **fields)
@@ -707,10 +707,10 @@ class Workbench:
         where the file knew its scale, a volume gets a slab projection — or,
         with ``engine="interactive"``, something you can turn around.
 
-        >>> wb.plot("CuAu05", "uvvis")                        # doctest: +SKIP
-        >>> wb.plot("CuAu05", "uvvis", t=600)      # nearest frame to 600 s
-        >>> wb.plot("CuAu05", "tem", frame=2)                 # doctest: +SKIP
-        >>> wb.plot("CuAu05", "tomo", engine="interactive", mode="volume")
+        >>> wb.plot("S05", "uvvis")                        # doctest: +SKIP
+        >>> wb.plot("S05", "uvvis", t=600)      # nearest frame to 600 s
+        >>> wb.plot("S05", "tem", frame=2)                 # doctest: +SKIP
+        >>> wb.plot("S05", "tomo", engine="interactive", mode="volume")
 
         Returns a matplotlib ``Axes``, or a Plotly ``Figure`` when
         *engine* is ``"interactive"``.
@@ -782,7 +782,7 @@ class Workbench:
         the organizer's ``derived.*`` columns, and :meth:`results` reads
         them back.
 
-        >>> fit = wb.run("peak_fit", "CuAu05")             # doctest: +SKIP
+        >>> fit = wb.run("peak_fit", "S05")             # doctest: +SKIP
         >>> wb.link_result(fit)                            # doctest: +SKIP
         """
         from pyDataOrg.analysis import get_analysis
@@ -1541,19 +1541,19 @@ class Organizer(Workbench):
     when the data is scattered across mounts that are not going to move and
     what you actually want is a single document naming all of it::
 
-        org = Organizer("~/Repos/OrgDemo/cuau.json")      # empty if new
+        org = Organizer("~/Repos/OrgDemo/demo.json")      # empty if new
 
         org.ingest(synthesis=Synthesis_dict)        # a live dict, not a path
-        org.link("CuAu05", "tem", "/mnt/scope/session17/")
+        org.link("S05", "tem", "/mnt/scope/session17/")
         org.save()
 
     Reopening is the same call, and everything is back — links, parameters,
     derived values, and the results linked by :meth:`link_result`:
 
-        org = Organizer("~/Repos/OrgDemo/cuau.json")
+        org = Organizer("~/Repos/OrgDemo/demo.json")
         org.filter("`synthesis.temperature_C` > 90")
-        org.plot("CuAu05", "uvvis")
-        org.plot_result("CuAu05", "peak_fit")
+        org.plot("S05", "uvvis")
+        org.plot_result("S05", "peak_fit")
 
     Parameters
     ----------

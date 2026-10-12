@@ -12,15 +12,12 @@ Sections:
 
 **Workflow** — the general pages: organise, explore, draw, analyse, compare.
 
-**Campaign** — the campaign table (inputs → results → objectives), Pareto
-front and progress; and the next experiments proposed by a surrogate model.
-
-**One section per installed plugin** (see :mod:`pyDataOrg.plugins`) — a
-project package's own pages, working on the same open organizer and
-selection. ``PYDATAORG_APP=<plugin>`` (``dataorg gui --app``) puts that
-plugin first, makes its default page the app's, and uses its title.
-
 **Tools** — standalone utilities that need no organizer.
+
+The general app is the public tool and loads no plugin. A project package
+(see :mod:`pyDataOrg.plugins`) runs as its own app — ``dataorg gui --app
+NAME`` (``PYDATAORG_APP=NAME``): its pages first under its title, then the
+general ones, all on the same open organizer.
 
 Navigation is declared here with ``st.navigation``; only this file calls
 ``st.set_page_config``.
@@ -33,8 +30,10 @@ import streamlit as st
 
 from pyDataOrg import plugins as _plugins
 
-_plugins.load_plugins()
 APP = os.environ.get("PYDATAORG_APP", "").strip()
+# Only an app run loads plugins: the general app shows pyDataOrg alone.
+if APP:
+    _plugins.load_plugins()
 app = _plugins.PLUGINS.get(APP) if APP else None
 
 st.set_page_config(
@@ -63,18 +62,15 @@ TOOLS = HERE / "tools"
 
 
 def plugin_pages(plugin):
-    """A plugin's pages. The app's keep plain URLs (``/project``); another
-    plugin's are prefixed with its name, so two ``overview.py`` cannot
-    collide."""
+    """The app plugin's pages, under plain URLs (``/project``)."""
     pages = []
     for page in plugin.pages:
         path = page.file()
         if not path.exists():
             continue
-        url = page.url_path or (path.stem if plugin is app
-                                else f"{plugin.name}_{path.stem}")
         pages.append(st.Page(path, title=page.title, icon=page.icon or None,
-                             url_path=url, default=page.default and plugin is app))
+                             url_path=page.url_path or path.stem,
+                             default=page.default))
     return pages
 
 
@@ -104,19 +100,12 @@ general = {
         view("analyze.py", "Analyze", "🧪"),
         view("compare.py", "Compare", "📊"),
     ],
-    "Campaign": [
-        view("campaign.py", "Campaign", "🏁"),
-        view("next.py", "Next experiments", "🎯"),
-    ],
 }
 
 sections = {}
 if app is not None:
     sections[app.heading] = app_pages
 sections.update(general)
-for plugin in _plugins.PLUGINS.values():
-    if plugin is not app and plugin.pages:
-        sections[plugin.heading] = plugin_pages(plugin)
 
 # Standalone utilities. Each is optional: a missing file must not take the
 # whole app down.
@@ -150,9 +139,12 @@ with st.sidebar:
     for name, error in _plugins.ERRORS.items():
         st.caption(f"⚠️ plugin `{name}` did not load: "
                    f"{error.splitlines()[0]}")
+    if APP and app is None and APP not in _plugins.ERRORS:
+        st.caption(f"⚠️ no plugin `{APP}` is installed — showing the "
+                   f"general app.")
 
-# Only the app's hook runs: an installed plugin must not take over the
-# session of someone using the general app (or another plugin's).
+# Only the app's hook runs: another installed plugin must not take over
+# its session.
 if app is not None and app.on_page is not None:
     try:
         app.on_page()

@@ -14,6 +14,7 @@ import streamlit as st
 from pyDataOrg.core import modality as modality_registry
 from pyDataOrg.core.pathmap import display_path, is_relative, suggest_aliases
 from pyDataOrg.core.schema import flatten_dict
+from pyDataOrg.demo import demo_root
 from pyDataOrg.web_app.components.folder_browser import folder_picker
 from pyDataOrg.web_app.state import (
     close_workbench, get_workbench, new_in_session, open_in_session,
@@ -28,6 +29,7 @@ st.caption(
 )
 
 workbench = get_workbench()
+DEMO_STORE = demo_root("Demo") / "demo.json"     # what the Demo page saves
 
 # ---------------------------------------------------------------------------
 # Open
@@ -47,31 +49,50 @@ with st.container(border=True):
         ],
     )
 
+    # With nothing open, start from the organizer the Demo page builds.
     default_root = (str(workbench.project.store_path)
                     if workbench and workbench.project.single_file
-                    else str(workbench.project.root) if workbench else "")
+                    else str(workbench.project.root) if workbench
+                    else str(DEMO_STORE))
     root = folder_picker("org_project_root", label="Project folder or .json",
                          default=default_root,
                          help="A project folder — or the path to a single "
                               "`.json` organizer, the kind `Organizer(...)` "
-                              "writes in a notebook.")
+                              "writes in a notebook and **🎓 Demo** saves.")
     st.caption(
         "A folder is a project: `MetaData/`, data underneath, a store in "
         "`.pydataorg/`. A path ending in **`.json`** is a single-document "
         "organizer instead — one file naming data that lives anywhere."
     )
+    single = root.lower().endswith(".json")
 
     if mode == "An existing project":
-        left, middle, right = st.columns([1, 1, 2])
-        reingest = left.toggle("Read metadata", value=True, key="org_reingest",
-                               help="Read MetaData/*.py. Turn off to reload the "
-                                    "saved store only.")
-        attach = middle.toggle("Attach data folders", value=True,
-                               key="org_attach",
-                               help="Link <Modality>Data/<SampleID>/ folders.")
+        missing = single and not Path(root).is_file()
+        if missing:
+            st.info(f"There is no `{display_path(root)}` yet. Build it on "
+                    f"**🎓 Demo** (tabs 1 and 2), or choose *Nothing yet* to "
+                    f"start an empty organizer there.", icon="👈")
 
-        if right.button("Open project", type="primary", width="stretch",
-                        disabled=not root):
+        left, middle, right = st.columns([1, 1, 2])
+        if single:
+            # One document already holds everything: nothing to read or
+            # attach on opening.
+            reingest = attach = False
+            left.caption("A `.json` organizer opens as it was saved — "
+                         "links, parameters and results.")
+        else:
+            reingest = left.toggle("Read metadata", value=True,
+                                   key="org_reingest",
+                                   help="Read MetaData/*.py. Turn off to "
+                                        "reload the saved store only.")
+            attach = middle.toggle("Attach data folders", value=True,
+                                   key="org_attach",
+                                   help="Link <Modality>Data/<SampleID>/ "
+                                        "folders.")
+
+        if right.button("Open organizer" if single else "Open project",
+                        type="primary", width="stretch",
+                        disabled=not root or missing):
             try:
                 with st.spinner("Opening…"):
                     open_in_session(root, ingest=reingest, attach=attach)
@@ -82,7 +103,7 @@ with st.container(border=True):
     else:
         left, right = st.columns([2, 1])
         new_name = left.text_input(
-            "Name it", key="org_new_name", placeholder="Cu-Au CO2RR library",
+            "Name it", key="org_new_name", placeholder="A-B alloy library",
             help="Shown in the sidebar and saved with the store.")
         if right.button("Create organizer", type="primary", width="stretch",
                         disabled=not root):
@@ -98,7 +119,8 @@ with st.container(border=True):
 # Or generate one
 # ---------------------------------------------------------------------------
 
-with st.expander("No project yet? Generate an example one", expanded=workbench is None):
+with st.expander("No project yet? Generate an example one",
+                 expanded=workbench is None and not DEMO_STORE.is_file()):
     st.caption(
         "Writes a complete synthetic campaign to disk and opens it. Nothing is "
         "downloaded and nothing is hidden: everything in it is generated from "
@@ -110,20 +132,19 @@ with st.expander("No project yet? Generate an example one", expanded=workbench i
         "Which one", ["Multimodal showcase", "Quick demo"], horizontal=True,
         key="org_demo_kind",
         captions=[
-            "A Cu–Au alloy library for CO₂ reduction, seen by 15 techniques "
+            "An A–B alloy library, seen by 15 techniques "
             "across 4 stages — curves, images, a tomogram and a correlation "
             "function, with a sparse measurement matrix and one failed run.",
             "Six samples, UV-Vis and TEM only. A few seconds to build.",
         ],
     )
 
-    from pyDataOrg.demo import demo_root
-
     target = st.text_input(
         "Write it to",
         value=display_path(demo_root("Showcase" if kind == "Multimodal showcase"
                                      else "QuickDemo")),
-        key="org_demo_root",
+        # Not the Demo page's key: one key on two pages shares one value.
+        key="org_project_demo_root",
         help="Must be empty, or a demo project this button made earlier. "
              "Generated data goes under one parent so a few runs cannot "
              "scatter directories across your home folder; set "
@@ -325,7 +346,7 @@ with st.container(border=True):
     st.subheader("Samples and their conditions")
     st.caption(
         "Links give the organizer files; this gives it columns. Without a "
-        "parameter to filter on, *show me the gold-rich ones* has nothing to "
+        "parameter to filter on, *show me the B-rich ones* has nothing to "
         "ask about. Edit the grid and **Apply** — these become dotted columns "
         "like `synthesis.au_fraction` everywhere downstream."
     )
@@ -475,7 +496,7 @@ with st.container(border=True):
     sample_id = chosen_sample
     if chosen_sample == NEW:
         sample_id = st.text_input("New sample id", key="org_link_new_id",
-                                  placeholder="CuAu05").strip()
+                                  placeholder="S05").strip()
 
     left, right = st.columns(2)
     # Options are the registry *keys*, not the Modality objects: a widget's
@@ -510,7 +531,7 @@ with st.container(border=True):
     else:
         source = st.text_input(
             "Path or glob", key="org_link_pattern",
-            placeholder="/mnt/instrument/2024_3/CuAu05_*.dat",
+            placeholder="/mnt/instrument/2024_3/S05_*.dat",
             help="Absolute, or relative to the project folder — a relative "
                  "link travels with the project when the folder moves."
         ).strip()

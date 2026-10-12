@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Build the multimodal demo project: a Cu–Au alloy library seen by 15 techniques.
+Build the multimodal demo project: an A–B alloy library seen by 15 techniques.
 
 :func:`build_showcase_project` writes a complete, self-consistent campaign to
 disk — authored metadata in three stages, raw files in the formats the
 instruments would have written, and a deliberately incomplete measurement
-matrix.  Everything in it follows from one hidden number per sample, the gold
-atomic fraction, so every technique can be checked against every other.
+matrix.  Everything in it follows from one hidden number per sample, the B
+atomic fraction, so every technique can be checked against every other.  A
+and B are fictional metals (:mod:`pyDataOrg.demo.materials`).
 
 What the project is *for*
 -------------------------
@@ -30,7 +31,7 @@ Nothing is committed to the repository: the project is generated on demand and
 can be deleted freely.
 
 >>> from pyDataOrg.demo import build_showcase_project
->>> root = build_showcase_project("/tmp/CuAuDemo")       # doctest: +SKIP
+>>> root = build_showcase_project("/tmp/AlloyDemo")      # doctest: +SKIP
 >>> from pyDataOrg import open_project               # doctest: +SKIP
 >>> wb = open_project(root)                              # doctest: +SKIP
 """
@@ -53,7 +54,7 @@ from pyDataOrg.demo import signals as sig
 MARKER = ".pydataorg-demo"
 
 #: Campaign label written into every stage.
-CAMPAIGN = "CuAu-CO2RR"
+CAMPAIGN = "AB-library"
 
 
 # ---------------------------------------------------------------------------
@@ -146,14 +147,14 @@ def _write_spectroscopy(folder: Path, index: int, x: float, rng) -> Dict[str, An
                               "energy_keV", "counts",
                               "EDS, 20 kV, silicon drift detector")
 
-    binding, counts = sig.xps_cu2p(x, rng)
-    out["xps_cu2p"] = _write_curve(folder / "xps_Cu2p.dat", binding, counts,
-                                   "binding_energy_eV", "counts",
-                                   "XPS Cu 2p, Al Ka, pass energy 20 eV")
-    binding, counts = sig.xps_au4f(x, rng)
-    out["xps_au4f"] = _write_curve(folder / "xps_Au4f.dat", binding, counts,
-                                   "binding_energy_eV", "counts",
-                                   "XPS Au 4f, Al Ka, pass energy 20 eV")
+    binding, counts = sig.xps_a2p(x, rng)
+    out["xps_a2p"] = _write_curve(folder / "xps_A2p.dat", binding, counts,
+                                  "binding_energy_eV", "counts",
+                                  "XPS A 2p, Al Ka, pass energy 20 eV")
+    binding, counts = sig.xps_b4f(x, rng)
+    out["xps_b4f"] = _write_curve(folder / "xps_B4f.dat", binding, counts,
+                                  "binding_energy_eV", "counts",
+                                  "XPS B 4f, Al Ka, pass energy 20 eV")
 
     shift, intensity = sig.raman_spectrum(x, rng)
     out["raman"] = _write_curve(folder / "raman.dat", shift, intensity,
@@ -163,14 +164,14 @@ def _write_spectroscopy(folder: Path, index: int, x: float, rng) -> Dict[str, An
     wavenumber, absorbance = sig.ir_spectrum(x, rng)
     out["ir"] = _write_curve(folder / "ir_seira.dat", wavenumber, absorbance,
                              "wavenumber_cm-1", "absorbance",
-                             "ATR-SEIRAS at -1.0 V vs RHE, CO2-saturated")
+                             "ATR-SEIRAS at -1.0 V vs RHE, during the reduction")
 
     if mat.measured("xas", index):
         for state, label in (("as_made", "as-made"), ("reduced", "after 1 h at -1.0 V")):
             energy, mu = sig.xas_spectrum(x, state, rng)
             out[f"xas_{state}"] = _write_curve(
-                folder / f"xas_Cu_K_{state}.dat", energy, mu,
-                "energy_eV", "normalised_mu", f"Cu K-edge XANES, {label}")
+                folder / f"xas_A_K_{state}.dat", energy, mu,
+                "energy_eV", "normalised_mu", f"A K-edge XANES, {label}")
     return out
 
 
@@ -203,19 +204,19 @@ def _write_electrochemistry(folder: Path, x: float, rng) -> Dict[str, Any]:
     potential, current = sig.her_lsv(x, rng)
     out["her"] = _write_curve(folder / "her_lsv.dat", potential, current,
                               "potential_V_vs_RHE", "j_mA_cm2",
-                              "LSV, Ar-saturated 0.1 M KHCO3, 5 mV/s, iR-corrected")
+                              "LSV, Ar-saturated 0.1 M buffer, 5 mV/s, iR-corrected")
 
     potential, current = sig.oer_lsv(x, rng)
     out["oer"] = _write_curve(folder / "oer_lsv.dat", potential, current,
                               "potential_V_vs_RHE", "j_mA_cm2",
                               "LSV, 1 M KOH, 5 mV/s, anodically conditioned film")
 
-    potential, current = sig.co2rr_lsv(x, rng)
-    out["co2rr_lsv"] = _write_curve(folder / "co2rr_lsv.dat", potential, current,
-                                    "potential_V_vs_RHE", "j_mA_cm2",
-                                    "LSV, CO2-saturated 0.1 M KHCO3, 5 mV/s")
+    potential, current = sig.rr_lsv(x, rng)
+    out["rr_lsv"] = _write_curve(folder / "reduction_lsv.dat", potential, current,
+                                 "potential_V_vs_RHE", "j_mA_cm2",
+                                 "LSV, reactant-saturated 0.1 M buffer, 5 mV/s")
 
-    efficiencies = sig.co2rr_faradaic(x, rng)
+    efficiencies = sig.rr_faradaic(x, rng)
     files = []
     for product, (potentials, values) in efficiencies.items():
         safe = product.replace("-", "").replace("+", "")
@@ -236,7 +237,7 @@ def _synthesis_record(index: int, x: float) -> Dict[str, Any]:
     return {
         "sample_id": mat.sample_id(index),
         "synthesis_batch": {
-            "run_id": f"cuau_run_{index:02d}",
+            "run_id": f"ab_run_{index:02d}",
             "batch_tag": f"library_{(index - 1) // 4 + 1}",
             "campaign": CAMPAIGN,
             "status": "done",
@@ -245,17 +246,17 @@ def _synthesis_record(index: int, x: float) -> Dict[str, Any]:
             "run_time_s": 5400.0,
         },
         "composition": {
-            "nominal_x_Au": round(float(x), 3),
+            "nominal_x_B": round(float(x), 3),
             "metal_total_umol": 20.0,
-            "alloy": "CuAu",
+            "alloy": "AB",
         },
         "reagents": {
-            "HAuCl4": {"concentration_mM": 10.0,
-                       "volume_uL": round(total_uL * x, 1)},
-            "Cu_acetate": {"concentration_mM": 10.0,
-                           "volume_uL": round(total_uL * (1.0 - x), 1)},
-            "oleylamine_uL": 2000.0,
-            "borane_tBu_amine_mg": 35.0,
+            "B_precursor": {"concentration_mM": 10.0,
+                            "volume_uL": round(total_uL * x, 1)},
+            "A_precursor": {"concentration_mM": 10.0,
+                            "volume_uL": round(total_uL * (1.0 - x), 1)},
+            "solvent_uL": 2000.0,
+            "reductant_mg": 35.0,
         },
         "conditions": {
             "temperature_C": 150.0,
@@ -263,7 +264,7 @@ def _synthesis_record(index: int, x: float) -> Dict[str, Any]:
             "atmosphere": "N2",
             "stir_rate_rpm": 600,
         },
-        "support": {"material": "Vulcan XC-72", "loading_wt_pct": 20.0},
+        "support": {"material": "carbon black", "loading_wt_pct": 20.0},
     }
 
 
@@ -292,34 +293,34 @@ def _characterization_record(index: int, x: float, paths: Dict[str, Any],
             "instrument": "DemoSEM + 100 mm2 SDD",
             "beam_energy_keV": 20.0,
             "quantification": "Cliff-Lorimer",
-            "k_factor_Au_La_over_Cu_Ka": sig.EDS_K_FACTOR_AU_CU,
+            "k_factor_B_La_over_A_Ka": sig.EDS_K_FACTOR_B_A,
             "note": "bulk composition; compare with XPS, which sees the surface",
             "files": [paths["eds"]],
         },
-        "XPS_Cu2p": {
+        "XPS_A2p": {
             "modality": "xps", "instrument": "DemoXPS",
             "source": "Al Ka 1486.6 eV", "pass_energy_eV": 20.0,
-            "sensitivity_factor": sig.XPS_RSF["Cu 2p3/2"],
-            "note": "the satellite near 942 eV is Cu(II)",
-            "files": [paths["xps_cu2p"]],
+            "sensitivity_factor": sig.XPS_RSF["A 2p3/2"],
+            "note": "the satellite near 914 eV is A(II)",
+            "files": [paths["xps_a2p"]],
         },
-        "XPS_Au4f": {
+        "XPS_B4f": {
             "modality": "xps", "instrument": "DemoXPS",
             "source": "Al Ka 1486.6 eV", "pass_energy_eV": 20.0,
-            "sensitivity_factor": sig.XPS_RSF["Au 4f7/2"],
-            "files": [paths["xps_au4f"]],
+            "sensitivity_factor": sig.XPS_RSF["B 4f7/2"],
+            "files": [paths["xps_b4f"]],
         },
         "Raman": {
             "modality": "raman", "instrument": "DemoRaman",
             "laser_nm": 633.0, "power_mW": 1.0, "integration_s": 30.0,
-            "note": "Cu2O phonons below 700 cm-1; carbon D and G from the support",
+            "note": "A-oxide phonons below 700 cm-1; carbon D and G from the support",
             "files": [paths["raman"]],
         },
         "IR": {
             "modality": "ir", "instrument": "DemoFTIR, ATR-SEIRAS cell",
             "potential_V_vs_RHE": mat.REPORT_POTENTIAL_V,
             "resolution_cm1": 4.0,
-            "note": "the band near 2100 cm-1 is CO adsorbed atop a metal site",
+            "note": "the band near 2000 cm-1 is the adsorbed intermediate *P",
             "files": [paths["ir"]],
         },
         "SAXS": {
@@ -348,13 +349,13 @@ def _characterization_record(index: int, x: float, paths: Dict[str, Any],
     if "xas_as_made" in paths:
         record["XAS_as_made"] = {
             "modality": "xas", "instrument": "DemoBeamline, Si(111)",
-            "edge": "Cu K", "edge_energy_eV": 8979.0, "mode": "fluorescence",
+            "edge": "A K", "edge_energy_eV": mat.EDGE_A_eV, "mode": "fluorescence",
             "state": "as-made",
             "files": [paths["xas_as_made"]],
         }
         record["XAS_after_reaction"] = {
             "modality": "xas", "instrument": "DemoBeamline, Si(111)",
-            "edge": "Cu K", "edge_energy_eV": 8979.0, "mode": "fluorescence",
+            "edge": "A K", "edge_energy_eV": mat.EDGE_A_eV, "mode": "fluorescence",
             "state": "after 1 h at -1.0 V vs RHE",
             "note": "the edge returns to metallic; this is the active phase",
             "files": [paths["xas_reduced"]],
@@ -384,27 +385,27 @@ def _testing_record(index: int, x: float, paths: Dict[str, Any]) -> Dict[str, An
             "started_at": f"2026-05-{index:02d}T08:00:00",
         },
         "cell": {
-            "type": "flow cell, gas diffusion electrode",
-            "electrolyte": "0.1 M KHCO3",
-            "membrane": "Selemion AMV",
+            "type": "H-cell",
+            "electrolyte": "0.1 M buffer",
+            "membrane": "anion-exchange",
             "catalyst_loading_mg_cm2": 0.5,
-            "reference": "leak-free Ag/AgCl",
+            "reference": "Ag/AgCl",
         },
         "performance": {
             "report_potential_V_vs_RHE": mat.REPORT_POTENTIAL_V,
             "current_density_mA_cm2": round(mat.current_density(x), 2),
-            "FE_CO_pct": round(efficiency["CO"], 1),
+            "FE_P_pct": round(efficiency["P"], 1),
             "FE_H2_pct": round(efficiency["H2"], 1),
-            "FE_C2H4_pct": round(efficiency["C2H4"], 1),
-            "FE_HCOO_pct": round(efficiency["HCOO-"], 1),
-            "j_CO_mA_cm2": round(mat.co_partial_current(x), 2),
+            "FE_S_pct": round(efficiency["S"], 1),
+            "FE_Q_pct": round(efficiency["Q"], 1),
+            "j_P_mA_cm2": round(mat.p_partial_current(x), 2),
             "her_tafel_mV_dec": round(mat.her_tafel_mV(x), 0),
             "oer_overpotential_mV": round(mat.oer_overpotential_mV(x), 0),
         },
         "HER_LSV": {
             "modality": "ec", "technique": "LSV",
             "atmosphere": "Ar", "scan_rate_mV_s": 5.0,
-            "note": "the competing reaction, measured without CO2",
+            "note": "the competing reaction, measured without the reactant",
             "files": [paths["her"]],
         },
         "OER_LSV": {
@@ -413,14 +414,14 @@ def _testing_record(index: int, x: float, paths: Dict[str, Any]) -> Dict[str, An
             "note": "weak trend; the material is a mediocre OER catalyst either way",
             "files": [paths["oer"]],
         },
-        "CO2RR_LSV": {
+        "Reduction_LSV": {
             "modality": "ec", "technique": "LSV",
-            "atmosphere": "CO2", "scan_rate_mV_s": 5.0,
-            "files": [paths["co2rr_lsv"]],
+            "atmosphere": "reactant", "scan_rate_mV_s": 5.0,
+            "files": [paths["rr_lsv"]],
         },
-        "CO2RR_FE": {
+        "Reduction_FE": {
             "modality": "ec", "technique": "chronoamperometry + GC/HPLC",
-            "atmosphere": "CO2", "hold_time_min": 60.0,
+            "atmosphere": "reactant", "hold_time_min": 60.0,
             "products": list(mat.PRODUCTS),
             "note": "one file per product; they sum to 100 % at every potential",
             "files": paths["fe_files"],
@@ -447,10 +448,10 @@ def _computation_record(index: int, x: float, pdos_path: str) -> Dict[str, Any]:
         },
         "descriptors": {
             "d_band_centre_eV": round(mat.d_band_centre_eV(x), 3),
-            "E_ads_CO_eV": round(mat.co_binding_eV(x), 3),
+            "E_ads_P_eV": round(mat.p_binding_eV(x), 3),
             "E_ads_H_eV": round(mat.h_binding_eV(x), 3),
-            "note": ("CO binding is the descriptor: too strong and CO never "
-                     "leaves, too weak and it leaves before it can couple"),
+            "note": ("*P binding is the descriptor: too strong and P never "
+                     "leaves, too weak and it leaves before it can react on"),
         },
         "PDOS": {
             "modality": "dos",
@@ -483,7 +484,7 @@ def build_showcase_project(root, *,
     root : path
         Where to write it.  Created if missing.
     fractions : sequence of float
-        Gold atomic fraction of each sample — the hidden control variable.
+        B atomic fraction of each sample — the hidden control variable.
         One sample is generated per entry.
     n_frames : int
         UV-Vis frames per sample, written as an in-situ growth series.
@@ -568,7 +569,7 @@ def build_showcase_project(root, *,
                                img.sem_image(x, image_size, rng),
                                img.SEM_PIXELS_PER_MICRON, "DemoSEM 5 kV SE")
             (root / "TEMData" / name / "note.txt").write_text(
-                f"{name}: bright-field TEM, nominal x_Au = {x:.2f}\n")
+                f"{name}: bright-field TEM, nominal x_B = {x:.2f}\n")
 
         if with_tomography and mat.measured("tomo", index):
             folder = root / "TomoData" / name
@@ -593,12 +594,12 @@ def build_showcase_project(root, *,
     meta = root / "MetaData"
     meta.mkdir(exist_ok=True)
     _write_metadata(meta / "Synthesis_dict.py", "Synthesis_dict",
-                    "Colloidal Cu-Au alloy syntheses.", synthesis)
+                    "Colloidal A-B alloy syntheses.", synthesis)
     _write_metadata(meta / "Characterization_dict.py", "Characterization_dict",
                     "Structural, compositional and spectroscopic characterization.",
                     characterization)
     _write_metadata(meta / "Testing_dict.py", "Testing_dict",
-                    "CO2-reduction, hydrogen- and oxygen-evolution testing.",
+                    "Reduction, hydrogen- and oxygen-evolution testing.",
                     testing)
     _write_metadata(meta / "Computation_dict.py", "Computation_dict",
                     "Density-functional calculations on the matching surfaces.",
@@ -613,7 +614,7 @@ def _failed_record(name: str, index: int) -> Dict[str, Any]:
     record = _synthesis_record(index, 0.5)
     record["sample_id"] = name
     record["synthesis_batch"].update({
-        "run_id": f"cuau_run_{index:02d}",
+        "run_id": f"ab_run_{index:02d}",
         "status": "error",
         "aborted": True,
         "error": "heater interlock tripped at t = 420 s; batch discarded",
@@ -626,10 +627,11 @@ _README = """\
 pyDataOrg multimodal demo project
 =====================================
 
-A synthetic Cu-Au alloy nanocatalyst library for CO2 electroreduction, seen by
-fifteen techniques.  Everything in it is generated from one hidden number per
-sample - the gold atomic fraction - so the measurements can be checked against
-each other and against the truth.
+A synthetic A-B alloy nanocatalyst library (A and B are fictional metals),
+tested in a generic electro-reduction and seen by fifteen techniques.
+Everything in it is generated from one hidden number per sample - the B atomic
+fraction - so the measurements can be checked against each other and against
+the truth.
 
     from pyDataOrg import open_project
     wb = open_project(".")
@@ -658,15 +660,15 @@ Regenerate or delete it freely - nothing here is source.
 
 
 # ---------------------------------------------------------------------------
-# The campaign, as the Campaign and Next-experiments pages read it
+# The campaign, as notebook 13 and the agent tools read it
 # ---------------------------------------------------------------------------
 
 def showcase_campaign():
-    """The Cu–Au library as a :class:`~pyDataOrg.campaign.Campaign`.
+    """The A–B library as a :class:`~pyDataOrg.campaign.Campaign`.
 
-    One input — the nominal gold fraction the synthesis chose — and three
-    goals from the electrochemistry: CO selectivity and CO current up,
-    hydrogen down. The CO current is a Sabatier volcano in *x*, so the
+    One input — the nominal B fraction the synthesis chose — and three
+    goals from the electrochemistry: P selectivity and P current up,
+    hydrogen down. The P current is a Sabatier volcano in *x*, so the
     optimiser has a real maximum to find. Kept results join in when they
     exist: the WAXS peak (``peak_fit`` with ``link=True``) and the TEM size
     (``particle_sizing``).
@@ -676,10 +678,10 @@ def showcase_campaign():
     s, t = "synthesis.", "testing."
     return Campaign(
         name=CAMPAIGN,
-        description="Cu–Au alloy nanocatalysts for CO₂ electroreduction "
-                    "(generated demo data)",
+        description="A–B alloy nanocatalysts (fictional metals) in a generic "
+                    "electro-reduction (generated demo data)",
         columns=[
-            Column("x_Au", s + "composition.nominal_x_Au", "nominal Au fraction",
+            Column("x_B", s + "composition.nominal_x_B", "nominal B fraction",
                    kind="input"),
             Column("batch", s + "synthesis_batch.batch_tag", "library"),
             Column("status", s + "synthesis_batch.status", "synthesis status"),
@@ -693,20 +695,20 @@ def showcase_campaign():
                    "1/Å", "result"),
             Column("d_tem_nm", "particle_sizing:d_median", "TEM diameter",
                    "nm", "result"),
-            Column("FE_CO", t + "performance.FE_CO_pct", "CO selectivity", "%",
+            Column("FE_P", t + "performance.FE_P_pct", "P selectivity", "%",
                    "objective"),
-            Column("j_CO", t + "performance.j_CO_mA_cm2", "CO current",
+            Column("j_P", t + "performance.j_P_mA_cm2", "P current",
                    "mA/cm²", "objective"),
             Column("FE_H2", t + "performance.FE_H2_pct", "H₂ selectivity", "%",
                    "objective"),
         ],
-        objectives=[Objective("j_CO", True), Objective("FE_CO", True),
+        objectives=[Objective("j_P", True), Objective("FE_P", True),
                     Objective("FE_H2", False)],
         when="tested_at",
         done=("test_status", "done"),
         protocol=("electrolyte",),
-        bounds={"x_Au": (0.0, 1.0)},
-        rounding={"x_Au": 0.01},
+        bounds={"x_B": (0.0, 1.0)},
+        rounding={"x_B": 0.01},
     )
 
 

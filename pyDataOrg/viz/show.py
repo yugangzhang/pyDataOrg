@@ -9,7 +9,7 @@ only inside the Streamlit page, so a notebook could not reach it and had to
 know for itself whether its data was a curve or a volume.
 
 This module is that dispatch as library code, which is what makes
-``wb.plot("CuAu05", "uvvis")`` and ``wb.plot("CuAu05", "tomo")`` the same
+``wb.plot("S05", "uvvis")`` and ``wb.plot("S05", "tomo")`` the same
 call::
 
     curve          one line per frame, coloured by time when the names say when

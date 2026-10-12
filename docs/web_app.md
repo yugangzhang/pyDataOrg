@@ -7,26 +7,24 @@ dataorg gui --app myproj                    # a project plugin as the app
 streamlit run pyDataOrg/web_app/Home.py
 ```
 
-The app is a **five-step workflow**, a **campaign** section, one section per
-installed project plugin, and a tools section. Technique is chosen *inside* the
-Visualize page from the modality registry — so adding a technique changes no
-page. A **Demo** page in front of the workflow walks the three notebooks with
+The app is a **five-step workflow** and a tools section — pyDataOrg alone: the
+general app loads no plugin. A project package runs as its own app on top of
+these pages (`dataorg gui --app NAME`, [`platform.md`](platform.md)).
+Technique is chosen *inside* the Visualize and Analyze pages from the modality
+registry — so adding a technique changes no page. A **Demo** page in front of the workflow walks the three notebooks with
 buttons; [`gui_demo.md`](gui_demo.md) is the illustrated tour.
 
 ## The pages
 
 | | |
 |---|---|
-| **🎓 Demo** | Notebooks 10 → 11 → 12 with buttons, on a Cu–Au catalyst campaign of fifteen techniques: simulate it, build an organizer from it, look, plot every group, fit, batch and compare against the answer key — each step showing the Python it ran |
-| **📁 Project** | Open a folder, map recorded paths onto this machine, read the metadata dicts, attach data folders, **link data from anywhere**, save — or generate an example project to explore |
-| **🌳 Structure** | Drill into a folder, a metadata file or an archive, one layer at a time |
+| **🎓 Demo** | Notebooks 10 → 11 → 12 with buttons, on an A–B catalyst campaign of fifteen techniques: simulate it, build an organizer from it, look, plot every group, fit, batch and compare against the answer key — each step showing the Python it ran |
+| **📁 Project** | Open a folder or a `.json` organizer (it starts at `../OrgDemo/Demo/demo.json`, the one **Demo** saves), map recorded paths onto this machine, read the metadata dicts, attach data folders, **link data from anywhere**, save — or generate an example project to explore |
+| **🌳 Structure** | Drill into a folder, a metadata file or an archive, one layer at a time — starting from the organizer open on Project |
 | **🔎 Explore & Filter** | Filter the sample table; this sets the **selection** every later page uses |
-| **📈 Visualize** | Draw any measurement, grouped by what the data *is* |
-| **🧪 Analyze** | Run an analysis on one sample or the whole selection; results become new, filterable columns. **Up to date?** shows, per kept analysis, how many samples are new, and analyses just those |
+| **📈 Visualize** | Draw any measurement, grouped by what the data *is*; a series of curves opens on one sample in detail |
+| **🧪 Analyze** | Choose the analysis, the technique, the sample and which curve; see that curve before fitting; run on one sample or the whole selection — results become new, filterable columns. **Up to date?** shows, per kept analysis, how many samples are new, and analyses just those |
 | **📊 Compare** | Plot a measured quantity against a synthesis parameter |
-| **🏁 Campaign** | A registered campaign (or one built from columns): the input map, any pairing, the Pareto front and ranking, progress over time, the table |
-| **🎯 Next experiments** | Fit a surrogate per goal, propose a batch of inputs with predicted mean ± sd, see what the model believes, check it by leave-one-out, save the proposal with its evidence |
-| *one section per plugin* | a project package's own pages, on the same organizer ([`platform.md`](platform.md)) |
 
 The loop is the point: **filter → analyse → new columns → filter again.**
 
@@ -40,21 +38,21 @@ campaign from raw files to a structure–property plot, calling the same
 functions as `notebook/10_simulate_data` → `11_build_organizer` →
 `12_use_organizer`, in the same order.
 
-The campaign is the **Cu–Au showcase**: an alloy nanocatalyst library for CO₂
-electroreduction — eight alloys and one failed run, fifteen techniques across
+The campaign is the **A–B showcase**: an alloy nanocatalyst library of two
+fictional metals, tested in a generic electro-reduction — eight alloys and one failed run, fifteen techniques across
 four stages (synthesis, characterization, testing, computation), all following
-from one hidden number, the gold fraction. Four techniques are declared in
+from one hidden number, the B fraction. Four techniques are declared in
 metadata dicts; four more (TEM, SEM, DLS, tomography) arrive as bare folders
 nobody wrote a record for, which is the case the page links by hand.
 
 | tab | mirrors | does |
 |---|---|---|
 | **1 · Simulate** | notebook 10 | draws the model (one number, fifteen shadows), then `build_showcase_project(ROOT)` writes the files and four metadata dicts, and `showcase_truth()` the answer key |
-| **2 · Build** | notebook 11 | `Organizer(cuau.json)` beside the data, `ingest("MetaData/…_dict.py")` the four modules, `link(s, m, "TEMData/CuAu05")` the four folder techniques by hand — every path relative to the organizer — then `catalog()`, `save()` |
+| **2 · Build** | notebook 11 | `Organizer(demo.json)` beside the data, `ingest("MetaData/…_dict.py")` the four modules, `link(s, m, "TEMData/S05")` the four folder techniques by hand — every path relative to the organizer — then `catalog()`, `save()` |
 | **3 · Look** | notebook 12 A–B | `describe()`, `tree()`, `ids(query)`, `frames()` with time and temperature from the filenames, `data()` eager and lazy — a tomogram memory-mapped one plane at a time |
 | **4 · Visualize** | notebook 12 C | a 2×4 gallery of all four groups from `plot(s, m, ax=ax)`; any technique static or interactive (the tomogram as a rotatable isosurface); `overlay(technique, …)` for any curve or correlation technique — it follows the one picked above, and can be changed on its own |
 | **5 · Analyze** | notebook 12 D | `fit_peaks(q, I)` on arrays, then `plot_fit(…, ax=ax)` as a separate call, the lattice parameter and Vegard's composition; a segmentation check with `segment()` then `plot_segmentation()`; then nine `batch()` calls |
-| **6 · Compare** | notebook 12 E–F | composition three ways (EDS, WAXS, XPS) against the answer key, the plasmon band, three sizes, the CO volcano via `plot_compare`, and a stored fit reloaded off disk without refitting |
+| **6 · Compare** | notebook 12 E–F | composition three ways (EDS, WAXS, XPS) against the answer key, the plasmon band, three sizes, the P-current volcano via `plot_compare`, and a stored fit reloaded off disk without refitting |
 
 Every tab ends with **The same in Python** — the calls it just made, using
 only the package's own functions — so nothing on the page is a GUI-only path.
@@ -62,16 +60,16 @@ A tab whose prerequisite is missing says which tab to go back to rather than
 failing. No helper on the page both computes and draws: it calls an analysis,
 then a plot.
 
-Everything lives in **one folder**, `demo_root("CuAu")` — `../OrgDemo/CuAu`
+Everything lives in **one folder**, `demo_root("Demo")` — `../OrgDemo/Demo`
 beside the source checkout, or under `$PYDATAORG_DEMO_ROOT`: the
 campaign's files and `MetaData/`, the answer key `truth.csv`, the organizer
-`cuau.json` and its stored fits in `results/` — the same files notebooks 10–12
+`demo.json` and its stored fits in `results/` — the same files notebooks 10–12
 write, so a notebook and the page can take turns on them. Every path the
 organizer records is **relative to that folder**, so the folder moves, zips
-and opens elsewhere as one piece, and `cuau.json` names nobody's home
+and opens elsewhere as one piece, and `demo.json` names nobody's home
 directory. Simulating again rewrites the whole folder — the page says so
 first, and lets go of the organizer it held. *Start over* removes only
-`cuau.json` and `results/`, and only in a folder the generator made. The page
+`demo.json` and `results/`, and only in a folder the generator made. The page
 holds its organizer separately from the workflow pages until **Use this
 organizer in the workflow pages** hands it over. In restricted mode a demo
 folder outside the allowed roots is refused.
@@ -80,7 +78,7 @@ folder outside the allowed roots is refused.
 
 No page shows an absolute path. A location is displayed with
 `pyDataOrg.core.pathmap.display_path` — relative to the folder the app was
-started in (`../OrgDemo/CuAu`), or under `~` when that would take more than
+started in (`../OrgDemo/Demo`), or under `~` when that would take more than
 three `..` — in captions, tables, code blocks and the default value of every
 path box. What you type may be relative too: it is read against the app's
 working directory and turned absolute before anything is opened, created or
@@ -111,6 +109,12 @@ The page is the only one that writes, so all of it lives here.
 * a **folder** — `MetaData/`, data folders, a store in `.pydataorg/`;
 * a path ending in **`.json`** — a single-document organizer, the kind
   `Organizer("lab.json")` writes in a notebook.
+
+With nothing open the box starts at `../OrgDemo/Demo/demo.json`
+(`demo_root("Demo")`), the organizer the Demo page's *Build* tab saves, so
+*Demo → Project → Open organizer* needs no typing. A `.json` that is not there
+yet is not opened — that would quietly create an empty one; the page points to
+Demo, or to *Nothing yet*.
 
 They are the same object, so an organizer built in a notebook opens here with
 its links, parameters, derived values and stored fits intact, and one built
@@ -229,6 +233,10 @@ much. That is not politeness — a browser does not slow down gracefully on a
 
 ## Structure reads layout, not data
 
+The page starts at the organizer open on **Project** — its `.json`, or its
+folder — and moves when another is opened; a list of records names each one
+(`S01 · 7 keys`).
+
 Folders, JSON, HDF5, `.npz` and Python metadata modules all open the same way:
 a node, its children, click one, repeat. A breadcrumb keeps every ancestor one
 click away, so descending into the wrong branch costs nothing.
@@ -246,7 +254,26 @@ Reading a `.py` metadata module **executes it**. The page says so before it
 happens, and the allowed-roots rule applies here exactly as it does to the
 folder picker — a structure browser must not become a way around it.
 
-## Analyze builds its own controls
+## Analyze: what to run on, then how
+
+The page first asks what a notebook call names —
+`wb.run(key, sample, modality=…, role=…, index=…)`: the **analysis**; the
+**technique** it runs on, from the measurements in the selection it applies
+to (a role tells two of one technique apart: `XPS · b4f`, `XPS · a2p`); the
+**stage** when the technique was measured in more than one; the **sample**;
+and, for an analysis that takes one curve out of a series (one with `reduce`
+and `index` settings), **which curve** — the last, a curve number on a
+slider, the mean of the last 10 %, or the mean of all. Before anything is
+fitted the page draws that curve over the rest of the series, with the
+window the settings name shaded (`plots.plot_picked_curve`). The batch runs
+on the same technique of every selected sample, with the same curve choice
+and settings.
+
+The settings are keyed by technique — a window in nm means nothing on a curve
+in Å⁻¹ — and start from the ones the kept results were made with
+(`wb.kept_settings(key, modality=…)`), else the analysis' defaults.
+
+### The form builds itself
 
 The settings form is generated from the analysis itself
 (`web_app/components/settings_form.py`, from `Analysis.settings_for()` — the
@@ -280,18 +307,6 @@ It also reports the case where every group holds a single sample, since the
 two effects are then arithmetically inseparable and no warning dressed up as
 statistics would help.
 
-## Campaign and Next experiments
-
-Both read the campaign chosen in the sidebar: a registered `Campaign` (the
-app plugin's `defaults["campaign"]` first, the demo's `CuAu-CO2RR` always
-there) or one **built from columns** — pick inputs and goals from the sample
-table. Rows measured unlike most (the campaign's *protocol* columns) and
-unfinished rows are left out by default, and references (no inputs) are drawn
-as benchmarks rather than points of the front. The pages call
-`pyDataOrg.campaign`, `pyDataOrg.optimize` and `pyDataOrg.viz.campaign` and
-compute nothing themselves; saving a proposal writes
-`Proposals/<stamp>_proposals.csv` and its settings beside the organizer.
-
 ## Tools
 
 Standalone utilities in `web_app/tools/`, needing no organizer: the
@@ -306,11 +321,10 @@ is optional — a missing file is skipped rather than taking the app down.
 - **A new analysis** → one `register_analysis()`, with `plot=` for how its
   result is drawn. Analyze offers it, builds its form, batches it and draws it.
 - **A new authoring format** → one `register_adapter()` in `ingest/__init__.py`.
-- **A campaign** → one `register_campaign()`; Campaign and Next experiments
-  offer it.
-- **Pages of your own** → a project plugin ([`platform.md`](platform.md)).
-  Its pages share the open organizer through `web_app/state.py`, and the
-  controls every project page needs are in `components/controls.py`.
+- **Pages of your own** → a project plugin ([`platform.md`](platform.md)),
+  run as its own app with `dataorg gui --app NAME`. Its pages share the open
+  organizer through `web_app/state.py`, and the controls every project page
+  needs are in `components/controls.py`.
 
 ## Testing
 
@@ -319,7 +333,7 @@ against a synthetic project, so it needs no data mount. It clicks through the
 interactions that matter rather than only checking that pages render.
 
 `tests/test_webapp_demo.py` clicks through the Demo page — simulate, build,
-fit, batch, compare, reload, hand over, start over — against the Cu–Au
+fit, batch, compare, reload, hand over, start over — against the A–B
 campaign written into the test's own temporary folder, and checks that the
 page recovers the hidden composition. A gallery panel that cannot be drawn is
 reported as a warning, and the tests refuse warnings.

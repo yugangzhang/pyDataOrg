@@ -19,7 +19,7 @@ same reason:
 So a result is written beside the organiser as its own file and *linked back*
 like any other data.  That is the whole trick: a fit is a measurement of a
 measurement, so it does not need a second mechanism.  Reopening the organiser
-months later, ``org.result("CuAu05", "peak_fit")`` reads the file and
+months later, ``org.result("S05", "peak_fit")`` reads the file and
 ``org.plot_result(...)`` redraws the fit over its data, with no analysis run
 and no dependency on the code that produced it still behaving the same way.
 

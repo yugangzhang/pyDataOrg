@@ -29,7 +29,7 @@ FRACTIONS = (0.0, 0.5, 1.0)
 @pytest.fixture(scope="module")
 def data_root(tmp_path_factory):
     """A generated campaign, used here only as *data that exists somewhere*."""
-    root = tmp_path_factory.mktemp("linksource") / "CuAuDemo"
+    root = tmp_path_factory.mktemp("linksource") / "AlloyDemo"
     build_showcase_project(root, fractions=FRACTIONS, n_frames=4,
                            n_micrographs=1, image_size=256, tomo_size=32)
     return root
@@ -40,7 +40,7 @@ def organizer(tmp_path, data_root):
     """An organiser whose store is nowhere near the data it links."""
     wb = new_organizer(tmp_path / "Study", name="linked study")
     for index in range(1, len(FRACTIONS) + 1):
-        sample = f"CuAu{index:02d}"
+        sample = f"S{index:02d}"
         wb.link(sample, "uvvis",
                 f"{data_root}/RawSpectra/uvvis_runs/uvvis_b{index:02d}_*.npy",
                 stage="synthesis",
@@ -70,7 +70,7 @@ def test_a_glob_is_kept_live_and_a_directory_is_listed(tmp_path, data_root):
                    f"{data_root}/RawSpectra/uvvis_runs/uvvis_b01_*.npy")
     assert live.pattern and not live.paths
 
-    listed = wb.link("B", "tem", f"{data_root}/TEMData/CuAu01")
+    listed = wb.link("B", "tem", f"{data_root}/TEMData/S01")
     assert listed.paths and not listed.pattern
     assert all(p.endswith(".tif") for p in listed.paths)
 
@@ -78,7 +78,7 @@ def test_a_glob_is_kept_live_and_a_directory_is_listed(tmp_path, data_root):
 def test_a_directory_listing_honours_the_modality_extensions(tmp_path, data_root):
     """``note.txt`` sits beside the micrographs and is not a micrograph."""
     wb = new_organizer(tmp_path / "Study")
-    measurement = wb.link("A", "tem", f"{data_root}/TEMData/CuAu01")
+    measurement = wb.link("A", "tem", f"{data_root}/TEMData/S01")
     assert not any("note.txt" in p for p in measurement.paths)
 
 
@@ -129,8 +129,8 @@ def test_two_globs_in_one_measurement_are_refused(tmp_path):
 
 def test_paths_are_recorded_exactly_as_given(organizer, data_root):
     """A store that has been rewritten only works on the machine that wrote it."""
-    measurement = organizer.measurement("CuAu01", modality="waxs1d")
-    assert measurement.paths == [f"{data_root}/Scattering/CuAu01/waxs_1d.dat"]
+    measurement = organizer.measurement("S01", modality="waxs1d")
+    assert measurement.paths == [f"{data_root}/Scattering/S01/waxs_1d.dat"]
 
 
 def test_linking_registers_the_mount_as_an_alias(organizer):
@@ -144,7 +144,7 @@ def test_the_alias_makes_a_moved_tree_resolve(tmp_path, data_root):
     """The portability claim, tested the way it would actually be used."""
     recorded = "/instrument/that/is/not/mounted"
     wb = new_organizer(tmp_path / "Study")
-    wb.link("A", "waxs1d", f"{recorded}/CuAu01/waxs_1d.dat", check=False)
+    wb.link("A", "waxs1d", f"{recorded}/S01/waxs_1d.dat", check=False)
 
     assert wb.project.availability()["n_unresolved"] == 1
 
@@ -162,10 +162,10 @@ def test_linking_the_same_thing_twice_replaces_rather_than_duplicates(
     """Re-running a setup script must be safe."""
     wb = new_organizer(tmp_path / "Study")
     for _ in range(3):
-        wb.link("A", "waxs1d", f"{data_root}/Scattering/CuAu01/waxs_1d.dat")
+        wb.link("A", "waxs1d", f"{data_root}/Scattering/S01/waxs_1d.dat")
     assert len(wb["A"].measurements) == 1
 
-    wb.link("A", "waxs1d", f"{data_root}/Scattering/CuAu02/waxs_1d.dat",
+    wb.link("A", "waxs1d", f"{data_root}/Scattering/S02/waxs_1d.dat",
             role="repeat")
     assert len(wb["A"].measurements) == 2
 
@@ -177,13 +177,13 @@ def test_linking_the_same_thing_twice_replaces_rather_than_duplicates(
 def test_link_many_takes_a_nested_dict(tmp_path, data_root):
     wb = new_organizer(tmp_path / "Study")
     wb.link_many({
-        "CuAu01": {"waxs1d": f"{data_root}/Scattering/CuAu01/waxs_1d.dat",
-                   "tem": {"source": f"{data_root}/TEMData/CuAu01", "kV": 200}},
-        "CuAu02": {"waxs1d": f"{data_root}/Scattering/CuAu02/waxs_1d.dat"},
+        "S01": {"waxs1d": f"{data_root}/Scattering/S01/waxs_1d.dat",
+                   "tem": {"source": f"{data_root}/TEMData/S01", "kV": 200}},
+        "S02": {"waxs1d": f"{data_root}/Scattering/S02/waxs_1d.dat"},
     }, stage="characterization")
 
-    assert sorted(wb.project.sample_ids()) == ["CuAu01", "CuAu02"]
-    assert wb.measurement("CuAu01", modality="tem").meta["kV"] == 200
+    assert sorted(wb.project.sample_ids()) == ["S01", "S02"]
+    assert wb.measurement("S01", modality="tem").meta["kV"] == 200
 
 
 def test_link_table_takes_a_dataframe_and_keeps_extra_columns_as_metadata(
@@ -191,11 +191,11 @@ def test_link_table_takes_a_dataframe_and_keeps_extra_columns_as_metadata(
     pandas = pytest.importorskip("pandas")
     wb = new_organizer(tmp_path / "Study")
     wb.link_table(pandas.DataFrame([
-        {"sample_id": "CuAu01", "modality": "waxs1d",
-         "source": f"{data_root}/Scattering/CuAu01/waxs_1d.dat",
+        {"sample_id": "S01", "modality": "waxs1d",
+         "source": f"{data_root}/Scattering/S01/waxs_1d.dat",
          "stage": "characterization", "operator": "RH"},
     ]))
-    measurement = wb.measurement("CuAu01", modality="waxs1d")
+    measurement = wb.measurement("S01", modality="waxs1d")
     assert measurement.meta["operator"] == "RH"
     assert measurement.meta["linked"] is True
 
@@ -207,10 +207,10 @@ def test_link_table_names_the_row_it_could_not_read(tmp_path):
 
 
 def test_unlink_removes_only_what_matches(organizer):
-    dropped = organizer.unlink("CuAu01", modality="tem")
-    assert dropped == ["CuAu01:tem:characterization"]
-    assert "tem" not in organizer["CuAu01"].modalities
-    assert "waxs1d" in organizer["CuAu01"].modalities
+    dropped = organizer.unlink("S01", modality="tem")
+    assert dropped == ["S01:tem:characterization"]
+    assert "tem" not in organizer["S01"].modalities
+    assert "waxs1d" in organizer["S01"].modalities
 
 
 # ---------------------------------------------------------------------------
@@ -218,13 +218,13 @@ def test_unlink_removes_only_what_matches(organizer):
 # ---------------------------------------------------------------------------
 
 def test_set_params_becomes_a_filterable_column(organizer):
-    assert organizer.filter("`synthesis.au_fraction` > 0.4") == ["CuAu02",
-                                                                 "CuAu03"]
+    assert organizer.filter("`synthesis.au_fraction` > 0.4") == ["S02",
+                                                                 "S03"]
 
 
 def test_set_params_merges_and_promotes_stage_fields(organizer):
-    organizer.set_params("CuAu01", temperature_C=90, status="done")
-    stage = organizer["CuAu01"].stage("synthesis")
+    organizer.set_params("S01", temperature_C=90, status="done")
+    stage = organizer["S01"].stage("synthesis")
     assert stage.status == "done"
     assert stage.params["au_fraction"] == 0.0
     assert stage.params["temperature_C"] == 90
@@ -251,19 +251,19 @@ def test_a_linked_organizer_survives_save_and_reload(organizer, tmp_path):
 
 def test_catalog_is_a_sample_by_technique_matrix(organizer):
     table = organizer.catalog()
-    assert list(table.index) == ["CuAu01", "CuAu02", "CuAu03"]
+    assert list(table.index) == ["S01", "S02", "S03"]
     assert set(table.columns) == {"uvvis", "waxs1d", "tem"}
-    assert table.loc["CuAu01", "uvvis"]
+    assert table.loc["S01", "uvvis"]
 
     counted = organizer.catalog(counts=True)
-    assert counted.loc["CuAu01", "uvvis"] >= 1
+    assert counted.loc["S01", "uvvis"] >= 1
 
 
 def test_catalog_shows_the_gaps(organizer, data_root):
-    organizer.link("CuAu01", "tomo", f"{data_root}/TomoData/CuAu01/tomogram.npy")
+    organizer.link("S01", "tomo", f"{data_root}/TomoData/S01/tomogram.npy")
     table = organizer.catalog()
-    assert table.loc["CuAu01", "tomo"]
-    assert not table.loc["CuAu02", "tomo"]
+    assert table.loc["S01", "tomo"]
+    assert not table.loc["S02", "tomo"]
 
 
 # ---------------------------------------------------------------------------
@@ -271,34 +271,34 @@ def test_catalog_shows_the_gaps(organizer, data_root):
 # ---------------------------------------------------------------------------
 
 def test_data_returns_arrays_shaped_by_group(organizer):
-    x, matrix, info = organizer.data("CuAu01", "uvvis")
+    x, matrix, info = organizer.data("S01", "uvvis")
     assert matrix.ndim == 2 and matrix.shape[1] == x.size
     assert info["t_s"] is not None
 
-    array, _ = organizer.data("CuAu01", "tem")
+    array, _ = organizer.data("S01", "tem")
     assert array.ndim == 2
 
 
 def test_a_single_frame_still_comes_back_two_dimensional(organizer):
     """So a caller never has to branch on how many curves it asked for."""
-    _, matrix, _ = organizer.data("CuAu01", "uvvis", frame=0)
+    _, matrix, _ = organizer.data("S01", "uvvis", frame=0)
     assert matrix.shape[0] == 1
 
 
 def test_selecting_by_time_takes_the_nearest_frame(organizer):
-    table = organizer.frames("CuAu01", "uvvis")
+    table = organizer.frames("S01", "uvvis")
     recorded = sorted(t for t in table["t_s"] if np.isfinite(t))
     assert recorded, "the demo filenames carry a clock"
 
     wanted = recorded[1] + 3.0
-    _, matrix, info = organizer.data("CuAu01", "uvvis", t=wanted)
+    _, matrix, info = organizer.data("S01", "uvvis", t=wanted)
     assert matrix.shape[0] == 1
     assert f"{recorded[1]:.0f}" in info["labels"][0]
 
 
 def test_frames_lists_every_file_even_unparsed_ones(organizer):
-    table = organizer.frames("CuAu01", "tem")
-    assert len(table) == len(organizer.measurement("CuAu01", modality="tem").paths)
+    table = organizer.frames("S01", "tem")
+    assert len(table) == len(organizer.measurement("S01", modality="tem").paths)
     assert set(["index", "file", "t_s", "T_c"]).issubset(table.columns)
 
 
@@ -310,22 +310,22 @@ def test_pick_frame_explains_an_impossible_request():
 
 
 def test_plot_dispatches_on_group_not_technique(organizer, data_root):
-    organizer.link("CuAu01", "tomo", f"{data_root}/TomoData/CuAu01/tomogram.npy")
+    organizer.link("S01", "tomo", f"{data_root}/TomoData/S01/tomogram.npy")
 
     for modality in ("uvvis", "waxs1d", "tem", "tomo"):
-        axes = organizer.plot("CuAu01", modality)
+        axes = organizer.plot("S01", modality)
         assert hasattr(axes, "figure"), f"{modality} did not draw an Axes"
 
 
 def test_interactive_returns_a_plotly_figure(organizer):
     pytest.importorskip("plotly")
-    figure = organizer.plot("CuAu01", "uvvis", engine="interactive")
+    figure = organizer.plot("S01", "uvvis", engine="interactive")
     assert figure.__class__.__name__ == "Figure"
 
 
 def test_an_unknown_engine_is_refused(organizer):
     with pytest.raises(ValueError, match="engine"):
-        organizer.plot("CuAu01", "uvvis", engine="svg")
+        organizer.plot("S01", "uvvis", engine="svg")
 
 
 def test_overlay_draws_one_curve_per_sample(organizer):
@@ -334,43 +334,43 @@ def test_overlay_draws_one_curve_per_sample(organizer):
 
 
 def test_overlay_skips_what_cannot_be_read_and_says_so(organizer, capsys):
-    organizer.link("CuAu04", "waxs1d", "/not/mounted/waxs_1d.dat", check=False)
+    organizer.link("S04", "waxs1d", "/not/mounted/waxs_1d.dat", check=False)
     axes = organizer.overlay("waxs1d")
     assert len(axes.get_lines()) == 3
     assert "skipped 1" in capsys.readouterr().out
 
 
 def test_an_ambiguous_request_names_the_candidates(organizer, data_root):
-    organizer.link("CuAu01", "waxs1d",
-                   f"{data_root}/Scattering/CuAu01/waxs_1d.dat", role="repeat")
+    organizer.link("S01", "waxs1d",
+                   f"{data_root}/Scattering/S01/waxs_1d.dat", role="repeat")
     with pytest.raises(KeyError, match="Narrow with"):
-        organizer.plot("CuAu01", "waxs1d")
-    assert organizer.plot("CuAu01", "waxs1d", role="repeat") is not None
+        organizer.plot("S01", "waxs1d")
+    assert organizer.plot("S01", "waxs1d", role="repeat") is not None
 
 
 def test_analysis_runs_on_linked_data_like_any_other(organizer):
     table = organizer.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6),
                             n_peaks=2, background="linear", verbose=False)
     assert table["ok"].all()
-    assert organizer["CuAu01"].get_derived("waxs1d_peak1_center") > 0
+    assert organizer["S01"].get_derived("waxs1d_peak1_center") > 0
 
 
 def test_show_module_is_reachable_without_streamlit(organizer):
     """The GUI's dispatch is library code, so a notebook gets it too."""
-    measurement = organizer.measurement("CuAu01", modality="uvvis")
+    measurement = organizer.measurement("S01", modality="uvvis")
     assert show.figure(measurement, organizer.resolver) is not None
 
 
 def test_data_refuses_a_selector_it_cannot_honour(organizer):
     """Silently ignoring a keyword is the kind of thing that costs a day."""
     with pytest.raises(TypeError, match="frame="):
-        organizer.data("CuAu01", "tem", reduce="mean")
+        organizer.data("S01", "tem", reduce="mean")
 
 
 def test_unlink_with_no_filter_drops_the_whole_sample(organizer):
-    dropped = organizer.unlink("CuAu02")
+    dropped = organizer.unlink("S02")
     assert len(dropped) == 3
-    assert organizer["CuAu02"].measurements == []
+    assert organizer["S02"].measurements == []
 
 
 # ---------------------------------------------------------------------------
@@ -434,8 +434,8 @@ def test_a_partial_folder_exports_as_a_list_not_the_folder(tmp_path):
 
 def test_a_semicolon_list_is_split_on_import(tmp_path, data_root):
     wb = new_organizer(tmp_path / "Study")
-    both = ";".join([f"{data_root}/Scattering/CuAu01/waxs_1d.dat",
-                     f"{data_root}/Scattering/CuAu02/waxs_1d.dat"])
+    both = ";".join([f"{data_root}/Scattering/S01/waxs_1d.dat",
+                     f"{data_root}/Scattering/S02/waxs_1d.dat"])
     wb.link_table([{"sample_id": "A", "modality": "waxs1d", "source": both}])
     assert len(wb.measurement("A", modality="waxs1d").paths) == 2
 
@@ -447,25 +447,25 @@ def test_aux_survives_the_table_as_json(organizer, tmp_path):
 
     fresh = new_organizer(tmp_path / "Reimported2")
     fresh.link_table(rows)
-    assert fresh.measurement("CuAu01", modality="uvvis").aux == \
-        organizer.measurement("CuAu01", modality="uvvis").aux
+    assert fresh.measurement("S01", modality="uvvis").aux == \
+        organizer.measurement("S01", modality="uvvis").aux
 
 
 def test_remove_sample_forgets_it_and_clears_it_from_the_basket(organizer):
-    organizer.select(["CuAu01", "CuAu02"])
-    assert organizer.remove_sample("CuAu01")
-    assert "CuAu01" not in organizer.project.sample_ids()
-    assert organizer.basket == ["CuAu02"]
-    assert not organizer.remove_sample("CuAu01")
+    organizer.select(["S01", "S02"])
+    assert organizer.remove_sample("S01")
+    assert "S01" not in organizer.project.sample_ids()
+    assert organizer.basket == ["S02"]
+    assert not organizer.remove_sample("S01")
 
 
 def test_add_sample_takes_parameters_and_needs_no_data(organizer):
     """A synthesis that failed is a result; leaving it out biases the rest."""
-    organizer.add_sample("CuAu09", status="error", error="precipitated")
-    sample = organizer["CuAu09"]
+    organizer.add_sample("S09", status="error", error="precipitated")
+    sample = organizer["S09"]
     assert sample.measurements == []
     assert sample.stage("synthesis").status == "error"
-    assert "CuAu09" in organizer.table(all_samples=True).index
+    assert "S09" in organizer.table(all_samples=True).index
 
 
 def test_a_link_that_matches_nothing_warns(tmp_path):

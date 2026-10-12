@@ -22,7 +22,7 @@ FRACTIONS = (0.0, 0.5, 1.0)
 
 @pytest.fixture(scope="module")
 def project_root(tmp_path_factory):
-    root = tmp_path_factory.mktemp("showcase") / "CuAuDemo"
+    root = tmp_path_factory.mktemp("showcase") / "AlloyDemo"
     build_showcase_project(root, fractions=FRACTIONS, n_frames=4,
                            n_micrographs=1, image_size=320, tomo_size=40)
     return root
@@ -64,7 +64,7 @@ def test_four_stages_each_from_its_own_metadata_file(workbench):
 
 def test_both_routes_in_are_used(workbench):
     """Metadata declares most measurements; some arrive as a bare folder."""
-    sample = workbench.project.get_sample("CuAu01")
+    sample = workbench.project.get_sample("S01")
     declared = sample.get_measurements(modality="uvvis")[0]
     by_folder = sample.get_measurements(modality="tem")[0]
     assert declared.pattern and not declared.paths
@@ -76,12 +76,12 @@ def test_the_measurement_matrix_is_sparse(workbench):
     availability() exists to show."""
     with_xas = [s for s in workbench.project.sample_ids()
                 if workbench.project.get_sample(s).get_measurements(modality="xas")]
-    assert with_xas == ["CuAu01", "CuAu03"]
+    assert with_xas == ["S01", "S03"]
     assert len(with_xas) < len(FRACTIONS)
 
 
 def test_the_failed_synthesis_has_a_row_but_no_data(workbench):
-    failed = workbench.project.get_sample(f"CuAu{len(FRACTIONS) + 1:02d}")
+    failed = workbench.project.get_sample(f"S{len(FRACTIONS) + 1:02d}")
     assert failed is not None
     assert failed.stages["synthesis"].status == "error"
     assert failed.measurements == []
@@ -95,7 +95,7 @@ def test_everything_that_is_declared_resolves(workbench):
 
 def test_authored_parameters_are_filterable(workbench, truth):
     table = workbench.table().set_index("sample_id")
-    column = "synthesis.composition.nominal_x_Au"
+    column = "synthesis.composition.nominal_x_B"
     assert column in table.columns
     assert table.loc[truth.index, column].tolist() == list(FRACTIONS)
 
@@ -128,16 +128,16 @@ def test_waxs_recovers_the_lattice_parameter(workbench, truth):
 
 
 def test_eds_recovers_the_bulk_composition(workbench, truth):
-    for prefix, lo, hi in (("cu_", 7.7, 8.4), ("au_", 9.4, 10.0)):
+    for prefix, lo, hi in (("a_", 6.9, 7.6), ("b_", 10.05, 10.65)):
         workbench.batch("curve_metrics", modality="eds", verbose=False,
                         prefix=f"eds_{prefix}", x_min=lo, x_max=hi)
 
     table = workbench.table().set_index("sample_id")
-    gold = table["derived.eds_au_area"] / sig.EDS_K_FACTOR_AU_CU
-    copper = table["derived.eds_cu_area"]
-    recovered = gold / (gold + copper)
+    b = table["derived.eds_b_area"] / sig.EDS_K_FACTOR_B_A
+    a = table["derived.eds_a_area"]
+    recovered = b / (b + a)
     for sample_id, row in truth.iterrows():
-        assert recovered[sample_id] == pytest.approx(row["x_Au"], abs=0.05)
+        assert recovered[sample_id] == pytest.approx(row["x_B"], abs=0.05)
 
 
 def test_tem_recovers_the_particle_diameter(workbench, truth):
@@ -155,7 +155,7 @@ def test_xpcs_and_dls_see_the_same_particles_by_different_routes(workbench):
     workbench.batch("curve_metrics", modality="xpcs_g2", verbose=False,
                     threshold=1.14, subtract_baseline=False)
     table = workbench.table().set_index("sample_id")
-    half_life = table.loc["CuAu01", "derived.xpcs_g2_x_at_threshold"]
+    half_life = table.loc["S01", "derived.xpcs_g2_x_at_threshold"]
 
     rate = np.log(2.0) / (2.0 * half_life)
     diffusion = rate / sig.XPCS_Q_INV_A ** 2 * 1e-20        # m² s⁻¹
@@ -198,10 +198,10 @@ def test_faradaic_efficiencies_sum_to_one_hundred():
             assert total == pytest.approx(100.0)
 
 
-def test_the_co_partial_current_really_is_a_volcano():
+def test_the_p_partial_current_really_is_a_volcano():
     """The Sabatier maximum is the whole point of the structure-property story."""
     fractions = np.linspace(0.0, 1.0, 21)
-    current = np.array([mat.co_partial_current(float(x)) for x in fractions])
+    current = np.array([mat.p_partial_current(float(x)) for x in fractions])
     peak = int(np.argmax(current))
     assert 0 < peak < len(fractions) - 1
     assert current[peak] > current[0] and current[peak] > current[-1]
@@ -210,14 +210,14 @@ def test_the_co_partial_current_really_is_a_volcano():
 def test_gold_segregates_to_the_surface():
     """XPS and EDS are meant to disagree here, in one direction."""
     for x in (0.1, 0.25, 0.5, 0.75, 0.9):
-        assert mat.surface_au_fraction(x) > x
+        assert mat.surface_b_fraction(x) > x
 
 
 def test_truth_table_matches_the_generator():
     row = showcase_truth((0.4,)).iloc[0]
     assert row["true_lattice_A"] == mat.lattice_parameter_A(0.4)
     assert row["true_lspr_nm"] == mat.lspr_nm(0.4)
-    assert row["sample_id"] == "CuAu01"
+    assert row["sample_id"] == "S01"
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +226,7 @@ def test_truth_table_matches_the_generator():
 
 def test_micrographs_carry_a_pixel_calibration(workbench):
     result = analysis.run("particle_sizing",
-                          workbench.measurement("CuAu01", modality="tem"),
+                          workbench.measurement("S01", modality="tem"),
                           workbench.resolver)
     assert result.diagnostics["calibrated"] is True
     assert result.diagnostics["unit"] == "nm"
@@ -236,7 +236,7 @@ def test_the_tem_banner_is_cropped_off(workbench):
     """It is below the image; nothing downstream should ever see those rows."""
     from pyDataOrg.analysis.reading import load_image
 
-    _, info = load_image(workbench.measurement("CuAu01", modality="tem"),
+    _, info = load_image(workbench.measurement("S01", modality="tem"),
                          workbench.resolver)
     assert info["shape"][0] == info["shape"][1]
 
@@ -247,7 +247,7 @@ def test_sem_contrast_polarity_is_detected_not_assumed(workbench):
     from pyDataOrg.analysis.imaging import read_micrograph, segment_particles
 
     for modality, expected_dark in (("tem", True), ("sem", False)):
-        path = workbench.measurement("CuAu01", modality=modality).resolve(
+        path = workbench.measurement("S01", modality=modality).resolve(
             workbench.resolver)[0]
         image, _, _ = read_micrograph(path)
         _, info = segment_particles(image)
@@ -257,7 +257,7 @@ def test_sem_contrast_polarity_is_detected_not_assumed(workbench):
 def test_the_tomogram_is_a_volume(workbench):
     from pyDataOrg.analysis.reading import load_volume
 
-    volume, info = load_volume(workbench.measurement("CuAu01", modality="tomo"),
+    volume, info = load_volume(workbench.measurement("S01", modality="tomo"),
                                workbench.resolver)
     assert volume.ndim == 3 and len(set(volume.shape)) == 1
 
@@ -286,10 +286,10 @@ def test_one_electrochemistry_measurement_holds_every_product(workbench):
     gets several curves on one axis without any special case."""
     from pyDataOrg.analysis.reading import load_curve_set
 
-    measurement = workbench.measurement("CuAu01", modality="ec", role="co2-rr-fe")
+    measurement = workbench.measurement("S01", modality="ec", role="reduction-fe")
     _, values, info = load_curve_set(measurement, workbench.resolver)
     assert values.shape[0] == len(mat.PRODUCTS)
-    assert any("FE_CO.dat" in label for label in info["labels"])
+    assert any("FE_P.dat" in label for label in info["labels"])
 
 
 def test_rebuilding_is_safe_and_repeatable(tmp_path):
@@ -335,8 +335,8 @@ def test_inverting_vegard_returns_the_composition():
 
 
 def test_line_intensities_give_the_composition_after_their_factors():
-    # 3 parts gold to 1 part copper, with the gold line read 0.85x too weak.
-    assert mat.fraction_from_signals(3 * 0.85, 1.0, gold_factor=0.85) == \
+    # 3 parts B to 1 part A, with the B line read 0.85x too weak.
+    assert mat.fraction_from_signals(3 * 0.85, 1.0, b_factor=0.85) == \
         pytest.approx(0.75)
     assert mat.fraction_from_signals(np.array([0.0, 1.0]),
                                      np.array([1.0, 0.0])).tolist() == [0.0, 1.0]
@@ -347,7 +347,7 @@ def test_the_hand_built_organizer_matches_the_attached_project(project_root):
 
     # Beside its data: the metadata names files relative to this folder, and
     # the hand links below are relative too. Nothing is saved.
-    org = Organizer(project_root / "cuau.json")
+    org = Organizer(project_root / "demo.json")
     for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
         org.ingest(f"MetaData/{stage}_dict.py")
     folders = {"tem": "TEMData", "sem": "SEMData", "dls": "DLSData",
@@ -368,9 +368,9 @@ def test_the_campaign_command_writes_data_and_answer_key(tmp_path, monkeypatch):
 
     monkeypatch.setenv("PYDATAORG_DEMO_ROOT", str(tmp_path))
     assert main(["--campaign", "--no-images"]) == 0
-    assert (tmp_path / "CuAu" / "MetaData" / "Synthesis_dict.py").exists()
-    assert (tmp_path / "CuAu" / "truth.csv").exists()
-    assert not (tmp_path / "CuAu" / "cuau.json").exists()   # building is yours
+    assert (tmp_path / "Demo" / "MetaData" / "Synthesis_dict.py").exists()
+    assert (tmp_path / "Demo" / "truth.csv").exists()
+    assert not (tmp_path / "Demo" / "demo.json").exists()   # building is yours
 
 
 def test_ingesting_a_metadata_module_writes_nothing_beside_it(tmp_path):
@@ -398,10 +398,10 @@ def test_a_campaign_folder_moved_elsewhere_still_opens(project_root, tmp_path):
 
     org = Organizer(project_root / "moved.json")
     org.ingest("MetaData/Characterization_dict.py")
-    org.link("CuAu01", "tem", "TEMData/CuAu01")
+    org.link("S01", "tem", "TEMData/S01")
     org.save()
     links = org.links_table().set_index("modality")
-    assert links.loc["tem", "source"].startswith("TEMData/CuAu01")   # relative
+    assert links.loc["tem", "source"].startswith("TEMData/S01")   # relative
 
     copy = tmp_path / "elsewhere"
     shutil.copytree(project_root, copy)

@@ -10,9 +10,9 @@ Two of them, for two different questions:
     and whenever you want the pipeline without the scenery.
 
 :func:`build_showcase_project`
-    A full campaign: a Cu–Au alloy nanocatalyst library for CO₂ reduction seen
-    by fifteen techniques across four stages, with a sparse measurement matrix
-    and one failed run.  Use it to see what the framework is actually for.
+    A full campaign: an A–B alloy nanocatalyst library (A and B are fictional
+    metals) seen by fifteen techniques across four stages, with a sparse
+    measurement matrix and one failed run.  Use it to see what the framework is actually for.
     It is the data behind the workflow notebooks (``10`` → ``12``), the web
     app's **Demo** page and the README: four metadata dicts declare most of
     it, and four techniques arrive as bare folders that are linked by hand.
@@ -24,7 +24,7 @@ recover, and both refuse to overwrite a directory they did not create.
 
 >>> from pyDataOrg.demo import build_showcase_project
 >>> from pyDataOrg import open_project
->>> root = build_showcase_project("/tmp/CuAuDemo")       # doctest: +SKIP
+>>> root = build_showcase_project("/tmp/AlloyDemo")       # doctest: +SKIP
 >>> workbench = open_project(root)                       # doctest: +SKIP
 
 Where generated data goes
@@ -68,8 +68,8 @@ def demo_root(*parts: Union[str, Path]) -> Path:
 
     >>> demo_root()                      # doctest: +SKIP
     PosixPath('/home/you/Repos/OrgDemo')       # ../OrgDemo beside the checkout
-    >>> demo_root("CuAu", "cuau.json")   # doctest: +SKIP
-    PosixPath('/home/you/Repos/OrgDemo/CuAu/cuau.json')
+    >>> demo_root("Demo", "demo.json")   # doctest: +SKIP
+    PosixPath('/home/you/Repos/OrgDemo/Demo/demo.json')
 
     The directory is **not** created here — the builder that writes into it
     does that, so merely asking where data would go leaves nothing behind.
@@ -80,9 +80,9 @@ def demo_root(*parts: Union[str, Path]) -> Path:
 
 
 from pyDataOrg.demo.materials import (
-    DEFAULT_FRACTIONS, PRODUCTS, co_binding_eV, co_partial_current,
+    DEFAULT_FRACTIONS, PRODUCTS, p_binding_eV, p_partial_current,
     d_band_centre_eV, faradaic_efficiency, lattice_parameter_A, lspr_nm,
-    showcase_truth, surface_au_fraction,
+    showcase_truth, surface_b_fraction,
 )
 from pyDataOrg.demo.materials import (
     particle_diameter_nm as alloy_particle_diameter_nm,
@@ -103,11 +103,11 @@ __all__ = [
     "build_showcase_project", "showcase_campaign", "showcase_truth",
     "DEFAULT_FRACTIONS",
     "PRODUCTS", "lattice_parameter_A", "lspr_nm", "alloy_particle_diameter_nm",
-    "surface_au_fraction", "d_band_centre_eV", "co_binding_eV",
-    "faradaic_efficiency", "co_partial_current",
+    "surface_b_fraction", "d_band_centre_eV", "p_binding_eV",
+    "faradaic_efficiency", "p_partial_current",
 ]
 
-# The demo campaign is offered by name on the Campaign pages.
+# The demo campaign, by name — for notebook 13 and the agent tools.
 from pyDataOrg.campaign import register_campaign as _register  # noqa: E402
 
 _register(showcase_campaign())

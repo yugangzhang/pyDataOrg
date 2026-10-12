@@ -202,11 +202,11 @@ that afternoon, and none of it is going to move.
 ```python
 from pyDataOrg import Organizer
 
-org = Organizer("../OrgDemo/cuau.json")          # the file is the store
+org = Organizer("../OrgDemo/demo.json")          # the file is the store
 
-org.link("CuAu05", "uvvis", "/mnt/specs/CuAu05/*.csv", stage="synthesis")
-org.link("CuAu05", "tem",   "/mnt/scope/session17/")
-org.link("CuAu05", "waxs1d", ["/beamline/2024_3/w1.dat"])
+org.link("S05", "uvvis", "/mnt/specs/S05/*.csv", stage="synthesis")
+org.link("S05", "tem",   "/mnt/scope/session17/")
+org.link("S05", "waxs1d", ["/beamline/2024_3/w1.dat"])
 ```
 
 Three entry points, all returning a `Workbench`:
@@ -222,7 +222,7 @@ Three entry points, all returning a `Workbench`:
 | | |
 |---|---|
 | a glob — `".../uvvis_b05_*.npy"` | stored as `Measurement.pattern`, a **live** query re-expanded at read time, so frames written later appear |
-| a directory — `".../TEMData/CuAu05"` | listed **now** and filtered by the modality's extensions — a snapshot you can audit |
+| a directory — `".../TEMData/S05"` | listed **now** and filtered by the modality's extensions — a snapshot you can audit |
 | a path or a list | stored verbatim |
 
 `link_folder(sample, modality, folder, pattern="*.tif")` records the glob
@@ -235,9 +235,9 @@ than duplicating, so re-running a setup script is safe. `unlink()` removes.
 
 ```python
 wb.link_many({                          # {sample: {modality: source}}
-    "CuAu01": {"waxs1d": "/beamline/CuAu01/w.dat",
-               "tem": {"source": "/mnt/scope/CuAu01/", "kV": 200}},
-    "CuAu02": {"waxs1d": "/beamline/CuAu02/w.dat"},
+    "S01": {"waxs1d": "/beamline/S01/w.dat",
+               "tem": {"source": "/mnt/scope/S01/", "kV": 200}},
+    "S02": {"waxs1d": "/beamline/S02/w.dat"},
 }, stage="characterization")
 
 wb.link_table("session_log.csv")        # sample_id, modality, source, …
@@ -273,9 +273,9 @@ be running from. Keep data beside the organizer and link it relatively, and
 the folder is portable as one piece, with nothing to configure:
 
 ```python
-org = Organizer("../OrgDemo/CuAu/cuau.json")
-org.ingest("MetaData/Testing_dict.py")              # relative to cuau.json
-org.link("CuAu05", "tem", "TEMData/CuAu05")         # recorded as TEMData/CuAu05/01.tif, …
+org = Organizer("../OrgDemo/Demo/demo.json")
+org.ingest("MetaData/Testing_dict.py")              # relative to demo.json
+org.link("S05", "tem", "TEMData/S05")         # recorded as TEMData/S05/01.tif, …
 ```
 
 A relative folder lists its files as relative paths, a `results/` fit is
@@ -297,7 +297,7 @@ wb.project.add_alias("/mnt/instrument", ["/data/instrument"])    # on the next m
 Links give an organiser files. `set_params` gives it columns:
 
 ```python
-wb.set_params("CuAu05", stage="synthesis", au_fraction=0.55, temperature_C=90)
+wb.set_params("S05", stage="synthesis", au_fraction=0.55, temperature_C=90)
 #   -> synthesis.au_fraction, synthesis.temperature_C in to_dataframe()
 ```
 
@@ -309,11 +309,11 @@ Reading it back is `metadata` — the whole record of a stage, as it was
 ingested or set, not just the columns flattened from it:
 
 ```python
-wb.metadata("CuAu05")                    # {"synthesis": {...}, ...}: every stage
-wb.metadata("CuAu05", "synthesis")       # one; a copy — editing it changes nothing
+wb.metadata("S05")                    # {"synthesis": {...}, ...}: every stage
+wb.metadata("S05", "synthesis")       # one; a copy — editing it changes nothing
 ```
 
-`wb.add_sample("CuAu09", status="error")` creates a sample with no data at all,
+`wb.add_sample("S09", status="error")` creates a sample with no data at all,
 which is a state worth being able to record: a synthesis that failed is a
 result, and leaving it out biases every comparison drawn afterwards.
 `wb.remove_sample()` forgets one — the record only; no file is touched.
@@ -328,13 +328,13 @@ through that four samples never got the technique the argument rests on.
 With the organiser built, technique is an argument rather than a code path:
 
 ```python
-x, Y, info = wb.data("CuAu05", "uvvis")      # (n_frames, n_points)
-array, meta = wb.data("CuAu05", "tem", frame=1)
-volume, meta = wb.data("CuAu01", "tomo")
+x, Y, info = wb.data("S05", "uvvis")      # (n_frames, n_points)
+array, meta = wb.data("S05", "tem", frame=1)
+volume, meta = wb.data("S01", "tomo")
 
-wb.plot("CuAu05", "uvvis")                    # lines, coloured by time
-wb.plot("CuAu05", "tem", frame=2)             # heatmap on nm axes
-wb.plot("CuAu01", "tomo", engine="interactive", mode="volume")
+wb.plot("S05", "uvvis")                    # lines, coloured by time
+wb.plot("S05", "tem", frame=2)             # heatmap on nm axes
+wb.plot("S01", "tomo", engine="interactive", mode="volume")
 wb.overlay("waxs1d", reduce="last")           # one curve per selected sample
 ```
 
@@ -355,9 +355,9 @@ grammar parses are listed with NaN, never dropped.
 That table is what makes these addressable:
 
 ```python
-wb.plot("CuAu05", "uvvis", frame=0)    # by position — always available
-wb.plot("CuAu05", "uvvis", t=600)      # nearest frame to 600 s
-wb.plot("CuAu05", "uvvis", T=90)       # nearest frame at about 90 °C
+wb.plot("S05", "uvvis", frame=0)    # by position — always available
+wb.plot("S05", "uvvis", t=600)      # nearest frame to 600 s
+wb.plot("S05", "uvvis", T=90)       # nearest frame at about 90 °C
 ```
 
 `t` and `T` take the **nearest** recorded value, not an exact one, because an
@@ -382,10 +382,10 @@ most of its value.
 org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), link=True)
 org.save()
 
-later = Organizer("../OrgDemo/cuau.json")
+later = Organizer("../OrgDemo/demo.json")
 later.results()                           # one row per stored result
-later.result("CuAu05", "peak_fit")        # the AnalysisResult back
-later.plot_result("CuAu05", "peak_fit")   # redrawn, not refitted
+later.result("S05", "peak_fit")        # the AnalysisResult back
+later.plot_result("S05", "peak_fit")   # redrawn, not refitted
 ```
 
 `folder=` puts the files somewhere else — a project's own `Results/` when
@@ -529,7 +529,7 @@ The whole loop, from an empty file to a fit you can read again next year.
 ```python
 from pyDataOrg import Organizer
 
-org = Organizer("../OrgDemo/cuau.json", name="Cu-Au CO2RR")
+org = Organizer("../OrgDemo/demo.json", name="A-B library")
 org.project.add_alias("/instrument/share", ["/mnt/instrument"])
 
 # 1. Metadata somebody already wrote — a live dict, or a *_dict.py.
@@ -542,14 +542,14 @@ for sample_id in org.project.sample_ids():
     org.link(sample_id, "waxs1d", f"/beamline/2026_1/{sample_id}.dat")
 
 # 3. Anything else worth filtering on.
-org.set_params("CuAu05", stage="synthesis", operator="RH")
+org.set_params("S05", stage="synthesis", operator="RH")
 
 print(org.summary())
 org.catalog()                      # what exists, and what does not
 
 # 4. Filter, draw, fit — and keep the fits.
 org.filter("`synthesis.conditions.temperature_C` >= 90")
-org.plot("CuAu05", "uvvis", t=600)
+org.plot("S05", "uvvis", t=600)
 org.batch("peak_fit", modality="waxs1d", x_range=(2.5, 3.6), link=True)
 org.save()
 ```
@@ -557,12 +557,12 @@ org.save()
 Later, on another machine — one alias, and everything resolves:
 
 ```python
-org = Organizer("../OrgDemo/cuau.json")
+org = Organizer("../OrgDemo/demo.json")
 org.project.add_alias("/mnt/scope", ["/Volumes/scope"])
 
 org.table()[["synthesis.conditions.temperature_C",
              "derived.waxs1d_peak1_center"]]
-org.plot_result("CuAu05", "peak_fit")      # redrawn, not refitted
+org.plot_result("S05", "peak_fit")      # redrawn, not refitted
 ```
 
 The lower-level objects stay reachable throughout — `org.project` is a

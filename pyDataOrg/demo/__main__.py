@@ -10,8 +10,8 @@ Generate example data from the command line.
 Without a path, everything goes under ``demo_root()`` — ``~/Repos/OrgDemo`` by
 default, ``$PYDATAORG_DEMO_ROOT`` to move it.
 
-``--campaign`` writes the Cu–Au showcase as **raw data only** — the files, the
-four metadata dicts and the answer key (``truth.csv``) — into ``CuAu/``,
+``--campaign`` writes the A–B showcase as **raw data only** — the files, the
+four metadata dicts and the answer key (``truth.csv``) — into ``Demo/``,
 because building the organizer from it is the part worth doing yourself
 (notebook 11, or the web app's Demo page). Without it the same campaign is
 written to ``Showcase/`` and opened as a project.
@@ -31,7 +31,7 @@ def main(argv=None) -> int:
                         help="where to write it (default: under demo_root())")
     kind = parser.add_mutually_exclusive_group()
     kind.add_argument("--campaign", action="store_true",
-                      help="the Cu-Au campaign as raw data for notebooks "
+                      help="the A-B campaign as raw data for notebooks "
                            "10-12 and the Demo page, plus its answer key "
                            "truth.csv — no organizer")
     kind.add_argument("--quick", action="store_true",
@@ -49,7 +49,7 @@ def main(argv=None) -> int:
     if args.campaign:
         from pyDataOrg.demo import build_showcase_project, showcase_truth
 
-        root = (args.root or demo_root("CuAu")).expanduser()
+        root = (args.root or demo_root("Demo")).expanduser()
         options = {"with_images": not args.no_images,
                    "with_tomography": not args.no_images}
         if args.seed is not None:

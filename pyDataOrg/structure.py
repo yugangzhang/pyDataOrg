@@ -342,6 +342,10 @@ def _walk_object(node: Any, inside: Sequence[str]) -> Any:
     return node
 
 
+#: Fields that name a record, tried in order, for a list of records.
+IDENTITY_KEYS = ("measurement_id", "sample_id", "id", "name", "key")
+
+
 def _object_children(node: Any, path: Path, inside: Sequence[str],
                      limit: int, width: int = 60) -> List[Node]:
     """Children of a plain Python mapping or sequence."""
@@ -354,11 +358,17 @@ def _object_children(node: Any, path: Path, inside: Sequence[str],
         return []
 
     nodes: List[Node] = []
+    in_list = not isinstance(node, dict)
     for name, value in items[:limit]:
         address = join_address(path, list(inside) + [name])
         if isinstance(value, dict):
+            # A record in a list says which one it is: "S01 · 7 keys".
+            ident = next((value[k] for k in IDENTITY_KEYS
+                          if isinstance(value.get(k), str) and value[k]),
+                         "") if in_list else ""
             nodes.append(Node(name=name, kind="mapping",
-                              detail=f"{len(value)} keys",
+                              detail=(f"{ident} · " if ident else "")
+                              + f"{len(value)} keys",
                               address=address, expandable=True,
                               n_children=len(value)))
         elif isinstance(value, (list, tuple)):

@@ -54,7 +54,7 @@ PLUGIN = Plugin(
     name="myproj", title="My project", icon="⚗️",
     register=_register,                   # runs once, when the plugin loads
     on_page=_on_page,                     # every GUI page, when this plugin is the app
-    defaults={"campaign": "my-screen"},   # what the general pages open with
+    defaults={"campaign": "my-screen"},   # what its own pages open with
     pages=[
         Page("myproj.web:views/overview.py", "Overview", "⚗️", default=True),
         Page("myproj.web:views/screen.py", "Screen", "🧪"),
@@ -70,9 +70,9 @@ organizer from `pyDataOrg.web_app.state.get_workbench()` and must not call
 | | |
 |---|---|
 | `dataorg plugins` | what is installed, its pages, and anything that failed to load |
-| `dataorg gui` | the general pages plus one section per plugin |
-| `dataorg gui --app myproj` | the plugin is the app: its title and icon, its pages first with plain URLs (`/overview`), general pages that would collide move to `/general_<name>` |
-| `PYDATAORG_PLUGINS=a,b` | load only these (`none` for none) |
+| `dataorg gui` | the general pages only — the public tool loads no plugin |
+| `dataorg gui --app myproj` | the plugin is the app: its title and icon, its pages first with plain URLs (`/overview`), then the general pages (one that would collide moves to `/general_<name>`) |
+| `PYDATAORG_PLUGINS=a,b` | in an app run, load only these (`none` for none) |
 
 A plugin that raises while loading is listed with its error in the sidebar
 and in `dataorg plugins`; the rest of the app runs.
@@ -93,8 +93,6 @@ pages keep needing, each a notebook cell's worth:
 | `metadata(wb, sample, stages, key)` | the sample's record as a `dict_tree` |
 | `by_sample(...)`, `axes_options(...)`, `apply_axes(...)` | options of `plot_by_sample`, axis limits |
 
-`components.campaign_picker.pick_campaign(wb)` is the campaign chooser the
-Campaign and Next-experiments pages use.
 
 ---
 
@@ -162,7 +160,8 @@ A *source* is a sample-table column, or `analysis:value` — read from that
 analysis' kept result files. `spec.table(org)` is the adapter; the rest are
 kernels on a plain frame: `rank`, `pareto_mask`, `comparable`, `majority`,
 `chronological`, `best_so_far`. `from_columns(table, inputs, objectives)` makes
-one on the spot (the GUI's *build from columns*).
+one on the spot. The general GUI has no campaign pages — a campaign is a
+project's, and its pages belong to its package.
 
 ## Next experiments
 
@@ -239,7 +238,7 @@ machine (as aliases), so nothing is rewritten.
 | `save` | write the organizer (write access) |
 
 ```python
-agent.call(org, "sample_table", columns=["testing.performance.FE_CO_pct"], limit=5)
+agent.call(org, "sample_table", columns=["testing.performance.FE_P_pct"], limit=5)
 agent.tool_specs("anthropic")     # [{name, description, input_schema}, …]; also "openai", "mcp"
 agent.register_operation(Operation("my_op", "…", func, parameters={...}))
 ```

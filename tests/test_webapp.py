@@ -186,8 +186,43 @@ def test_analysis_options_are_built_from_the_signature(workbench):
     app.selectbox(key="org_analysis_key").select("peak_fit").run()
     assert_clean(app, "options")
     keys = {w.key for w in app.number_input} | {w.key for w in app.toggle}
-    assert "org_opt_peak_fit_n_peaks" in keys
-    assert "org_opt_peak_fit_min_r2" in keys
+    assert "org_opt_peak_fit_uvvis_n_peaks" in keys
+    assert "org_opt_peak_fit_uvvis_min_r2" in keys
+    # The text settings with fixed values are choices, not free text.
+    shapes = app.selectbox(key="org_opt_peak_fit_uvvis_shape").options
+    assert {"gaussian", "lorentzian", "pseudo_voigt"} <= set(shapes)
+
+
+def test_analyze_offers_technique_sample_and_curve(workbench):
+    """What to analyse is chosen on the page, not left to the analysis."""
+    app = page("analyze.py", workbench)
+    app.run()
+    app.selectbox(key="org_analysis_key").select("peak_fit").run()
+    assert_clean(app, "choices")
+    assert app.selectbox(key="org_analysis_tech_peak_fit").options == ["UV-Vis"]
+    assert app.selectbox(key="org_analysis_sample_uvvis").options == [
+        "Sample000001", "Sample000002"]
+    # Ten frames: which one is a choice, starting from the analysis' default.
+    curve = app.selectbox(key="org_analysis_curve_peak_fit_uvvis")
+    assert curve.value == "last_decile"
+    curve.select("number").run()
+    slider = app.slider(key="org_analysis_curve_n_peak_fit_uvvis")
+    assert (slider.min, slider.max, slider.value) == (0, 9, 9)
+    slider.set_value(2).run()
+    app.button(key="org_run_single").click().run()
+    assert_clean(app, "curve 2")
+    result = app.session_state["org_last_result"]
+    assert result.ok, result.message
+    assert result.diagnostics["curve_source"].startswith("frame 2 of 10")
+
+
+def test_analyze_previews_the_curve_it_will_fit(workbench):
+    app = page("analyze.py", workbench)
+    app.run()
+    app.selectbox(key="org_analysis_key").select("peak_fit").run()
+    assert_clean(app, "preview")
+    assert not any("No preview" in c.value for c in app.caption)
+    assert app.get("imgs"), "the curve to be fitted is drawn before the run"
 
 
 def test_single_run_reports_the_fitted_peak(workbench):
@@ -260,6 +295,14 @@ def test_curve_detail_mode_draws(workbench):
     app.run()
     app.radio(key="org_curve_mode").set_value("One sample in detail").run()
     assert_clean(app, "curve detail")
+
+
+def test_curves_open_on_one_sample_in_detail(workbench):
+    app = page("visualize.py", workbench)
+    app.run()
+    assert app.radio(key="org_curve_mode").value == "One sample in detail"
+    app.radio(key="org_curve_mode").set_value("Compare samples").run()
+    assert_clean(app, "compare samples")
 
 
 def test_segmentation_runs_from_the_image_tab(workbench):
@@ -391,8 +434,8 @@ def test_an_organizer_saved_by_a_notebook_opens_in_the_gui(tmp_path):
     (source / "scan.dat").write_text("1 2\n3 4\n")
 
     made = new_organizer(tmp_path / "FromNotebook", name="from a notebook")
-    made.link("CuAu01", "waxs1d", str(source / "scan.dat"))
-    made.set_params("CuAu01", au_fraction=0.55)
+    made.link("S01", "waxs1d", str(source / "scan.dat"))
+    made.set_params("S01", au_fraction=0.55)
     made.save()
 
     app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
@@ -404,9 +447,9 @@ def test_an_organizer_saved_by_a_notebook_opens_in_the_gui(tmp_path):
 
     reopened = app.session_state["org_workbench"]
     assert reopened.project.config.name == "from a notebook"
-    assert reopened.project.sample_ids() == ["CuAu01"]
-    assert reopened["CuAu01"].stage("synthesis").params["au_fraction"] == 0.55
-    assert len(reopened.measurement("CuAu01", modality="waxs1d").resolve(
+    assert reopened.project.sample_ids() == ["S01"]
+    assert reopened["S01"].stage("synthesis").params["au_fraction"] == 0.55
+    assert len(reopened.measurement("S01", modality="waxs1d").resolve(
         reopened.resolver)) == 1
 
 
@@ -516,7 +559,7 @@ def test_the_gui_alone_can_build_what_the_notebook_builds(tmp_path):
     """
     data = tmp_path / "mount" / "beamline"
     data.mkdir(parents=True)
-    for sample in ("CuAu01", "CuAu02"):
+    for sample in ("S01", "S02"):
         folder = data / sample
         folder.mkdir()
         for name in ("scan_a.dat", "scan_b.dat"):
@@ -534,7 +577,7 @@ def test_the_gui_alone_can_build_what_the_notebook_builds(tmp_path):
     built = app.session_state["org_workbench"]
 
     # 2. Link data that lives on another mount, one sample at a time.
-    for sample in ("CuAu01", "CuAu02"):
+    for sample in ("S01", "S02"):
         app = page("project.py", built)
         app.run()
         app.selectbox(key="org_link_sample").select("➕ new sample…").run()
@@ -545,8 +588,8 @@ def test_the_gui_alone_can_build_what_the_notebook_builds(tmp_path):
         [b for b in app.button if b.label == "🔗 Link"][0].click().run()
         assert_clean(app, f"link {sample}")
 
-    assert sorted(built.project.sample_ids()) == ["CuAu01", "CuAu02"]
-    assert len(built.measurement("CuAu01", modality="waxs1d").paths) == 2
+    assert sorted(built.project.sample_ids()) == ["S01", "S02"]
+    assert len(built.measurement("S01", modality="waxs1d").paths) == 2
 
     # 3. Give the samples something to filter on.
     app = page("project.py", built)
@@ -556,7 +599,7 @@ def test_the_gui_alone_can_build_what_the_notebook_builds(tmp_path):
         edited={0: {"au_fraction": 0.0}, 1: {"au_fraction": 1.0}})
     [b for b in app.button if b.label == "Apply changes"][0].click().run()
     assert_clean(app, "parameters")
-    assert built.filter("`synthesis.au_fraction` > 0.5") == ["CuAu02"]
+    assert built.filter("`synthesis.au_fraction` > 0.5") == ["S02"]
     built.clear()
 
     # 4. Save, and reopen it from scratch.
@@ -572,8 +615,8 @@ def test_the_gui_alone_can_build_what_the_notebook_builds(tmp_path):
     reopened = app.session_state["org_workbench"]
 
     assert reopened.project.config.name == "gui study"
-    assert sorted(reopened.project.sample_ids()) == ["CuAu01", "CuAu02"]
-    assert reopened["CuAu02"].stage("synthesis").params["au_fraction"] == 1.0
+    assert sorted(reopened.project.sample_ids()) == ["S01", "S02"]
+    assert reopened["S02"].stage("synthesis").params["au_fraction"] == 1.0
     assert reopened.project.availability()["n_unresolved"] == 0
     # The data never moved into the project.
     assert not (root / "WAXSData").exists()
@@ -597,7 +640,7 @@ def test_the_gui_opens_a_json_organizer_a_notebook_wrote(tmp_path):
     app.run()
     app.text_input(key="org_project_root_path").set_value(
         str(tmp_path / "lab.json")).run()
-    [b for b in app.button if b.label == "Open project"][0].click().run()
+    [b for b in app.button if b.label == "Open organizer"][0].click().run()
     assert not app.exception, _why(app)
 
     reopened = app.session_state["org_workbench"]
@@ -605,6 +648,55 @@ def test_the_gui_opens_a_json_organizer_a_notebook_wrote(tmp_path):
     assert reopened.project.sample_ids() == ["S01"]
     assert reopened.project.single_file
     assert reopened.project.availability()["n_unresolved"] == 0
+
+
+def test_the_project_page_starts_at_the_demo_organizer():
+    """Nothing open: the path offered is the demo.json the Demo page saves."""
+    from pyDataOrg.core.pathmap import display_path
+    from pyDataOrg.demo import demo_root
+
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    assert not app.exception, _why(app)
+    assert app.text_input(key="org_project_root_path").value == display_path(
+        demo_root("Demo") / "demo.json")
+
+
+def test_a_missing_json_is_not_opened_as_a_new_one(tmp_path):
+    """Opening must not quietly create: that is what *Nothing yet* is for."""
+    app = AppTest.from_file(str(VIEWS / "project.py"), default_timeout=300)
+    app.run()
+    app.text_input(key="org_project_root_path").set_value(
+        str(tmp_path / "absent.json")).run()
+    assert not app.exception, _why(app)
+    button = [b for b in app.button if b.label == "Open organizer"][0]
+    assert button.disabled
+    assert any("Demo" in i.value for i in app.info)
+    assert not (tmp_path / "absent.json").exists()
+
+
+def test_structure_follows_the_open_organizer(tmp_path):
+    """Opened on Project, the .json is where Structure starts — and a newly
+    opened one moves it."""
+    from pyDataOrg import Organizer
+
+    first = Organizer(tmp_path / "a" / "first.json")
+    first.save()
+    second = Organizer(tmp_path / "b" / "second.json")
+    second.save()
+
+    app = AppTest.from_file(str(VIEWS / "structure.py"), default_timeout=300)
+    app.session_state["org_workbench"] = first
+    app.run()
+    assert not app.exception, _why(app)
+    assert app.session_state["org_structure_address"] == str(
+        tmp_path / "a" / "first.json")
+    assert any(b.label == "🗃️ first.json" for b in app.button)
+
+    app.session_state["org_workbench"] = second
+    app.run()
+    assert app.session_state["org_structure_address"] == str(
+        tmp_path / "b" / "second.json")
 
 
 def test_creating_a_json_organizer_from_the_gui(tmp_path):
@@ -688,3 +780,42 @@ def test_the_series_controls_pick_the_rows_to_draw():
     app.selectbox(key="s_spacing").set_value("listed").run()
     app.text_input(key="s_rows").set_value("0, -1").run()
     assert app.session_state["style"].rows == (0, -1)
+
+
+# ---------------------------------------------------------------------------
+# Plugins: the general app is pyDataOrg alone
+# ---------------------------------------------------------------------------
+
+def test_a_plugin_runs_as_the_app(tmp_path, monkeypatch):
+    from pyDataOrg import plugins
+
+    view = tmp_path / "welcome.py"
+    view.write_text("import streamlit as st\nst.title('Plugin home')\n")
+    monkeypatch.setattr(plugins, "PLUGINS", {})
+    monkeypatch.setattr(plugins, "_LOADED", True)
+    seen = []
+    plugins.register_plugin(plugins.Plugin(
+        "testproj", title="Test project", icon="⚗️",
+        pages=[plugins.Page(view, "Welcome", "⚗️", default=True)],
+        on_page=lambda: seen.append(1)))
+    monkeypatch.setenv("PYDATAORG_APP", "testproj")
+    app = AppTest.from_file(str(HOME), default_timeout=300)
+    app.run()
+    assert not app.exception, _why(app)
+    assert [t.value for t in app.title] == ["Plugin home"]
+    assert seen
+
+
+def test_the_general_app_loads_no_plugin(monkeypatch):
+    """An installed project package shows only when it is the app."""
+    from pyDataOrg import plugins
+
+    loaded = []
+    monkeypatch.setattr(plugins, "load_plugins",
+                        lambda *a, **k: loaded.append(1) or {})
+    monkeypatch.delenv("PYDATAORG_APP", raising=False)
+    app = AppTest.from_file(str(HOME), default_timeout=300)
+    app.run()
+    assert not app.exception, _why(app)
+    assert [t.value for t in app.title] == ["🔬 pyDataOrg"]
+    assert not loaded

@@ -1,34 +1,36 @@
 #!/usr/bin/env python3
 """
-The physical model behind the multimodal demo: a Cu–Au alloy nanocatalyst library.
+The physical model behind the multimodal demo: an A–B alloy nanocatalyst library.
 
+A and B are **fictional metals**: the numbers are invented to be plausible,
+not taken from any real element, so the demo describes nobody's material.
 Everything the showcase project contains is derived from **one hidden control
-variable**, the gold atomic fraction ``x`` of the alloy.  Fifteen techniques
+variable**, the B atomic fraction ``x`` of the alloy.  Fifteen techniques
 then see fifteen different shadows of that one number, which is the point of
 the demo: a framework is only worth having if measurements taken on different
 instruments can be brought back together and shown to agree.
 
-Why Cu–Au
----------
-Cu and Au form a continuous fcc solid solution at every composition, so a
-composition series is a real material rather than a thought experiment, and the
-textbook consequences are all available at once:
+Why an A–B alloy
+----------------
+A and B are taken to form a continuous fcc solid solution at every
+composition, so one series shows the textbook consequences all at once:
 
 * the lattice parameter follows **Vegard's law**, so a diffraction peak
   position measures composition;
-* the particles keep **one** plasmon band that moves smoothly from ~580 nm
-  (Cu) to ~520 nm (Au) — the classic evidence that an alloy formed rather than
+* the particles keep **one** plasmon band that moves smoothly from ~600 nm
+  (A) to ~540 nm (B) — the classic evidence that an alloy formed rather than
   a mixture of two kinds of particle, which would show two bands;
-* gold segregates to the surface, so XPS (surface-sensitive) and EDS (bulk)
+* B segregates to the surface, so XPS (surface-sensitive) and EDS (bulk)
   disagree in a way that is informative rather than an error;
-* CO₂ reduction selectivity switches from hydrocarbons on Cu to CO on Au, and
-  the CO *partial current* peaks at an intermediate composition — a Sabatier
-  volcano, with the DFT CO binding energy as its descriptor.
+* in a generic electro-reduction, selectivity switches from deeper-reduced
+  products (R, S, T) on A to the one-step product P on B, and the P *partial
+  current* peaks at an intermediate composition — a Sabatier volcano, with the
+  DFT binding energy of the adsorbed intermediate *P as its descriptor.
 
-The numbers below are plausible literature values, rounded.  They are good
-enough to be instructive and are **not** a substitute for real measurement.
+The numbers below are invented but physically shaped.  They are good enough
+to be instructive and are **not** a substitute for real measurement.
 
-All functions here take ``x`` (the gold atomic fraction, 0–1) and are the
+All functions here take ``x`` (the B atomic fraction, 0–1) and are the
 ground truth: :func:`showcase_truth` tabulates them so a notebook can check
 what the pipeline recovered against what the generator actually used.
 """
@@ -39,14 +41,19 @@ from typing import Dict, Sequence
 
 import numpy as np
 
-#: Gold atomic fractions of the default library, one sample each.
+#: B atomic fractions of the default library, one sample each.
 DEFAULT_FRACTIONS = (0.0, 0.10, 0.25, 0.40, 0.55, 0.70, 0.85, 1.0)
 
-#: Lattice parameters of the pure metals, Å.
-A_CU, A_AU = 3.6150, 4.0782
+#: Lattice parameters of the pure (fictional) metals, Å.
+LATTICE_A, LATTICE_B = 3.66, 4.02
 
-#: Products tracked in the CO₂-reduction Faradaic-efficiency measurement.
-PRODUCTS = ("H2", "CO", "HCOO-", "CH4", "C2H4", "EtOH")
+#: Products tracked in the Faradaic-efficiency measurement: hydrogen from the
+#: competing reaction, the one-step product P, a side product Q, and the
+#: deeper-reduced R, S and T.
+PRODUCTS = ("H2", "P", "Q", "R", "S", "T")
+
+#: Metallic A K-edge, eV.
+EDGE_A_eV = 7400.0
 
 #: Potential of the reported performance summary, V vs RHE.
 REPORT_POTENTIAL_V = -1.0
@@ -54,7 +61,7 @@ REPORT_POTENTIAL_V = -1.0
 
 def sample_id(index: int) -> str:
     """Stable identifier for the *index*-th sample (1-based)."""
-    return f"CuAu{index:02d}"
+    return f"S{index:02d}"
 
 
 # ---------------------------------------------------------------------------
@@ -63,13 +70,13 @@ def sample_id(index: int) -> str:
 
 def lattice_parameter_A(x: float) -> float:
     """Vegard's law between the two pure fcc metals."""
-    return A_CU + x * (A_AU - A_CU)
+    return LATTICE_A + x * (LATTICE_B - LATTICE_A)
 
 
 def particle_diameter_nm(x: float) -> float:
     """Mean projected diameter seen by TEM.
 
-    Gold-rich syntheses nucleate less and grow larger, which is why the size
+    B-rich syntheses nucleate less and grow larger, which is why the size
     and the composition move together — a confound the Compare page is meant
     to help you notice rather than one the demo hides.
     """
@@ -113,7 +120,7 @@ def lspr_nm(x: float) -> float:
     Linear between the two metals with a small bowing term, which is what an
     alloy — as opposed to a physical mixture — actually does.
     """
-    return 580.0 - 60.0 * x + 12.0 * x * (1.0 - x)
+    return 600.0 - 60.0 * x + 12.0 * x * (1.0 - x)
 
 
 def lspr_fwhm_nm(x: float) -> float:
@@ -123,26 +130,26 @@ def lspr_fwhm_nm(x: float) -> float:
 
 def d_band_centre_eV(x: float) -> float:
     """Surface d-band centre relative to the Fermi level, eV (DFT)."""
-    return -2.67 - 0.89 * x
+    return -2.45 - 0.80 * x
 
 
-def co_binding_eV(x: float) -> float:
-    """*CO adsorption energy on the (211) step, eV. Negative is bound."""
-    return -0.62 + 0.26 * x
+def p_binding_eV(x: float) -> float:
+    """*P adsorption energy on the (211) step, eV. Negative is bound."""
+    return -0.58 + 0.28 * x
 
 
 def h_binding_eV(x: float) -> float:
-    """*H adsorption energy, eV. Rising with Au is why Au suppresses HER."""
+    """*H adsorption energy, eV. Rising with B is why B suppresses HER."""
     return -0.36 + 0.52 * x
 
 
-def co_stretch_cm1(x: float) -> float:
-    """Atop-bound C–O stretching frequency seen by surface-enhanced IR."""
-    return 2092.0 + 20.0 * x
+def p_stretch_cm1(x: float) -> float:
+    """Stretching frequency of adsorbed *P, seen by surface-enhanced IR."""
+    return 1985.0 + 20.0 * x
 
 
 def sers_enhancement(x: float) -> float:
-    """Raman enhancement factor relative to Cu, from the Au plasmon."""
+    """Raman enhancement factor relative to pure A, from the B plasmon."""
     return 1.0 + 4.0 * x
 
 
@@ -150,46 +157,46 @@ def sers_enhancement(x: float) -> float:
 # Surface chemistry
 # ---------------------------------------------------------------------------
 
-def surface_au_fraction(x: float) -> float:
-    """Gold fraction of the outermost layers, as XPS sees it.
+def surface_b_fraction(x: float) -> float:
+    """B fraction of the outermost layers, as XPS sees it.
 
-    Gold has the lower surface energy and segregates outwards, so the surface
-    is always richer in Au than the bulk.  XPS and EDS *should* disagree here.
+    B has the lower surface energy and segregates outwards, so the surface
+    is always richer in B than the bulk.  XPS and EDS *should* disagree here.
     """
     return float(np.clip(x + 0.18 * np.sin(np.pi * x), 0.0, 1.0))
 
 
 def oxide_fraction(x: float) -> float:
-    """Fraction of the copper that is oxidised in the as-made sample.
+    """Fraction of the A that is oxidised in the as-made sample.
 
-    Gold passivates the surface against air oxidation, so this falls as x
-    rises; with no copper left there is nothing to oxidise.
+    B passivates the surface against air oxidation, so this falls as x
+    rises; with no A left there is nothing to oxidise.
     """
     return float(np.clip(0.42 * (1.0 - x) ** 1.4, 0.0, 1.0))
 
 
-def cu_edge_eV(x: float) -> float:
-    """Cu K-edge position of the as-made sample, eV.
+def a_edge_eV(x: float) -> float:
+    """A K-edge position of the as-made sample, eV.
 
-    The metallic edge is at 8979 eV; oxidation pushes it up.
+    The metallic edge is at 7400 eV; oxidation pushes it up.
     """
-    return 8979.0 + 3.2 * oxide_fraction(x)
+    return EDGE_A_eV + 3.2 * oxide_fraction(x)
 
 
 # ---------------------------------------------------------------------------
 # Electrochemical performance
 # ---------------------------------------------------------------------------
 
-#: Potential at which each carbon product is most efficient, V vs RHE, and the
-#: width of that window.  CO needs only one electron and comes off early;
-#: coupling two carbons needs a crowded surface and so needs to be driven
+#: Potential at which each product is most efficient, V vs RHE, and the
+#: width of that window.  P needs only one step and comes off early; the
+#: deeper-reduced products need a crowded surface and so need to be driven
 #: harder.
 _PRODUCT_WINDOW = {
-    "CO": (-0.85, 0.30),
-    "HCOO-": (-0.95, 0.30),
-    "CH4": (-1.15, 0.22),
-    "C2H4": (-1.05, 0.22),
-    "EtOH": (-1.05, 0.22),
+    "P": (-0.85, 0.30),
+    "Q": (-0.95, 0.30),
+    "R": (-1.15, 0.22),
+    "S": (-1.05, 0.22),
+    "T": (-1.05, 0.22),
 }
 
 
@@ -199,32 +206,32 @@ def faradaic_efficiency(x: float,
     """Product distribution at *potential_V*, in percent.
 
     Composition sets *what* the catalyst can make; potential sets *whether it
-    is driven hard enough* to make it.  Copper makes hydrocarbons and alcohols
-    because it binds *CO just strongly enough to couple it; gold releases CO
-    before anything else can happen to it.  Hydrogen takes whatever charge is
-    left, so the values sum to 100 by construction — as a real Faradaic
+    is driven hard enough* to make it.  A makes the deeper-reduced products
+    because it binds *P just strongly enough to reduce it further; B releases
+    P before anything else can happen to it.  Hydrogen takes whatever charge
+    is left, so the values sum to 100 by construction — as a real Faradaic
     efficiency must.
     """
     composition = {
-        "CO": 88.0 / (1.0 + np.exp(-(x - 0.40) / 0.11)),
-        "HCOO-": 13.0 * np.exp(-((x - 0.30) / 0.26) ** 2),
-        "CH4": 16.0 * np.exp(-(x / 0.13) ** 2),
-        "C2H4": 28.0 * np.exp(-((x - 0.02) / 0.17) ** 2),
-        "EtOH": 8.0 * np.exp(-((x - 0.08) / 0.15) ** 2),
+        "P": 88.0 / (1.0 + np.exp(-(x - 0.40) / 0.11)),
+        "Q": 13.0 * np.exp(-((x - 0.30) / 0.26) ** 2),
+        "R": 16.0 * np.exp(-(x / 0.13) ** 2),
+        "S": 28.0 * np.exp(-((x - 0.02) / 0.17) ** 2),
+        "T": 8.0 * np.exp(-((x - 0.08) / 0.15) ** 2),
     }
 
-    carbon = {}
+    made = {}
     for name, amount in composition.items():
         centre, width = _PRODUCT_WINDOW[name]
         drive = np.exp(-0.5 * ((potential_V - centre) / width) ** 2)
         reference = np.exp(-0.5 * ((REPORT_POTENTIAL_V - centre) / width) ** 2)
-        carbon[name] = amount * drive / reference
+        made[name] = amount * drive / reference
 
-    hydrogen = max(100.0 - sum(carbon.values()), 2.0)
-    total = sum(carbon.values()) + hydrogen
+    hydrogen = max(100.0 - sum(made.values()), 2.0)
+    total = sum(made.values()) + hydrogen
 
     out = {"H2": 100.0 * hydrogen / total}
-    out.update({k: 100.0 * v / total for k, v in carbon.items()})
+    out.update({k: 100.0 * v / total for k, v in made.items()})
     return {k: float(out[k]) for k in PRODUCTS}
 
 
@@ -233,14 +240,14 @@ def current_density(x: float) -> float:
     return 34.0 - 24.0 * x
 
 
-def co_partial_current(x: float) -> float:
-    """CO partial current density, mA cm⁻².
+def p_partial_current(x: float) -> float:
+    """P partial current density, mA cm⁻².
 
-    This is the volcano: copper is active but unselective, gold is selective
-    but less active, and the product of the two peaks in between.  Plotting it
-    against :func:`co_binding_eV` is the Sabatier principle in one chart.
+    This is the volcano: A is active but unselective, B is selective but less
+    active, and the product of the two peaks in between.  Plotting it against
+    :func:`p_binding_eV` is the Sabatier principle in one chart.
     """
-    return current_density(x) * faradaic_efficiency(x)["CO"] / 100.0
+    return current_density(x) * faradaic_efficiency(x)["P"] / 100.0
 
 
 def her_tafel_mV(x: float) -> float:
@@ -280,27 +287,26 @@ def lattice_from_q(q_invA, hkl=(1, 1, 1)):
 
 
 def fraction_from_lattice(a_A):
-    """Gold fraction from a lattice parameter — Vegard's law run backwards.
+    """B fraction from a lattice parameter — Vegard's law run backwards.
 
     **Kernel**, the inverse of :func:`lattice_parameter_A`. Not clipped to
     0–1: a value outside it is information about the measurement, not
     something to hide.
     """
-    return (a_A - A_CU) / (A_AU - A_CU)
+    return (a_A - LATTICE_A) / (LATTICE_B - LATTICE_A)
 
 
-def fraction_from_signals(gold, copper, gold_factor: float = 1.0,
-                          copper_factor: float = 1.0):
-    """Gold fraction from a gold and a copper line intensity. **Kernel.**
+def fraction_from_signals(b, a, b_factor: float = 1.0, a_factor: float = 1.0):
+    """B fraction from a B and an A line intensity. **Kernel.**
 
     Each intensity is divided by its sensitivity factor first — the
-    Cliff–Lorimer k-factor for EDS (``signals.EDS_K_FACTOR_AU_CU`` on the
-    gold line), the relative sensitivity factors for XPS
-    (``signals.XPS_RSF``) — then ``x = Au / (Au + Cu)``.
+    Cliff–Lorimer k-factor for EDS (``signals.EDS_K_FACTOR_B_A`` on the
+    B line), the relative sensitivity factors for XPS
+    (``signals.XPS_RSF``) — then ``x = B / (B + A)``.
     """
-    au = gold / gold_factor
-    cu = copper / copper_factor
-    return au / (au + cu)
+    b = b / b_factor
+    a = a / a_factor
+    return b / (b + a)
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +317,7 @@ def fraction_from_signals(gold, copper, gold_factor: float = 1.0,
 #: indices that actually received them.  A real campaign never has a full
 #: matrix, and ``Project.availability()`` exists to show exactly this.
 SPARSE_COVERAGE = {
-    # The Cu K-edge needs copper to absorb at, so the pure-gold sample is not
+    # The A K-edge needs A to absorb at, so the pure-B sample is not
     # on the list — a technique that cannot apply is not the same as one that
     # was skipped.
     "xas": (1, 3, 5, 7),
@@ -346,33 +352,34 @@ def showcase_truth(fractions: Sequence[float] = DEFAULT_FRACTIONS):
         fe = faradaic_efficiency(x)
         rows.append({
             "sample_id": sample_id(index),
-            "x_Au": float(x),
+            "x_B": float(x),
             "true_lattice_A": lattice_parameter_A(x),
             "true_lspr_nm": lspr_nm(x),
             "true_diameter_nm": particle_diameter_nm(x),
             "true_crystallite_nm": crystallite_nm(x),
             "true_hydrodynamic_nm": hydrodynamic_nm(x),
-            "true_surface_x_Au": surface_au_fraction(x),
+            "true_surface_x_B": surface_b_fraction(x),
             "true_oxide_fraction": oxide_fraction(x),
             "true_d_band_eV": d_band_centre_eV(x),
-            "true_co_binding_eV": co_binding_eV(x),
-            "true_co_stretch_cm1": co_stretch_cm1(x),
-            "true_FE_CO_pct": fe["CO"],
-            "true_FE_C2H4_pct": fe["C2H4"],
-            "true_j_CO_mA_cm2": co_partial_current(x),
+            "true_p_binding_eV": p_binding_eV(x),
+            "true_p_stretch_cm1": p_stretch_cm1(x),
+            "true_FE_P_pct": fe["P"],
+            "true_FE_S_pct": fe["S"],
+            "true_j_P_mA_cm2": p_partial_current(x),
         })
     return pd.DataFrame(rows)
 
 
 __all__ = [
     "DEFAULT_FRACTIONS", "PRODUCTS", "REPORT_POTENTIAL_V", "SPARSE_COVERAGE",
-    "A_CU", "A_AU", "sample_id", "measured", "showcase_truth",
+    "LATTICE_A", "LATTICE_B", "EDGE_A_eV", "sample_id", "measured",
+    "showcase_truth",
     # inverses — kernels from a measurement back to composition
     "lattice_from_q", "fraction_from_lattice", "fraction_from_signals",
     "lattice_parameter_A", "particle_diameter_nm", "crystallite_nm",
     "hydrodynamic_nm", "aggregate_nm", "size_dispersity", "lspr_nm",
-    "lspr_fwhm_nm", "d_band_centre_eV", "co_binding_eV", "h_binding_eV",
-    "co_stretch_cm1", "sers_enhancement", "surface_au_fraction",
-    "oxide_fraction", "cu_edge_eV", "faradaic_efficiency", "current_density",
-    "co_partial_current", "her_tafel_mV", "oer_overpotential_mV",
+    "lspr_fwhm_nm", "d_band_centre_eV", "p_binding_eV", "h_binding_eV",
+    "p_stretch_cm1", "sers_enhancement", "surface_b_fraction",
+    "oxide_fraction", "a_edge_eV", "faradaic_efficiency", "current_density",
+    "p_partial_current", "her_tafel_mV", "oer_overpotential_mV",
 ]

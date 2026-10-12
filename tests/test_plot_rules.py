@@ -72,6 +72,9 @@ CASES = {
     "plot_image": lambda ax: plots.plot_image(_discs(), ax=ax),
     "plot_fit without residual": lambda ax: plots.plot_fit(
         X, _peak(X), _peak(X), ax=ax),
+    "plot_picked_curve": lambda ax: plots.plot_picked_curve(
+        X, _peak(X), ax=ax, series=(X, np.vstack([_peak(X)] * 3)),
+        window=(1.5, 2.5)),
     "plot_frame_map": lambda ax: plots.plot_frame_map(
         [0, 60, 120], X, np.vstack([_peak(X)] * 3), ax=ax, colorbar=False),
 }

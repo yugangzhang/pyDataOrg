@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Demo — notebooks 10 → 11 → 12, with buttons, on the Cu–Au campaign.
+Demo — notebooks 10 → 11 → 12, with buttons, on the A–B campaign.
 
 The three workflow notebooks walk one campaign from raw files to a
-structure–property plot: a Cu–Au alloy nanocatalyst library for CO₂
-reduction, eight alloys and one failed run, seen by fifteen techniques across
-four stages, all following from **one hidden number** — the gold fraction.
+structure–property plot: an A–B alloy nanocatalyst library (A and B are
+fictional metals), eight alloys and one failed run, seen by fifteen techniques
+across four stages, all following from **one hidden number** — the B
+fraction.
 This page is the same walk in six tabs, calling the same package functions in
 the same order:
 
 1 · Simulate    ``notebook/10`` — ``build_showcase_project`` writes the files
                 and the four metadata dicts; the answer key goes beside them
-2 · Build       ``notebook/11`` — ``Organizer(cuau.json)``, ingest the four
+2 · Build       ``notebook/11`` — ``Organizer(demo.json)``, ingest the four
                 dicts, link the four techniques nobody wrote down, save
 3 · Look        ``notebook/12`` A/B — describe, tree, ids, frames, data eager
                 and lazy
@@ -33,7 +34,7 @@ pages** hands it over.
 Everything lives in **one folder** — the campaign, the answer key, the
 organizer and its stored fits — and every path the organizer records is
 relative to that folder, so it moves as one piece. Locations are *shown*
-relative to where the app was started (``../OrgDemo/CuAu``), never as an
+relative to where the app was started (``../OrgDemo/Demo``), never as an
 absolute path naming somebody's home directory.
 """
 
@@ -57,7 +58,7 @@ from pyDataOrg.demo import (
 )
 from pyDataOrg.demo.images import TOMO_NM_PER_VOXEL
 from pyDataOrg.demo.showcase import MARKER
-from pyDataOrg.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
+from pyDataOrg.demo.signals import EDS_K_FACTOR_B_A, XPS_RSF
 from pyDataOrg.viz import interactive, plots
 from pyDataOrg.web_app.components.security import (
     format_allowed_roots, is_path_allowed,
@@ -85,15 +86,15 @@ BATCHES = [
     ("Plasmon band", "peak_fit",
      dict(modality="uvvis", x_range=(470.0, 800.0), reduce="last_decile",
           background="linear", link=True)),
-    ("EDS Cu Kα area", "curve_metrics",
-     dict(modality="eds", prefix="eds_cu_", x_min=7.7, x_max=8.4)),
-    ("EDS Au Lα area", "curve_metrics",
-     dict(modality="eds", prefix="eds_au_", x_min=9.4, x_max=10.0)),
-    ("XPS Cu 2p area", "curve_metrics",
-     dict(modality="xps", role="cu2p", prefix="xps_cu_", x_min=929, x_max=937)),
-    ("XPS Au 4f area", "curve_metrics",
-     dict(modality="xps", role="au4f", prefix="xps_au_", x_min=81.5,
-          x_max=86.0)),
+    ("EDS A Kα area", "curve_metrics",
+     dict(modality="eds", prefix="eds_a_", x_min=6.9, x_max=7.6)),
+    ("EDS B Lα area", "curve_metrics",
+     dict(modality="eds", prefix="eds_b_", x_min=10.05, x_max=10.65)),
+    ("XPS A 2p area", "curve_metrics",
+     dict(modality="xps", role="a2p", prefix="xps_a_", x_min=901, x_max=909)),
+    ("XPS B 4f area", "curve_metrics",
+     dict(modality="xps", role="b4f", prefix="xps_b_", x_min=61.5,
+          x_max=66.0)),
     ("TEM particle sizes", "particle_sizing", dict(modality="tem")),
     ("SEM agglomerate sizes", "particle_sizing",
      dict(modality="sem", max_diameter_nm=500, min_circularity=0.5)),
@@ -103,8 +104,8 @@ BATCHES = [
 
 #: What tab 6 reads; present once the batches have run.
 NEEDED = ("derived.waxs1d_peak1_center", "derived.uvvis_peak1_center",
-          "derived.eds_au_area", "derived.eds_cu_area", "derived.xps_au_area",
-          "derived.xps_cu_area", "derived.tem_d_mean", "derived.sem_d_mean",
+          "derived.eds_b_area", "derived.eds_a_area", "derived.xps_b_area",
+          "derived.xps_a_area", "derived.tem_d_mean", "derived.sem_d_mean",
           "derived.dls_x_at_max")
 
 #: The gallery: eight slots, each the first technique the sample has.
@@ -112,14 +113,14 @@ GALLERY = [
     [("uvvis", "", {})],
     [("waxs1d", "", {})],
     [("saxs1d", "", {})],
-    [("ec", "co2-rr-fe", {"ylabel": "Faradaic efficiency (%)"}),
-     ("ec", "co2-rr", {})],
+    [("ec", "reduction-fe", {"ylabel": "Faradaic efficiency (%)"}),
+     ("ec", "reduction", {})],
     [("tem", "", {"cmap": "gray"})],
     [("sem", "", {"cmap": "gray"})],
     [("tomo", "", {"slab": 16, "cmap": "bone"}),
      ("saxs2d", "", {"log_intensity": True, "cmap": "inferno"}),
      ("eds", "", {})],
-    [("xpcs_g2", "", {}), ("dls", "", {}), ("xps", "au4f", {})],
+    [("xpcs_g2", "", {}), ("dls", "", {}), ("xps", "b4f", {})],
 ]
 
 
@@ -178,15 +179,15 @@ def pair_label(modality: str, role: str) -> str:
 
 
 def physics_curves(n: int = 101) -> dict:
-    """The generator's model as arrays, against the gold fraction. Computes."""
+    """The generator's model as arrays, against the B fraction. Computes."""
     x = np.linspace(0.0, 1.0, n)
     marks = np.asarray(mat.DEFAULT_FRACTIONS)
     model = {
         "lattice": mat.lattice_parameter_A, "lspr": mat.lspr_nm,
         "tem": mat.particle_diameter_nm, "dls": mat.hydrodynamic_nm,
-        "sem": mat.aggregate_nm, "surface": mat.surface_au_fraction,
-        "d_band": mat.d_band_centre_eV, "co_binding": mat.co_binding_eV,
-        "j_co": mat.co_partial_current,
+        "sem": mat.aggregate_nm, "surface": mat.surface_b_fraction,
+        "d_band": mat.d_band_centre_eV, "p_binding": mat.p_binding_eV,
+        "j_p": mat.p_partial_current,
     }
     curves = {"x": x, "marks": marks}
     for name, function in model.items():
@@ -210,38 +211,38 @@ def draw_physics(c: dict, ax=None):
         ax.plot(c["marks"], c[f"{key}_marks"], "o", color=colour, ms=6)
 
     panel(axes[0, 0], "lattice", blue)
-    plots.style(axes[0, 0], "gold fraction x", "lattice parameter (Å)",
+    plots.style(axes[0, 0], "B fraction x", "lattice parameter (Å)",
                 "Vegard: WAXS reads composition")
     panel(axes[0, 1], "lspr", orange)
-    plots.style(axes[0, 1], "gold fraction x", "plasmon band (nm)",
+    plots.style(axes[0, 1], "B fraction x", "plasmon band (nm)",
                 "One band that moves — an alloy")
     for key, colour, label in (("sem", aqua, "SEM — agglomerates"),
                                ("dls", orange, "DLS — hydrodynamic"),
                                ("tem", blue, "TEM — primary particles")):
         panel(axes[0, 2], key, colour, label)
     axes[0, 2].set_yscale("log")
-    plots.style(axes[0, 2], "gold fraction x", "diameter (nm)",
+    plots.style(axes[0, 2], "B fraction x", "diameter (nm)",
                 "Three sizes, all of them right")
     axes[0, 2].legend(frameon=False, fontsize=8)
 
     axes[1, 0].plot([0, 1], [0, 1], "--", color="0.6", lw=1.2,
                     label="bulk (EDS)")
     panel(axes[1, 0], "surface", plots.CATEGORICAL[3], "surface (XPS)")
-    plots.style(axes[1, 0], "gold fraction x", "gold fraction seen",
-                "Gold segregates to the surface")
+    plots.style(axes[1, 0], "B fraction x", "B fraction seen",
+                "B segregates to the surface")
     axes[1, 0].legend(frameon=False, fontsize=8)
     panel(axes[1, 1], "d_band", blue, "d-band centre")
-    panel(axes[1, 1], "co_binding", orange, "CO binding")
-    plots.style(axes[1, 1], "gold fraction x", "energy (eV)",
+    panel(axes[1, 1], "p_binding", orange, "*P binding")
+    plots.style(axes[1, 1], "B fraction x", "energy (eV)",
                 "DFT: electronic structure sets binding")
     axes[1, 1].legend(frameon=False, fontsize=8)
-    order = np.argsort(c["co_binding"])
-    axes[1, 2].plot(c["co_binding"][order], c["j_co"][order],
+    order = np.argsort(c["p_binding"])
+    axes[1, 2].plot(c["p_binding"][order], c["j_p"][order],
                     color=plots.STATUS["critical"], lw=2)
-    axes[1, 2].plot(c["co_binding_marks"], c["j_co_marks"], "o",
+    axes[1, 2].plot(c["p_binding_marks"], c["j_p_marks"], "o",
                     color=plots.STATUS["critical"], ms=6)
-    plots.style(axes[1, 2], "CO binding energy (eV)",
-                "CO partial current (mA cm$^{-2}$)", "Sabatier volcano")
+    plots.style(axes[1, 2], "*P binding energy (eV)",
+                "P partial current (mA cm$^{-2}$)", "Sabatier volcano")
     return axes
 
 
@@ -259,17 +260,17 @@ def composition_check(table: pd.DataFrame, truth: pd.DataFrame) -> pd.DataFrame:
     """Every recovered number beside the generator's. Computes, draws nothing."""
     t = table.set_index("sample_id").reindex(truth.index)
     return pd.DataFrame({
-        "x_true": truth["x_Au"],
+        "x_true": truth["x_B"],
         "x_WAXS": mat.fraction_from_lattice(
             mat.lattice_from_q(t["derived.waxs1d_peak1_center"])),
         "x_EDS": mat.fraction_from_signals(
-            t["derived.eds_au_area"], t["derived.eds_cu_area"],
-            gold_factor=EDS_K_FACTOR_AU_CU),
+            t["derived.eds_b_area"], t["derived.eds_a_area"],
+            b_factor=EDS_K_FACTOR_B_A),
         "x_XPS": mat.fraction_from_signals(
-            t["derived.xps_au_area"], t["derived.xps_cu_area"],
-            gold_factor=XPS_RSF["Au 4f7/2"],
-            copper_factor=XPS_RSF["Cu 2p3/2"]),
-        "x_surface_true": truth["true_surface_x_Au"],
+            t["derived.xps_b_area"], t["derived.xps_a_area"],
+            b_factor=XPS_RSF["B 4f7/2"],
+            a_factor=XPS_RSF["A 2p3/2"]),
+        "x_surface_true": truth["true_surface_x_B"],
         "band_nm": t["derived.uvvis_peak1_center"],
         "band_true_nm": truth["true_lspr_nm"],
         "TEM_nm": t["derived.tem_d_mean"],
@@ -292,7 +293,7 @@ def draw_composition(check: pd.DataFrame, ax=None):
                  label="EDS — X-ray lines")
     axes[0].plot(x, check["x_WAXS"], "s", ms=7, color=plots.CATEGORICAL[1],
                  label="WAXS — Vegard")
-    plots.style(axes[0], "x(Au) the generator used", "x(Au) recovered",
+    plots.style(axes[0], "x(B) the generator used", "x(B) recovered",
                 "Two rooms, one answer")
     axes[0].legend(frameon=False, fontsize=9)
 
@@ -304,15 +305,15 @@ def draw_composition(check: pd.DataFrame, ax=None):
                  label="XPS — surface")
     axes[1].plot(x, check["x_EDS"], "o", ms=7, color=plots.CATEGORICAL[0],
                  label="EDS — bulk")
-    plots.style(axes[1], "x(Au) in the bulk", "x(Au) measured",
-                "Gold segregates to the surface")
+    plots.style(axes[1], "x(B) in the bulk", "x(B) measured",
+                "B segregates to the surface")
     axes[1].legend(frameon=False, fontsize=9)
 
     axes[2].plot(x, check["band_true_nm"], "--", color="0.6", lw=1.2,
                  label="truth")
     axes[2].plot(x, check["band_nm"], "o", ms=9, color=plots.CATEGORICAL[2],
                  label="fitted")
-    plots.style(axes[2], "x(Au)", "plasmon band (nm)", "One band, not two")
+    plots.style(axes[2], "x(B)", "plasmon band (nm)", "One band, not two")
     axes[2].legend(frameon=False, fontsize=9)
     return axes
 
@@ -328,7 +329,7 @@ def draw_sizes(check: pd.DataFrame, ax=None):
             ("TEM_nm", "o", plots.CATEGORICAL[0], "TEM — primary")):
         ax.plot(x, check[column], marker, ms=9, color=colour, label=label)
     ax.set_yscale("log")
-    plots.style(ax, "x(Au)", "diameter (nm)", "Three sizes, all correct")
+    plots.style(ax, "x(B)", "diameter (nm)", "Three sizes, all correct")
     ax.legend(frameon=False, fontsize=9)
     return ax
 
@@ -340,29 +341,29 @@ def draw_sizes(check: pd.DataFrame, ax=None):
 st.title("🎓 Demo")
 st.caption(
     "The three workflow notebooks — **10** simulate, **11** build, **12** use — "
-    "as six tabs, on a Cu–Au alloy catalyst library: eight alloys and one "
+    "as six tabs, on an A–B alloy catalyst library: eight alloys and one "
     "failed run, fifteen techniques, four stages, one hidden number. Same "
     "package calls, same order, same files; each tab shows its code under "
     "*The same in Python*."
 )
 
-DEFAULT_ROOT = demo_root("CuAu").absolute()
+DEFAULT_ROOT = demo_root("Demo").absolute()
 root_text = st.text_input(
     "Demo folder", value=display_path(DEFAULT_ROOT), key="org_demo_root",
     help="One folder holds it all: the campaign, its answer key truth.csv, "
-         "the organizer cuau.json and its stored fits — and every path the "
+         "the organizer demo.json and its stored fits — and every path the "
          "organizer records is relative to it, so the folder moves as one "
          "piece. Relative to where the app was started; the default is "
-         "demo_root(\"CuAu\") — ../OrgDemo beside the source checkout, or "
+         "demo_root(\"Demo\") — ../OrgDemo beside the source checkout, or "
          "$PYDATAORG_DEMO_ROOT.")
 # Shown relative, used absolute: the working directory must not matter once
 # the organizer is open.
 ROOT = Path(root_text.strip() or DEFAULT_ROOT).expanduser().absolute()
 META = ROOT / "MetaData"
-STORE = ROOT / "cuau.json"
+STORE = ROOT / "demo.json"
 TRUTH = ROOT / "truth.csv"
 RESULTS = ROOT / "results"
-ROOT_CODE = ('ROOT = demo_root("CuAu")' if ROOT == DEFAULT_ROOT
+ROOT_CODE = ('ROOT = demo_root("Demo")' if ROOT == DEFAULT_ROOT
              else f'ROOT = Path("{display_path(ROOT)}")')
 
 if not is_path_allowed(ROOT, allow_nonexistent=True):
@@ -393,16 +394,17 @@ with simulate:
                        delta_color="off")
     headline[1].metric("Techniques", 15)
     headline[2].metric("Stages", len(STAGES))
-    headline[3].metric("Hidden numbers", 1, "the gold fraction x",
+    headline[3].metric("Hidden numbers", 1, "the B fraction x",
                        delta_color="off")
 
     st.markdown(
-        "A Cu–Au alloy nanocatalyst library for CO₂ electroreduction. Cu and "
-        "Au mix at every composition, so **everything follows from the gold "
-        "fraction x**: the lattice parameter (Vegard), the one plasmon band, "
-        "the particle size, how much gold sits at the surface, the d-band "
-        "centre, how hard CO binds — and so the selectivity. Fifteen "
-        "techniques each see one shadow of it; tab 6 checks they agree.")
+        "An A–B alloy nanocatalyst library. A and B are fictional metals, "
+        "taken to mix at every composition, so **everything follows from the "
+        "B fraction x**: the lattice parameter (Vegard), the one plasmon "
+        "band, the particle size, how much B sits at the surface, the d-band "
+        "centre, how hard the intermediate *P binds — and so the selectivity "
+        "of a generic electro-reduction. Fifteen techniques each see one "
+        "shadow of it; tab 6 checks they agree.")
     figure, axes = plt.subplots(2, 3, figsize=(15.5, 7.6))
     draw_physics(physics_curves(), ax=axes)
     figure.tight_layout()
@@ -460,7 +462,7 @@ with simulate:
                         "module per stage; any block naming files becomes a "
                         "measurement on ingest")
             st.code(structure.tree(
-                f"{META}/Characterization_dict.py::Characterization_dict/CuAu05",
+                f"{META}/Characterization_dict.py::Characterization_dict/S05",
                 depth=1, limit=14), language=None)
 
         st.markdown(
@@ -477,10 +479,10 @@ with simulate:
             st.markdown("**The answer key** — what the generator used, "
                         "written to `truth.csv` so tab 6 can check")
             truth_view = pd.read_csv(TRUTH)
-            st.dataframe(truth_view[["sample_id", "x_Au", "true_lattice_A",
+            st.dataframe(truth_view[["sample_id", "x_B", "true_lattice_A",
                                      "true_lspr_nm", "true_diameter_nm",
-                                     "true_surface_x_Au",
-                                     "true_j_CO_mA_cm2"]].round(3),
+                                     "true_surface_x_B",
+                                     "true_j_P_mA_cm2"]].round(3),
                          hide_index=True, width="stretch")
 
     same_in_python(f'''
@@ -507,15 +509,15 @@ with build:
         st.info("Nothing to organise yet — simulate the data first, in tab "
                 "**1 · Simulate**.", icon="👈")
     else:
-        st.markdown("**a · The organizer** — `Organizer(cuau.json)` is empty "
+        st.markdown("**a · The organizer** — `Organizer(demo.json)` is empty "
                     "if the file is new, and everything is back if it is not.")
         if org is None:
             saved = STORE.exists()
-            if st.button("Reopen cuau.json" if saved
-                         else "Create Organizer(cuau.json)",
+            if st.button("Reopen demo.json" if saved
+                         else "Create Organizer(demo.json)",
                          type="primary", key="org_demo_create"):
                 try:
-                    org = Organizer(STORE, name="Cu-Au CO2RR library")
+                    org = Organizer(STORE, name="A-B alloy library")
                     st.session_state[ORG] = org
                 except Exception as exc:
                     st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
@@ -535,13 +537,13 @@ with build:
                      type="primary" if not len(org.project) else "secondary"):
             try:
                 for stage in STAGES:
-                    org.ingest(f"MetaData/{stage}_dict.py")   # beside cuau.json
+                    org.ingest(f"MetaData/{stage}_dict.py")   # beside demo.json
             except Exception as exc:
                 st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
         if len(org.project):
-            wanted = ["synthesis.composition.nominal_x_Au", "synthesis.status",
-                      "testing.performance.FE_CO_pct",
-                      "testing.performance.j_CO_mA_cm2", "n_measurements"]
+            wanted = ["synthesis.composition.nominal_x_B", "synthesis.status",
+                      "testing.performance.FE_P_pct",
+                      "testing.performance.j_P_mA_cm2", "n_measurements"]
             table = org.table(all_samples=True)
             st.dataframe(table[[c for c in wanted if c in table.columns]],
                          width="stretch")
@@ -572,7 +574,7 @@ with build:
                 st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
         if len(org.project):
             st.markdown("The catalog — sample × technique, files per cell. "
-                        "`CuAu09` is the failed run: a row with nothing in "
+                        "`S09` is the failed run: a row with nothing in "
                         "it, kept on purpose.")
             catalog = org.catalog(counts=True)
             st.dataframe(catalog.style.background_gradient(cmap="Blues",
@@ -581,7 +583,7 @@ with build:
 
         st.markdown("**d · Save** — one file: links, parameters, path aliases "
                     "and, later, derived values.")
-        if st.button("Save cuau.json", key="org_demo_save",
+        if st.button("Save demo.json", key="org_demo_save",
                      disabled=not len(org.project)):
             try:
                 written = org.save()
@@ -622,7 +624,7 @@ with build:
     same_in_python(f'''
 from pyDataOrg import Organizer
 
-org = Organizer(ROOT / "cuau.json", name="Cu-Au CO2RR library")   # beside the data
+org = Organizer(ROOT / "demo.json", name="A-B alloy library")   # beside the data
 
 for stage in {STAGES}:            # what was written down
     org.ingest(f"MetaData/{{stage}}_dict.py")       # relative to the organizer
@@ -665,7 +667,7 @@ with look:
         st.markdown("**`ids(query)`** — answer a question without changing "
                     "the selection")
         query = st.text_input(
-            "Query", value="`synthesis.composition.nominal_x_Au` >= 0.5",
+            "Query", value="`synthesis.composition.nominal_x_B` >= 0.5",
             key="org_demo_query",
             help="A pandas expression over org.table(); dotted names need "
                  "backticks.")
@@ -686,8 +688,8 @@ with look:
         with_uvvis = samples_with(org, "uvvis")
         if with_uvvis:
             sample = st.selectbox("Sample", with_uvvis,
-                                  index=with_uvvis.index("CuAu05")
-                                  if "CuAu05" in with_uvvis else 0,
+                                  index=with_uvvis.index("S05")
+                                  if "S05" in with_uvvis else 0,
                                   key="org_demo_look_s")
             st.markdown("**`frames()`** — one row per file, with what its "
                         "name admitted: the time (`t_s`) and the temperature "
@@ -740,18 +742,18 @@ with look:
     same_in_python('''
 from pyDataOrg import Organizer
 
-org = Organizer(ROOT / "cuau.json")
+org = Organizer(ROOT / "demo.json")
 org.describe()
 print(org.tree(depth=2, limit=5))
 org.catalog()
-org.ids("`synthesis.composition.nominal_x_Au` >= 0.5")   # selection unchanged
+org.ids("`synthesis.composition.nominal_x_B` >= 0.5")   # selection unchanged
 
-org.frames("CuAu05", "uvvis")                  # one row per file: t_s, T_c
-x, Y, info = org.data("CuAu05", "uvvis")       # Y: (n_frames, n_points)
-x, Y, info = org.data("CuAu05", "uvvis", t=600)
-frames = org.data("CuAu05", "tem", lazy=True)  # resolved, not read
+org.frames("S05", "uvvis")                  # one row per file: t_s, T_c
+x, Y, info = org.data("S05", "uvvis")       # Y: (n_frames, n_points)
+x, Y, info = org.data("S05", "uvvis", t=600)
+frames = org.data("S05", "tem", lazy=True)  # resolved, not read
 image, meta = frames[1]                        # one file opened
-planes = org.data("CuAu01", "tomo", lazy=True) # a memory-mapped volume
+planes = org.data("S01", "tomo", lazy=True) # a memory-mapped volume
 plane, meta = planes[64]                       # one plane
 ''')
 
@@ -770,9 +772,9 @@ with visualize:
         with_data = [s for s in candidates if techniques_of(org, s)]
         sample = st.selectbox(
             "Sample", with_data,
-            index=with_data.index("CuAu01") if "CuAu01" in with_data else 0,
+            index=with_data.index("S01") if "S01" in with_data else 0,
             key="org_demo_vis_s",
-            help="CuAu01 has the most: it got the tomogram, XPCS and the 2D "
+            help="S01 has the most: it got the tomogram, XPCS and the 2D "
                  "detector images.")
         have = set(techniques_of(org, sample))
 
@@ -902,20 +904,20 @@ with visualize:
 import matplotlib.pyplot as plt
 
 fig, axes = plt.subplots(2, 4, figsize=(16, 7.6))
-org.plot("CuAu01", "uvvis", ax=axes[0, 0])              # coloured by time
-org.plot("CuAu01", "waxs1d", ax=axes[0, 1])
-org.plot("CuAu01", "saxs1d", ax=axes[0, 2])             # log-log, from the registry
-org.plot("CuAu01", "ec", role="co2-rr-fe", ax=axes[0, 3])
-org.plot("CuAu01", "tem", ax=axes[1, 0], cmap="gray")   # on nanometre axes
-org.plot("CuAu01", "sem", ax=axes[1, 1], cmap="gray")
-org.plot("CuAu01", "tomo", ax=axes[1, 2], slab=16)      # a slab projection
-org.plot("CuAu01", "xpcs_g2", ax=axes[1, 3])
+org.plot("S01", "uvvis", ax=axes[0, 0])              # coloured by time
+org.plot("S01", "waxs1d", ax=axes[0, 1])
+org.plot("S01", "saxs1d", ax=axes[0, 2])             # log-log, from the registry
+org.plot("S01", "ec", role="reduction-fe", ax=axes[0, 3])
+org.plot("S01", "tem", ax=axes[1, 0], cmap="gray")   # on nanometre axes
+org.plot("S01", "sem", ax=axes[1, 1], cmap="gray")
+org.plot("S01", "tomo", ax=axes[1, 2], slab=16)      # a slab projection
+org.plot("S01", "xpcs_g2", ax=axes[1, 3])
 
-org.plot("CuAu01", "tomo", engine="interactive", mode="isosurface",
+org.plot("S01", "tomo", engine="interactive", mode="isosurface",
          voxel_size=2.0, unit="nm").show()              # turn it around
 
 fig, ax = plt.subplots()
-org.overlay("waxs1d", sample_ids=["CuAu01", "CuAu03", "CuAu05", "CuAu08"],
+org.overlay("waxs1d", sample_ids=["S01", "S03", "S05", "S08"],
             reduce="last", ax=ax)                         # any curve technique
 org.overlay("uvvis", reduce="last", ax=ax)                # every sample that has it
 ''')
@@ -942,7 +944,7 @@ with analyze:
         controls = st.columns([1, 2, 1, 1, 1])
         sample = controls[0].selectbox(
             "Sample", with_waxs,
-            index=with_waxs.index("CuAu05") if "CuAu05" in with_waxs else 0,
+            index=with_waxs.index("S05") if "S05" in with_waxs else 0,
             key="org_demo_fit_s")
         q, intensity, info = org.data(sample, "waxs1d")
         window = controls[1].slider(
@@ -979,18 +981,18 @@ with analyze:
             with numbers_col:
                 centre = fit.params["peak1_center"]
                 lattice = mat.lattice_from_q(centre)
-                x_au = mat.fraction_from_lattice(lattice)
+                x_b = mat.fraction_from_lattice(lattice)
                 st.metric("R²", f"{fit.r2:.4f}")
                 cells = st.columns(2)
                 cells[0].metric("(111) at", f"{centre:.4f} Å⁻¹",
                                 f"± {fit.errors.get('peak1_center', 0):.1e}",
                                 delta_color="off")
                 cells[1].metric("Lattice parameter", f"{lattice:.4f} Å")
-                true_x = (float(truth.loc[sample, "x_Au"])
+                true_x = (float(truth.loc[sample, "x_B"])
                           if truth is not None and sample in truth.index
                           else None)
-                st.metric("x(Au) from Vegard", f"{x_au:.3f}",
-                          f"{x_au - true_x:+.3f} vs the answer key"
+                st.metric("x(B) from Vegard", f"{x_b:.3f}",
+                          f"{x_b - true_x:+.3f} vs the answer key"
                           if true_x is not None else None,
                           delta_color="off")
                 st.dataframe(pd.DataFrame({
@@ -1012,7 +1014,7 @@ with analyze:
             left, right, notes = st.columns([1, 2, 1])
             seg_sample = left.selectbox(
                 "Micrograph of", with_tem,
-                index=with_tem.index("CuAu05") if "CuAu05" in with_tem else 0,
+                index=with_tem.index("S05") if "S05" in with_tem else 0,
                 key="org_demo_seg_s")
             n_frames = len(org.measurement(seg_sample, modality="tem")
                            .resolve(org.resolver))
@@ -1039,7 +1041,7 @@ with analyze:
         st.markdown("**The batches** — happy with the parameters, spend them "
                     "on every sample. Nine analyses; each writes its numbers "
                     "back as `derived.*` columns, and `link=True` also stores "
-                    "the two peak fits' curves beside cuau.json so tab 6 can "
+                    "the two peak fits' curves beside demo.json so tab 6 can "
                     "redraw them without refitting.")
         st.dataframe(pd.DataFrame(
             [{"what": label, "call": call_text(analysis, options)}
@@ -1082,7 +1084,7 @@ from pyDataOrg.analysis import fit_peaks
 from pyDataOrg.demo import materials as mat
 from pyDataOrg.viz.plots import plot_fit
 
-q, I, info = org.data("CuAu05", "waxs1d")
+q, I, info = org.data("S05", "waxs1d")
 fit = fit_peaks(q, I[0], n_peaks=2, x_range=(2.5, 3.6),
                 shape="pseudo_voigt", background="linear")   # the analysis
 
@@ -1090,9 +1092,9 @@ fig, ax = plt.subplots()
 plot_fit(fit.x, fit.y, fit.y_fit, fit.residual, ax=ax)       # the picture
 
 a = mat.lattice_from_q(fit.params["peak1_center"])           # Å
-x_au = mat.fraction_from_lattice(a)                          # Vegard, backwards
+x_b = mat.fraction_from_lattice(a)                          # Vegard, backwards
 
-seg = org.segment("CuAu05", "tem")                           # the analysis
+seg = org.segment("S05", "tem")                           # the analysis
 org.plot_segmentation(seg)                                   # the picture
 
 {batch_lines}
@@ -1123,20 +1125,20 @@ with compare:
         worst_band = float((check["band_nm"] - check["band_true_nm"])
                            .abs().max())
         volcano = table.set_index("sample_id")[
-            "testing.performance.j_CO_mA_cm2"]
+            "testing.performance.j_P_mA_cm2"]
         best = str(volcano.idxmax())
         numbers = st.columns(4)
         numbers[0].metric("EDS composition within", f"± {worst_eds:.3f}")
         numbers[1].metric("WAXS composition within", f"± {worst_waxs:.3f}")
         numbers[2].metric("Plasmon band within", f"{worst_band:.1f} nm")
-        numbers[3].metric("Most CO", best,
-                          f"x(Au) = {truth.loc[best, 'x_Au']:.2f}",
+        numbers[3].metric("Most P", best,
+                          f"x(B) = {truth.loc[best, 'x_B']:.2f}",
                           delta_color="off")
 
         st.markdown("**Composition three ways** — an X-ray detector on an "
                     "electron microscope and a diffractometer in another room "
                     "land on the same number; XPS, which sees only the top "
-                    "nanometres, lands above it, because gold segregates out.")
+                    "nanometres, lands above it, because B segregates out.")
         figure, axes = plt.subplots(1, 3, figsize=(14.0, 4.4))
         draw_composition(check, ax=axes)
         figure.tight_layout()
@@ -1155,11 +1157,11 @@ with compare:
                         "column.")
             try:
                 figure, ax = plt.subplots(figsize=(6.5, 4.6))
-                plots.plot_compare(table, "computation.descriptors.E_ads_CO_eV",
-                                   "testing.performance.j_CO_mA_cm2", ax=ax,
+                plots.plot_compare(table, "computation.descriptors.E_ads_P_eV",
+                                   "testing.performance.j_P_mA_cm2", ax=ax,
                                    title="Sabatier volcano",
-                                   xlabel="CO binding energy (eV)",
-                                   ylabel="CO partial current (mA cm$^{-2}$)")
+                                   xlabel="*P binding energy (eV)",
+                                   ylabel="P partial current (mA cm$^{-2}$)")
                 show_figure(figure)
             except Exception as exc:
                 st.error(f"{type(exc).__name__}: {exc}", icon="🚫")
@@ -1179,8 +1181,8 @@ with compare:
             left, middle, right = st.columns([1, 1, 2])
             sample = left.selectbox(
                 "Sample", fitted_samples,
-                index=fitted_samples.index("CuAu05")
-                if "CuAu05" in fitted_samples else 0,
+                index=fitted_samples.index("S05")
+                if "S05" in fitted_samples else 0,
                 key="org_demo_reload_s")
             modality = middle.selectbox("Fit of", ["waxs1d", "uvvis"],
                                         key="org_demo_reload_m")
@@ -1202,28 +1204,28 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pyDataOrg import Organizer
 from pyDataOrg.demo import materials as mat
-from pyDataOrg.demo.signals import EDS_K_FACTOR_AU_CU, XPS_RSF
+from pyDataOrg.demo.signals import EDS_K_FACTOR_B_A, XPS_RSF
 from pyDataOrg.viz.plots import plot_compare, plot_peak_fit
 
-ids = org.ids("`synthesis.status` == 'done'")          # CuAu09 failed
+ids = org.ids("`synthesis.status` == 'done'")          # S09 failed
 table = org.table(sample_ids=ids)
 truth = pd.read_csv(ROOT / "truth.csv").set_index("sample_id")
 t = table.set_index("sample_id").reindex(truth.index)
 
 x_waxs = mat.fraction_from_lattice(mat.lattice_from_q(t["derived.waxs1d_peak1_center"]))
-x_eds = mat.fraction_from_signals(t["derived.eds_au_area"], t["derived.eds_cu_area"],
-                                  gold_factor=EDS_K_FACTOR_AU_CU)
-x_xps = mat.fraction_from_signals(t["derived.xps_au_area"], t["derived.xps_cu_area"],
-                                  gold_factor=XPS_RSF["Au 4f7/2"],
-                                  copper_factor=XPS_RSF["Cu 2p3/2"])
+x_eds = mat.fraction_from_signals(t["derived.eds_b_area"], t["derived.eds_a_area"],
+                                  b_factor=EDS_K_FACTOR_B_A)
+x_xps = mat.fraction_from_signals(t["derived.xps_b_area"], t["derived.xps_a_area"],
+                                  b_factor=XPS_RSF["B 4f7/2"],
+                                  a_factor=XPS_RSF["A 2p3/2"])
 
 fig, ax = plt.subplots()
-plot_compare(table, "computation.descriptors.E_ads_CO_eV",
-             "testing.performance.j_CO_mA_cm2", ax=ax,
+plot_compare(table, "computation.descriptors.E_ads_P_eV",
+             "testing.performance.j_P_mA_cm2", ax=ax,
              title="Sabatier volcano")                    # the volcano
 
-later = Organizer(ROOT / "cuau.json")                     # F: no refitting
-result = later.result("CuAu05", "peak_fit", modality="waxs1d")
+later = Organizer(ROOT / "demo.json")                     # F: no refitting
+result = later.result("S05", "peak_fit", modality="waxs1d")
 fig, ax = plt.subplots()
 plot_peak_fit(result, ax=ax)
 ''')

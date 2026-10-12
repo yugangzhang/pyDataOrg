@@ -6,26 +6,26 @@ configure.
 ## The workflow: simulate → build → use
 
 Start here. It is the shape a real campaign actually has — on a campaign big
-enough to be worth organising: a **Cu–Au alloy nanocatalyst library for CO₂
-electroreduction**, eight alloys and one failed synthesis, **fifteen
+enough to be worth organising: an **A–B alloy nanocatalyst library** (A and
+B are fictional metals), eight alloys and one failed synthesis, **fifteen
 techniques across four stages**, all following from one hidden number per
-sample, the gold fraction *x*.
+sample, the B fraction *x*.
 
 | | |
 |---|---|
 | `10_simulate_data` | the campaign on disk: four metadata dicts that describe most of it, four techniques in bare folders that nobody described, a sparse matrix, and the answer key |
-| `11_build_organizer` | `Organizer("cuau.json")` — `ingest` the four dicts, `link` the four folders by hand |
+| `11_build_organizer` | `Organizer("demo.json")` — `ingest` the four dicts, `link` the four folders by hand |
 | `12_use_organizer` | reopen it and work, in six parts |
 | `13_campaign_next` | the same organizer as a campaign: rank, Pareto front, propose the next experiments and check the model; then what an AI agent and an ML model see |
 
-Run them in order; `11` and `12` use what `10` leaves in `../OrgDemo/CuAu`,
+Run them in order; `11` and `12` use what `10` leaves in `../OrgDemo/Demo`,
 beside the repository:
 
 ```
-../OrgDemo/CuAu/
+../OrgDemo/Demo/
 ├── MetaData/ …    the data and the four *_dict.py   (10)
 ├── truth.csv      the answer key                     (10)
-├── cuau.json      the organizer                      (11)
+├── demo.json      the organizer                      (11)
 └── results/       stored fits                        (12)
 ```
 
@@ -51,8 +51,8 @@ buttons — so the three routes write identical files and cannot drift apart.
 
 Because the data is simulated, part E checks the answers: composition from
 diffraction and from EDS lands on the generator's value (within 0.02), the
-plasmon band within 1 nm, XPS reads the gold-rich *surface* rather than the
-bulk, and the CO current peaks at the intermediate composition.
+plasmon band within 1 nm, XPS reads the B-rich *surface* rather than the
+bulk, and the P current peaks at the intermediate composition.
 
 The through-line is that **nothing is a dead end**: every quick call has a
 lower-level one underneath handing you the arrays, because the moment an
@@ -70,10 +70,10 @@ sample's data is, what it was made from, and what the analyses found. The data
 itself never moves.
 
 ```python
-org = Organizer(demo_root("CuAu", "cuau.json"))
+org = Organizer(demo_root("Demo", "demo.json"))
 
 org.ingest("MetaData/Testing_dict.py")              # what somebody wrote down
-org.link("CuAu05", "tem", "TEMData/CuAu05")         # what nobody did — relative to cuau.json
+org.link("S05", "tem", "TEMData/S05")         # what nobody did — relative to demo.json
 org.save()
 ```
 
@@ -104,10 +104,10 @@ high-throughput campaign uses exactly the same calls as a six-sample one.
 ## The campaign: `13`
 
 `13` reads the organizer `12` left as a **campaign** — the demo registers
-`CuAu-CO2RR`: one input (the gold fraction the synthesis chose), three goals
-(CO current and CO selectivity up, hydrogen down). It ranks the alloys, draws
+`AB-library`: one input (the B fraction the synthesis chose), three goals
+(P current and P selectivity up, hydrogen down). It ranks the alloys, draws
 the Pareto front, fits a Gaussian process per goal and proposes three
-compositions to make next — at the CO-current volcano, on its selective
+compositions to make next — at the P-current volcano, on its selective
 shoulder, and where hydrogen is lowest — after checking by leave-one-out that
 the model has learned both goals. The last cells are the same organizer as an
 agent's tools (`pyDataOrg.agent`, or `dataorg mcp`) and as a samples ×

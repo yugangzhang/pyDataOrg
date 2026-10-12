@@ -13,12 +13,12 @@ from pyDataOrg.export import feature_frame, write_table
 
 
 @pytest.fixture(scope="module")
-def cuau(tmp_path_factory):
+def alloy(tmp_path_factory):
     from pyDataOrg.demo import build_showcase_project
 
-    root = build_showcase_project(tmp_path_factory.mktemp("p") / "CuAu",
+    root = build_showcase_project(tmp_path_factory.mktemp("p") / "Demo",
                                   with_images=False, with_tomography=False)
-    org = Organizer(root / "cuau.json")
+    org = Organizer(root / "demo.json")
     for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
         org.ingest(f"MetaData/{stage}_dict.py")
     org.save()
@@ -37,34 +37,34 @@ WAXS = dict(x_range=(2.5, 3.6), n_peaks=2, shape="pseudo_voigt",
 TARGET = "peak_fit@waxs1d"
 
 
-def test_analyse_new_runs_exactly_the_new_samples(cuau):
-    every = cuau.runnable(TARGET)
-    assert len(every) == 8 and len(cuau.runnable("peak_fit")) == 8
+def test_analyse_new_runs_exactly_the_new_samples(alloy):
+    every = alloy.runnable(TARGET)
+    assert len(every) == 8 and len(alloy.runnable("peak_fit")) == 8
     first = every[:3]
-    cuau.batch("peak_fit", first, settings=WAXS, link=True, write=False,
+    alloy.batch("peak_fit", first, settings=WAXS, link=True, write=False,
                verbose=False, modality="waxs1d")
-    assert set(cuau.kept_ids(TARGET)) == set(first)
-    assert cuau.kept_ids("peak_fit@uvvis") == []
-    assert cuau.kept_analyses() == [TARGET]
-    status = cuau.status([TARGET]).iloc[0]
+    assert set(alloy.kept_ids(TARGET)) == set(first)
+    assert alloy.kept_ids("peak_fit@uvvis") == []
+    assert alloy.kept_analyses() == [TARGET]
+    status = alloy.status([TARGET]).iloc[0]
     assert (status["kept"], status["new"]) == (3, 5)
 
     calls = []
-    done = cuau.analyse_new([TARGET],
+    done = alloy.analyse_new([TARGET],
                             progress=lambda i, key, n: calls.append((key, n)))
     assert calls == [(TARGET, 5)]
     assert set(done[TARGET]["sample_id"]) == set(every) - set(first)
     assert (done[TARGET]["status"] == "ran").all()
-    assert cuau.new_samples(TARGET) == []
+    assert alloy.new_samples(TARGET) == []
     # the new ones were analysed the way the kept ones were
-    assert cuau.kept_settings("peak_fit", every[-1]) == \
-        cuau.kept_settings("peak_fit", first[0])
+    assert alloy.kept_settings("peak_fit", every[-1]) == \
+        alloy.kept_settings("peak_fit", first[0])
 
 
-def test_keep_results_loads_what_was_kept_with_the_same_settings(cuau):
-    sample = cuau.runnable(TARGET)[0]
-    done = cuau.keep_results(TARGET, sample,
-                             settings=cuau.kept_settings("peak_fit",
+def test_keep_results_loads_what_was_kept_with_the_same_settings(alloy):
+    sample = alloy.runnable(TARGET)[0]
+    done = alloy.keep_results(TARGET, sample,
+                             settings=alloy.kept_settings("peak_fit",
                                                          modality="waxs1d"))
     assert done["peak_fit"]["status"].tolist() == ["loaded"]
 
@@ -108,12 +108,12 @@ def test_write_table_by_suffix(tmp_path):
         write_table(frame, tmp_path / "f.xlsx")
 
 
-def test_feature_table_through_a_campaign(cuau):
+def test_feature_table_through_a_campaign(alloy):
     from pyDataOrg.export import feature_table
 
-    X = feature_table(cuau, campaign="CuAu-CO2RR")
-    assert {"x_Au", "j_CO", "FE_CO"} <= set(X.columns)
-    assert "CuAu05" in X.index
+    X = feature_table(alloy, campaign="AB-library")
+    assert {"x_B", "j_P", "FE_P"} <= set(X.columns)
+    assert "S05" in X.index
 
 
 # ---------------------------------------------------------------------------
@@ -177,36 +177,36 @@ def test_entry_points_load_and_a_broken_one_is_reported(monkeypatch):
 # agent operations
 # ---------------------------------------------------------------------------
 
-def test_operations_answer_in_plain_json(cuau):
-    info = agent.call(cuau, "describe_project")
+def test_operations_answer_in_plain_json(alloy):
+    info = agent.call(alloy, "describe_project")
     assert info["n_samples"] == 9 and "/home/" not in info["store"]
-    hits = agent.call(cuau, "list_samples",
-                      query="`synthesis.composition.nominal_x_Au` > 0.5")
-    assert hits == ["CuAu05", "CuAu06", "CuAu07", "CuAu08"]
-    rows = agent.call(cuau, "sample_table", sample_ids=["CuAu05"],
-                      columns=["testing.performance.FE_CO_pct"])
-    assert set(rows[0]) == {"sample_id", "testing.performance.FE_CO_pct"}
-    json.dumps(agent.call(cuau, "sample_record", sample_id="CuAu05"))
-    assert agent.call(cuau, "list_columns", contains="FE_CO") == \
-        ["testing.performance.FE_CO_pct"]
+    hits = agent.call(alloy, "list_samples",
+                      query="`synthesis.composition.nominal_x_B` > 0.5")
+    assert hits == ["S05", "S06", "S07", "S08"]
+    rows = agent.call(alloy, "sample_table", sample_ids=["S05"],
+                      columns=["testing.performance.FE_P_pct"])
+    assert set(rows[0]) == {"sample_id", "testing.performance.FE_P_pct"}
+    json.dumps(agent.call(alloy, "sample_record", sample_id="S05"))
+    assert agent.call(alloy, "list_columns", contains="FE_P") == \
+        ["testing.performance.FE_P_pct"]
     assert any(op["key"] == "peak_fit"
-               for op in agent.call(cuau, "list_analyses"))
+               for op in agent.call(alloy, "list_analyses"))
 
 
-def test_operations_report_errors_instead_of_raising(cuau):
-    assert "error" in agent.call(cuau, "nope")
-    assert "needs sample_id" in agent.call(cuau, "sample_record")["error"]
-    assert "takes no" in agent.call(cuau, "list_samples", bogus=1)["error"]
-    assert "KeyError" in agent.call(cuau, "list_measurements",
+def test_operations_report_errors_instead_of_raising(alloy):
+    assert "error" in agent.call(alloy, "nope")
+    assert "needs sample_id" in agent.call(alloy, "sample_record")["error"]
+    assert "takes no" in agent.call(alloy, "list_samples", bogus=1)["error"]
+    assert "KeyError" in agent.call(alloy, "list_measurements",
                                     sample_id="Missing")["error"]
 
 
-def test_writing_needs_permission(cuau):
-    assert "write access" in agent.call(cuau, "save")["error"]
+def test_writing_needs_permission(alloy):
+    assert "write access" in agent.call(alloy, "save")["error"]
     assert "write access" in agent.call(
-        cuau, "run_analysis", key="peak_fit", sample_id="CuAu05",
+        alloy, "run_analysis", key="peak_fit", sample_id="S05",
         settings=WAXS, keep=True)["error"]
-    assert "saved" in agent.call(cuau, "save", allow_writes=True)
+    assert "saved" in agent.call(alloy, "save", allow_writes=True)
     names = {spec["name"] for spec in agent.tool_specs()}
     assert "save" not in names and "list_samples" in names
     assert "save" in {s["name"] for s in agent.tool_specs(allow_writes=True)}
@@ -222,22 +222,22 @@ def test_tool_specs_in_three_shapes():
         agent.tool_specs("other")
 
 
-def test_run_analysis_returns_its_values(cuau):
-    out = agent.call(cuau, "run_analysis", key="peak_fit", sample_id="CuAu05",
+def test_run_analysis_returns_its_values(alloy):
+    out = agent.call(alloy, "run_analysis", key="peak_fit", sample_id="S05",
                      settings={k: list(v) if isinstance(v, tuple) else v
                                for k, v in WAXS.items()},
                      modality="waxs1d")
     assert out["ok"] and "peak1_center" in out["values"]
 
 
-def test_propose_next_over_the_demo_campaign(cuau):
+def test_propose_next_over_the_demo_campaign(alloy):
     pytest.importorskip("sklearn")
-    out = agent.call(cuau, "propose_next", name="CuAu-CO2RR", goals=["j_CO"],
+    out = agent.call(alloy, "propose_next", name="AB-library", goals=["j_P"],
                      n=2)
     assert len(out["proposals"]) == 2 and len(out["trained_on"]) == 8
 
 
-def test_the_mcp_wire(cuau):
+def test_the_mcp_wire(alloy):
     lines = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
          "params": {"protocolVersion": "2025-06-18"}},
@@ -250,14 +250,14 @@ def test_the_mcp_wire(cuau):
         {"jsonrpc": "2.0", "id": 5, "method": "resources/list"},
     ]
     out = io.StringIO()
-    agent.serve_mcp(cuau, stdin=io.StringIO(
+    agent.serve_mcp(alloy, stdin=io.StringIO(
         "\n".join(json.dumps(m) for m in lines) + "\nnot json\n"), stdout=out)
     replies = [json.loads(line) for line in out.getvalue().splitlines()]
     assert [r["id"] for r in replies] == [1, 2, 3, 4, 5, None]
     assert replies[0]["result"]["protocolVersion"] == "2025-06-18"
     assert any(t["name"] == "describe_project"
                for t in replies[1]["result"]["tools"])
-    assert json.loads(replies[2]["result"]["content"][0]["text"])[0] == "CuAu01"
+    assert json.loads(replies[2]["result"]["content"][0]["text"])[0] == "S01"
     assert replies[3]["result"]["isError"] is True
     assert replies[4]["error"]["code"] == -32601
     assert replies[5]["error"]["code"] == -32700
@@ -267,7 +267,7 @@ def test_the_mcp_wire(cuau):
 # the command
 # ---------------------------------------------------------------------------
 
-def test_dataorg_command(cuau, tmp_path, capsys):
+def test_dataorg_command(alloy, tmp_path, capsys):
     from pyDataOrg.cli import main
 
     assert main(["--help"]) == 0
@@ -275,14 +275,14 @@ def test_dataorg_command(cuau, tmp_path, capsys):
     assert main(["ops"]) == 0 and "describe_project" in capsys.readouterr().out
     assert main(["ops", "list_samples"]) == 0
     assert json.loads(capsys.readouterr().out)["name"] == "list_samples"
-    assert main(["ops", "list_samples", "--store", str(cuau.path)]) == 0
-    assert "CuAu05" in capsys.readouterr().out
-    assert main(["ops", "save", "--store", str(cuau.path)]) == 1
+    assert main(["ops", "list_samples", "--store", str(alloy.path)]) == 0
+    assert "S05" in capsys.readouterr().out
+    assert main(["ops", "save", "--store", str(alloy.path)]) == 1
     capsys.readouterr()
-    assert main(["features", str(cuau.path), str(tmp_path / "X.csv"),
-                 "--campaign", "CuAu-CO2RR"]) == 0
+    assert main(["features", str(alloy.path), str(tmp_path / "X.csv"),
+                 "--campaign", "AB-library"]) == 0
     assert pd.read_csv(tmp_path / "X.csv", index_col=0).shape[0] == 9
-    assert main(["tree", str(cuau.path.parent), "--depth", "1"]) == 0
+    assert main(["tree", str(alloy.path.parent), "--depth", "1"]) == 0
     assert "MetaData" in capsys.readouterr().out
     assert main(["plugins"]) == 0
     assert main(["nonsense"]) == 2

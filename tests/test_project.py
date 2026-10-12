@@ -94,7 +94,7 @@ def project(tmp_path):
     tem.mkdir(parents=True)
     for index in range(1, 4):
         (tem / f"{index}.tif").write_bytes(b"")
-    (tem / "note.txt").write_text("6B-Auto_Au_6X")
+    (tem / "note.txt").write_text("grid 6B, auto, 6X")
 
     # The local stand-in for the instrument share.
     mount = tmp_path / "mount" / "spectra_share" / "SERIAL1" / "2026-09-21" / "run_a"
@@ -256,7 +256,7 @@ def test_folder_convention_attaches_unlinked_data(project):
 
 def test_side_car_note_is_captured(project):
     tem = project.get_sample("Sample000001").get_measurements(modality="tem")[0]
-    assert tem.meta["note"] == "6B-Auto_Au_6X"
+    assert tem.meta["note"] == "grid 6B, auto, 6X"
 
 
 def test_non_matching_extensions_are_skipped(project):
@@ -453,10 +453,10 @@ def test_a_key_with_a_space_does_not_drop_the_whole_dict(tmp_path):
     meta.write_text(
         "Catalysis_dict = {\n"
         "    'Sample000001': {'k': 1},\n"
-        "    'Au standard_10nm': {'k': 2},\n"
+        "    'Ref standard_10nm': {'k': 2},\n"
         "}\n")
     found = find_sample_dicts(meta)
-    assert sorted(found["Catalysis_dict"]) == ["Au standard_10nm", "Sample000001"]
+    assert sorted(found["Catalysis_dict"]) == ["Ref standard_10nm", "Sample000001"]
 
 
 def test_a_refused_records_dict_is_reported_not_dropped_silently(tmp_path):

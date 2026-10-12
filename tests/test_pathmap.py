@@ -180,10 +180,10 @@ def test_display_path_says_where_from_here(tmp_path):
     from pyDataOrg.core.pathmap import display_path
 
     repo = tmp_path / "Repos" / "pyDataOrg"
-    target = tmp_path / "Repos" / "OrgDemo" / "CuAu"
-    assert display_path(target, start=repo) == "../OrgDemo/CuAu"
-    assert display_path(target, start=repo / "notebook") == "../../OrgDemo/CuAu"
-    assert display_path("TEMData/CuAu05") == "TEMData/CuAu05"     # already relative
+    target = tmp_path / "Repos" / "OrgDemo" / "Demo"
+    assert display_path(target, start=repo) == "../OrgDemo/Demo"
+    assert display_path(target, start=repo / "notebook") == "../../OrgDemo/Demo"
+    assert display_path("TEMData/S05") == "TEMData/S05"     # already relative
     far = display_path(target, start=tmp_path / "a" / "b" / "c" / "d")
     assert ".." not in far                                        # too far: not relative
 

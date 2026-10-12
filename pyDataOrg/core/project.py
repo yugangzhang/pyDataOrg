@@ -584,7 +584,7 @@ class Project:
 
         Without this an organiser built by linking has files but nothing to
         filter on.  The parameters land in a :class:`Stage` and flatten into
-        dotted columns — ``set_params("CuAu05", temperature_C=90)`` becomes
+        dotted columns — ``set_params("S05", temperature_C=90)`` becomes
         ``synthesis.temperature_C`` in :meth:`to_dataframe`.
 
         Promoted stage fields (``run_id``, ``batch_tag``, ``campaign``,

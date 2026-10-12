@@ -5,6 +5,7 @@ Interactive Folder Browser Component for Streamlit
 Provides a visual folder navigation interface without text input.
 """
 
+import os
 import streamlit as st
 from pathlib import Path
 
@@ -618,7 +619,7 @@ def folder_picker(key, label="Folder", default="", help=None):
     initialize_security_context()
     state_key = f"{key}_path"
     if state_key not in st.session_state:
-        # Shown relative to where the app runs — ../OrgDemo/CuAu, not a path
+        # Shown relative to where the app runs — ../OrgDemo/Demo, not a path
         # that names somebody's home directory.
         st.session_state[state_key] = display_path(default) if default else ""
 
@@ -634,8 +635,9 @@ def folder_picker(key, label="Folder", default="", help=None):
 
     # Shown relative, returned absolute: the caller must not depend on the
     # working directory, and a relative path handed to link() would be read
-    # relative to the organizer's folder instead.
-    resolved = str(Path(path.strip()).expanduser().absolute())
+    # relative to the organizer's folder instead. Normalised, so
+    # ../OrgDemo/Demo does not come back as …/pyDataOrg/../OrgDemo/Demo.
+    resolved = os.path.normpath(Path(path.strip()).expanduser().absolute())
     if is_restricted_mode() and not security_is_path_allowed(
         resolved, allow_nonexistent=True
     ):

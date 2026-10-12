@@ -24,7 +24,7 @@ VIEWS = Path(__file__).resolve().parents[1] / "pyDataOrg" / "web_app" / "views"
 
 @pytest.fixture(scope="module")
 def showcase_root(tmp_path_factory):
-    root = tmp_path_factory.mktemp("gui") / "CuAuDemo"
+    root = tmp_path_factory.mktemp("gui") / "AlloyDemo"
     build_showcase_project(root, fractions=(0.0, 0.5, 1.0), n_frames=4,
                            n_micrographs=1, image_size=256, tomo_size=40)
     return root
@@ -68,7 +68,7 @@ def test_visualize_offers_every_group_present(workbench):
 
 def test_a_sample_with_no_data_does_not_break_visualize(workbench):
     """The failed synthesis has a row and no measurements at all."""
-    failed = "CuAu04"
+    failed = "S04"
     assert workbench.project.get_sample(failed).measurements == []
 
     workbench.select([failed])
@@ -91,6 +91,33 @@ def test_analyze_lists_the_generic_analyses(workbench):
             "particle_sizing"} <= set(workbench.analyses())
 
 
+def test_analyze_picks_technique_and_role_in_a_mixed_project(workbench):
+    """Twelve curve techniques: the analysis runs on the one chosen."""
+    app = page("analyze.py", workbench)
+    app.run()
+    app.selectbox(key="org_analysis_key").select("peak_fit").run()
+    techniques = app.selectbox(key="org_analysis_tech_peak_fit")
+    assert {"WAXS 1D", "XPS · b4f", "XPS · a2p"} <= set(techniques.options)
+    techniques.select("waxs1d").run()
+    for name, text in (("x_range", "2.5, 3.6"),):
+        app.text_input(key=f"org_opt_peak_fit_waxs1d_{name}").input(text).run()
+    app.number_input(key="org_opt_peak_fit_waxs1d_n_peaks").set_value(2).run()
+    app.selectbox(key="org_opt_peak_fit_waxs1d_shape").select(
+        "pseudo_voigt").run()
+    app.selectbox(key="org_opt_peak_fit_waxs1d_background").select(
+        "linear").run()
+    app.button(key="org_run_single").click().run()
+    assert not app.exception, _why(app)
+    assert not app.error, [e.value for e in app.error]
+    result = app.session_state["org_last_result"]
+    assert result.ok and result.measurement_id.split(":")[1] == "waxs1d"
+
+    app.button(key="org_run_batch").click().run()
+    frame = app.session_state["org_batch_peak_fit"]
+    assert set(frame["measurement_id"].str.split(":").str[1]) == {"waxs1d"}
+    assert frame["ok"].all()
+
+
 def test_compare_can_plot_an_authored_performance_number(workbench):
     """The electrochemistry summary is in the metadata, so Compare has
     something to show before any analysis has been run."""
@@ -99,8 +126,8 @@ def test_compare_can_plot_an_authored_performance_number(workbench):
     assert not app.exception, _why(app)
 
     columns = workbench.table().columns
-    assert "testing.performance.FE_CO_pct" in columns
-    assert "synthesis.composition.nominal_x_Au" in columns
+    assert "testing.performance.FE_P_pct" in columns
+    assert "synthesis.composition.nominal_x_B" in columns
 
 
 def test_project_page_offers_to_generate_one_when_empty():
@@ -173,10 +200,10 @@ def test_static_engine_draws_no_plotly_at_all(workbench):
 
 def test_axis_limits_and_log_scales_are_offered(workbench):
     app = page("visualize.py", workbench, org_curve_modality="waxs1d",
-               org_curve_cmp_waxs1d_logy=True)
+               org_curve_one_style_waxs1d_logy=True)
     app.run()
     assert not app.exception, _why(app)
-    assert app.session_state["org_curve_cmp_waxs1d_logy"] is True
+    assert app.session_state["org_curve_one_style_waxs1d_logy"] is True
 
 
 def test_switching_technique_switches_the_axis_labels(workbench):
@@ -186,23 +213,31 @@ def test_switching_technique_switches_the_axis_labels(workbench):
 
     app = page("visualize.py", workbench, org_curve_modality="dls")
     app.run()
-    assert app.session_state["org_curve_cmp_dls_xlabel"] == \
+    assert app.session_state["org_curve_one_style_dls_xlabel"] == \
         modality.get("dls").x_label
 
     app.session_state["org_curve_modality"] = "waxs1d"
     app.run()
     assert not app.exception, _why(app)
     waxs = modality.get("waxs1d")
-    assert app.session_state["org_curve_cmp_waxs1d_xlabel"] == waxs.x_label
-    assert app.session_state["org_curve_cmp_waxs1d_logx"] is bool(waxs.log_x)
+    assert app.session_state["org_curve_one_style_waxs1d_xlabel"] == waxs.x_label
+    assert app.session_state["org_curve_one_style_waxs1d_logx"] is bool(waxs.log_x)
 
 
 # ---------------------------------------------------------------------------
 # Structure
 # ---------------------------------------------------------------------------
 
-def test_structure_page_opens_empty(workbench):
+def test_structure_page_opens_at_the_project(workbench, showcase_root):
     app = page("structure.py", workbench)
+    app.run()
+    assert not app.exception, _why(app)
+    assert app.session_state["org_structure_address"] == str(showcase_root)
+    assert any("MetaData" in b.label for b in app.button)
+
+
+def test_structure_page_without_a_project_asks_for_a_path():
+    app = AppTest.from_file(str(VIEWS / "structure.py"), default_timeout=300)
     app.run()
     assert not app.exception, _why(app)
     assert any("Choose a folder" in str(i.value) for i in app.info)

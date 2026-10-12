@@ -58,8 +58,8 @@ def is_relative(path: object) -> bool:
 def display_path(path: object, start: object = None, max_up: int = 3) -> str:
     """A location as a person should see it: relative to where they are.
 
-    ``/home/you/Repos/OrgDemo/CuAu`` seen from ``/home/you/Repos/pyDataOrg``
-    is ``../OrgDemo/CuAu``. Relative to *start* (the working directory by
+    ``/home/you/Repos/OrgDemo/Demo`` seen from ``/home/you/Repos/pyDataOrg``
+    is ``../OrgDemo/Demo``. Relative to *start* (the working directory by
     default) when that takes at most *max_up* ``..`` steps; otherwise under
     ``~`` when inside the home directory; otherwise as given. A relative path
     is returned unchanged — it already says where it is relative to.

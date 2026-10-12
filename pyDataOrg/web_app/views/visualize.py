@@ -220,10 +220,10 @@ def render_curves():
 
     spec = modality_registry.get(chosen)
     mode = st.radio(
-        "Show", ["Compare samples", "One sample in detail"],
+        "Show", ["One sample in detail", "Compare samples"],
         horizontal=True, key="org_curve_mode",
-        help="Compare draws one curve per sample; detail draws every frame of "
-             "a single run, coloured by time.",
+        help="Detail draws every frame of a single run, coloured by time; "
+             "compare draws one curve per sample.",
     )
 
     x_label = spec.x_label if spec else "x"

@@ -375,6 +375,54 @@ def plot_marked_curve(x, y, ax=None, *, mark=None, width=None,
     return ax
 
 
+def plot_picked_curve(x, y, ax=None, *, series=None, window=None,
+                      label: str = "", xlabel: str = "x",
+                      ylabel: str = "signal", title: str = "",
+                      logx: bool = False, logy: bool = False,
+                      max_curves: int = 40):
+    """The one curve an analysis takes, over the series it comes from.
+    **Kernel.**
+
+    *x*, *y* is the curve — one frame, or a mean of frames — drawn in the
+    accent colour and named *label*. *series* ``(x_all, matrix)`` is every
+    curve of the measurement, ``matrix`` ``(n, len(x_all))``, drawn thin and
+    grey underneath (at most *max_curves*, strided). *window* ``(low, high)``
+    shades the x range the analysis looks at.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if x.shape != y.shape:
+        raise ValueError(f"x and y must match: {x.shape} vs {y.shape}")
+
+    ax = _axes(ax)
+    if series is not None:
+        x_all = np.asarray(series[0], dtype=float)
+        matrix = np.atleast_2d(np.asarray(series[1], dtype=float))
+        if matrix.shape[1] != x_all.size:
+            raise ValueError(f"each row must have {x_all.size} points, "
+                             f"got {matrix.shape[1]}")
+        if matrix.shape[0] > 1:
+            step = max(1, matrix.shape[0] // max_curves)
+            for row in matrix[::step]:
+                ax.plot(x_all, row, color=OTHER_COLOR, linewidth=0.8,
+                        alpha=0.45)
+            ax.plot([], [], color=OTHER_COLOR, linewidth=0.8,
+                    label=f"all {matrix.shape[0]} curves")
+    ax.plot(x, y, color=CATEGORICAL[0], linewidth=2.2,
+            label=label or "picked")
+    if window is not None:
+        ax.axvspan(float(window[0]), float(window[1]), color=CATEGORICAL[0],
+                   alpha=0.08, linewidth=0, label="window")
+
+    if logx:
+        ax.set_xscale("log")
+    if logy:
+        ax.set_yscale("log")
+    style(ax, xlabel, ylabel, title)
+    _legend(ax)
+    return ax
+
+
 def plot_endpoint_spectrum(result, ax=None):
     """The endpoint spectrum, peak and FWHM marked.
 
@@ -834,7 +882,7 @@ __all__ = [
     "category_colors",
     # kernels — arrays in, Axes out
     "plot_curves", "plot_fit", "plot_distribution", "plot_outlines",
-    "plot_series", "plot_marked_curve", "plot_image",
+    "plot_series", "plot_marked_curve", "plot_picked_curve", "plot_image",
     "series_indices", "SERIES_SPACINGS",
     # adapters — a finished result in
     "plot_peak_fit", "plot_size_distribution", "plot_segmentation",

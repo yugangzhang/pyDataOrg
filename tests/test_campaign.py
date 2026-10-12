@@ -1,5 +1,5 @@
 """Campaign kernels on plain frames with known answers, and the adapter on
-the generated Cu-Au library."""
+the generated A-B library."""
 
 import numpy as np
 import pandas as pd
@@ -108,35 +108,35 @@ def test_from_columns_builds_a_campaign_with_bounds_from_the_data():
 
 
 def test_the_demo_campaign_is_built_in():
-    assert "CuAu-CO2RR" in C.list_campaigns()
-    spec = C.get_campaign("CuAu-CO2RR")
-    assert spec.inputs == ["x_Au"]
+    assert "AB-library" in C.list_campaigns()
+    spec = C.get_campaign("AB-library")
+    assert spec.inputs == ["x_B"]
     with pytest.raises(KeyError, match="no campaign"):
         C.get_campaign("nope")
 
 
 @pytest.fixture(scope="module")
-def cuau(tmp_path_factory):
+def alloy(tmp_path_factory):
     from pyDataOrg import Organizer
     from pyDataOrg.demo import build_showcase_project
 
-    root = build_showcase_project(tmp_path_factory.mktemp("c") / "CuAu",
+    root = build_showcase_project(tmp_path_factory.mktemp("c") / "Demo",
                                   with_images=False, with_tomography=False)
-    org = Organizer(root / "cuau.json")
+    org = Organizer(root / "demo.json")
     for stage in ("Synthesis", "Characterization", "Testing", "Computation"):
         org.ingest(f"MetaData/{stage}_dict.py")
     return org
 
 
-def test_the_demo_campaign_table_recovers_the_volcano(cuau):
+def test_the_demo_campaign_table_recovers_the_volcano(alloy):
     from pyDataOrg.demo import showcase_truth
 
-    spec = C.get_campaign("CuAu-CO2RR")
-    table = spec.table(cuau)
+    spec = C.get_campaign("AB-library")
+    table = spec.table(alloy)
     assert len(table) == 9                       # eight alloys + a failed run
-    usable = table[C.usable(table, ["x_Au", "j_CO"])]
+    usable = table[C.usable(table, ["x_B", "j_P"])]
     assert len(usable) == 8
-    best = usable.loc[usable["j_CO"].idxmax(), "x_Au"]
+    best = usable.loc[usable["j_P"].idxmax(), "x_B"]
     truth = showcase_truth()
     assert best == pytest.approx(
-        truth.loc[truth["true_j_CO_mA_cm2"].idxmax(), "x_Au"], abs=0.01)
+        truth.loc[truth["true_j_P_mA_cm2"].idxmax(), "x_B"], abs=0.01)

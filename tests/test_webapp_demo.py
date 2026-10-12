@@ -1,9 +1,9 @@
-"""Tests for the Demo page — notebooks 10 → 11 → 12 with buttons, on Cu–Au.
+"""Tests for the Demo page — notebooks 10 → 11 → 12 with buttons, on A–B.
 
 Driven through ``AppTest`` against the showcase campaign generated into
 ``tmp_path`` (via ``$PYDATAORG_DEMO_ROOT``), so nothing is written outside
 the test's own folder. The working directory is ``tmp_path`` too, so the page
-shows the demo folder as plain ``CuAu`` — and one test checks that no
+shows the demo folder as plain ``Demo`` — and one test checks that no
 absolute path reaches the screen at all. One test clicks the whole walk in the order a user
 would — simulate, create, ingest, link, save, batch, reload, hand over — and
 checks every click for a clean page. The others start from an organizer built
@@ -73,16 +73,16 @@ def demo_root(tmp_path, monkeypatch):
                  "PYDATAORG_ALLOWED_ROOTS", "PYDATAORG_CONFIG"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)             # no stray ./.config/pydataorg.conf
-    return tmp_path / "CuAu"
+    return tmp_path / "Demo"
 
 
 @pytest.fixture
 def saved(demo_root):
-    """cuau.json built with the calls notebooks 10 and 11 make: beside the
+    """demo.json built with the calls notebooks 10 and 11 make: beside the
     data, every path relative to it."""
     build_showcase_project(demo_root)
     showcase_truth().to_csv(demo_root / "truth.csv", index=False)
-    org = Organizer(demo_root / "cuau.json", name="Cu-Au CO2RR library")
+    org = Organizer(demo_root / "demo.json", name="A-B alloy library")
     for stage in STAGES:
         org.ingest(f"MetaData/{stage}_dict.py")
     for sample in org.ids():
@@ -133,7 +133,7 @@ def test_every_tab_waits_for_its_prerequisite(demo_root):
 def test_simulate_writes_the_campaign_and_the_answer_key(demo_root):
     app = _page()
     # Shown relative to where the app runs, never as an absolute path.
-    assert app.text_input(key="org_demo_root").value == "CuAu"
+    assert app.text_input(key="org_demo_root").value == "Demo"
 
     _click(app, "org_demo_simulate")
     assert sorted(p.name for p in (demo_root / "MetaData").glob("*_dict.py")) \
@@ -158,25 +158,25 @@ def test_the_whole_walk_recovers_the_hidden_number(demo_root):
     for key in WALK:
         _click(app, key)
 
-    store = demo_root / "cuau.json"
+    store = demo_root / "demo.json"
     org = Organizer(store)
     catalog = org.catalog(counts=True)
     assert len(org.project) == 9 and len(org.project.measurements()) == 144
-    assert (catalog.loc["CuAu09"] == 0).all(), "the failed run has no data"
-    assert (catalog.loc["CuAu05", ["tem", "sem"]] == 3).all(), \
+    assert (catalog.loc["S09"] == 0).all(), "the failed run has no data"
+    assert (catalog.loc["S05", ["tem", "sem"]] == 3).all(), \
         "note.txt must not be linked as a micrograph"
     assert catalog["tomo"].sum() == 2, "tomography is on two samples only"
     # Every path recorded relative to the organizer's folder: nothing in it
     # names where the folder happens to be.
     text = store.read_text()
-    assert "TEMData/CuAu05/01.tif" in text
-    assert str(demo_root) not in text, "cuau.json must hold no absolute path"
-    assert json.loads(text), "cuau.json is plain JSON"
+    assert "TEMData/S05/01.tif" in text
+    assert str(demo_root) not in text, "demo.json must hold no absolute path"
+    assert json.loads(text), "demo.json is plain JSON"
 
-    # The kernel ran on the default window: Vegard gives CuAu05's x back.
+    # The kernel ran on the default window: Vegard gives S05's x back.
     metrics = _metrics(app)
     assert float(metrics["R²"]) > 0.999
-    assert abs(float(metrics["x(Au) from Vegard"]) - 0.55) < 0.01
+    assert abs(float(metrics["x(B) from Vegard"]) - 0.55) < 0.01
     assert int(metrics["Particles"]) > 20
 
     _click(app, "org_demo_batch")
@@ -189,7 +189,7 @@ def test_the_whole_walk_recovers_the_hidden_number(demo_root):
     assert float(metrics["EDS composition within"].split()[-1]) < 0.03
     assert float(metrics["WAXS composition within"].split()[-1]) < 0.01
     assert float(metrics["Plasmon band within"].split()[0]) < 2.0
-    assert metrics["Most CO"] == "CuAu05"
+    assert metrics["Most P"] == "S05"
 
     # F: a fresh Organizer off disk, no refitting.
     before = [p.stat().st_mtime for p in results]
@@ -209,7 +209,7 @@ def test_the_whole_walk_recovers_the_hidden_number(demo_root):
 def test_a_saved_organizer_reopens_in_a_new_session(saved):
     app = _page()
     button = app.button(key="org_demo_create")
-    assert button.label == "Reopen cuau.json"
+    assert button.label == "Reopen demo.json"
     button.click().run()
     _clean(app, "reopen")
     org = app.session_state["org_demo_org"]
@@ -225,7 +225,7 @@ def test_start_over_removes_only_the_organizer(reopened):
 
     app.checkbox(key="org_demo_sure").check().run()
     _click(app, "org_demo_reset")
-    assert not (root / "cuau.json").exists()
+    assert not (root / "demo.json").exists()
     assert not (root / "results").exists()
     # The campaign and the answer key are untouched.
     assert (root / "MetaData" / "Synthesis_dict.py").is_file()
@@ -235,14 +235,14 @@ def test_start_over_removes_only_the_organizer(reopened):
 
 
 def test_simulating_again_drops_the_organizer_it_rewrote(reopened):
-    """The folder is one piece: rewriting the campaign takes cuau.json with
+    """The folder is one piece: rewriting the campaign takes demo.json with
     it, so the page must not keep holding the old organizer."""
     app, root = reopened
     assert any("rewrites the whole folder" in i.value for i in app.info)
     _click(app, "org_demo_simulate")
-    assert not (root / "cuau.json").exists()
+    assert not (root / "demo.json").exists()
     assert "org_demo_org" not in app.session_state
-    assert app.button(key="org_demo_create").label == "Create Organizer(cuau.json)"
+    assert app.button(key="org_demo_create").label == "Create Organizer(demo.json)"
 
 
 def test_restricted_mode_refuses_a_root_outside_the_fence(demo_root, tmp_path,
@@ -273,7 +273,7 @@ def test_each_group_draws_and_the_tomogram_turns(reopened):
     that fails is a warning, which ``_clean`` refuses); here the free picker
     shows the volume interactive in two modes, and a log-scaled 2D image."""
     app, _ = reopened
-    assert app.selectbox(key="org_demo_vis_s").value == "CuAu01"
+    assert app.selectbox(key="org_demo_vis_s").value == "S01"
     assert app.selectbox(key="org_demo_vis_m").value == "tomo"
 
     app.radio(key="org_demo_vis_engine").set_value("interactive").run()
@@ -295,7 +295,7 @@ def test_overlay_follows_the_technique_picked_above(reopened):
     _clean(app, "picker → uvvis")
     assert app.selectbox(key="org_demo_overlay_m::uvvis").value == "uvvis"
     chosen = app.multiselect(key="org_demo_overlay::uvvis").value
-    assert "CuAu09" not in chosen and len(chosen) == 8
+    assert "S09" not in chosen and len(chosen) == 8
 
 
 def test_overlay_technique_can_be_chosen_on_its_own(reopened):
@@ -308,7 +308,7 @@ def test_overlay_technique_can_be_chosen_on_its_own(reopened):
     assert app.selectbox(key="org_demo_overlay_m::uvvis").value == "xpcs_g2"
     # Only the three samples that had XPCS beamtime are offered.
     assert app.multiselect(key="org_demo_overlay::xpcs_g2").value == \
-        ["CuAu01", "CuAu04", "CuAu08"]
+        ["S01", "S04", "S08"]
 
     app.toggle(key="org_demo_overlay_zoom::xpcs_g2").set_value(True).run()
     _clean(app, "overlay zoom")
@@ -325,5 +325,5 @@ def test_a_worse_model_shows_in_the_residual_not_the_headline(reopened):
     _clean(app, "one peak")
     bad = _metrics(app)
     assert float(bad["R²"]) < float(good["R²"]) - 0.1
-    assert abs(float(bad["x(Au) from Vegard"])
-               - float(good["x(Au) from Vegard"])) < 0.02
+    assert abs(float(bad["x(B) from Vegard"])
+               - float(good["x(B) from Vegard"])) < 0.02

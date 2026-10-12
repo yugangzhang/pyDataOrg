@@ -18,7 +18,7 @@ append an information banner below the image — on a 2048-wide frame the file i
 segmented as one enormous particle.
 
 Segmentation is deliberately classical: Otsu, then watershed on the distance
-transform to split particles that touch. Gold on a carbon film is a
+transform to split particles that touch. Heavy-metal particles on a carbon film are a
 high-contrast, nearly bimodal image, which is the case classical thresholding
 handles well and where a learned model would add a dependency and an unaudited
 failure mode for nothing.
@@ -176,9 +176,9 @@ def segment_particles(image: np.ndarray, *,
         half at another.
     min_contrast_frac : float
         Reject regions whose mean intensity is less than this fraction of the
-        way from the threshold to the darkest part of the image. Gold absorbs
-        strongly; the carbon film's texture does not, so a faint blob the size
-        of a small particle is film, not gold. Set to 0 to keep everything.
+        way from the threshold to the darkest part of the image. A metal
+        particle absorbs strongly; the carbon film's texture does not, so a
+        faint blob the size of a small particle is film, not metal. Set to 0 to keep everything.
     """
     from scipy import ndimage as ndi
     from skimage.feature import peak_local_max

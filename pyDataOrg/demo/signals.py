@@ -2,10 +2,10 @@
 """
 Synthetic 1D signals for the multimodal demo, one function per technique.
 
-Each function takes the gold fraction ``x`` (and a random generator, so a run
+Each function takes the B fraction ``x`` (and a random generator, so a run
 is reproducible from a seed) and returns ``(axis, values)``.  The physics is
-simplified but not faked: peak positions come from real line energies and real
-lattice parameters, detector broadening follows the usual Fano expression, and
+simplified but not faked: peak positions follow from the line energies and
+lattice parameters of the two (fictional) metals, detector broadening follows the usual Fano expression, and
 the Faradaic efficiencies sum to 100.  What is left out is everything that
 would make the inverse problem hard — self-absorption, multiple scattering,
 instrument drift.  That is deliberate: the demo exists so the *pipeline* can
@@ -70,7 +70,7 @@ def uvvis_frames(x: float, n_frames: int, rng) -> Iterator[Tuple[float, float, n
         centre = final - 18.0 * (1.0 - grown)
         band = gaussian(UVVIS_AXIS, centre, width, 0.85 * grown)
         # Interband absorption, rising towards the blue. Kept weak and well
-        # clear of the band: in a real gold sol it sits directly under the
+        # clear of the band: in a real sol it can sit directly under the
         # plasmon and biases any fit that ignores it, which is a lesson for a
         # real dataset rather than for the one example everybody runs first.
         interband = 0.22 / (1.0 + np.exp((UVVIS_AXIS - 430.0) / 16.0))
@@ -85,15 +85,16 @@ def uvvis_frames(x: float, n_frames: int, rng) -> Iterator[Tuple[float, float, n
 # ---------------------------------------------------------------------------
 
 #: ``element: (energy_keV, relative line weight)`` for the lines in range.
+#: A and B are fictional, and so are their line energies.
 EDS_LINES = {
     "C Ka": (0.277, 0.35), "O Ka": (0.525, 0.30),
-    "Cu La": (0.930, 0.55), "Au Ma": (2.123, 0.70), "Au Mb": (2.205, 0.25),
-    "Cu Ka": (8.040, 1.00), "Cu Kb": (8.905, 0.14), "Au La": (9.713, 0.85),
+    "A La": (0.820, 0.55), "B Ma": (2.480, 0.70), "B Mb": (2.560, 0.25),
+    "A Ka": (7.250, 1.00), "A Kb": (8.020, 0.14), "B La": (10.350, 0.85),
 }
 
-#: Cliff–Lorimer factor relating the Au Lα and Cu Kα intensities to the
+#: Cliff–Lorimer factor relating the B Lα and A Kα intensities to the
 #: atomic ratio.  Written into the metadata so the ratio can be undone.
-EDS_K_FACTOR_AU_CU = 0.85
+EDS_K_FACTOR_B_A = 0.85
 
 
 def eds_spectrum(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
@@ -103,8 +104,8 @@ def eds_spectrum(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
 
     strength = {
         "C Ka": 0.45, "O Ka": 0.12 + 0.5 * mat.oxide_fraction(x),
-        "Cu La": 1.0 - x, "Cu Ka": 1.0 - x, "Cu Kb": 1.0 - x,
-        "Au Ma": x, "Au Mb": x, "Au La": x * EDS_K_FACTOR_AU_CU,
+        "A La": 1.0 - x, "A Ka": 1.0 - x, "A Kb": 1.0 - x,
+        "B Ma": x, "B Mb": x, "B La": x * EDS_K_FACTOR_B_A,
     }
     for line, (centre, weight) in EDS_LINES.items():
         amplitude = 9000.0 * weight * strength[line]
@@ -123,36 +124,36 @@ def eds_spectrum(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
 
 
 # ---------------------------------------------------------------------------
-# XPS: surface composition, and the Cu oxidation-state satellite
+# XPS: surface composition, and the A oxidation-state satellite
 # ---------------------------------------------------------------------------
 
-def xps_cu2p(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
-    """Cu 2p region.  The shake-up satellite near 942 eV means Cu(II)."""
-    binding = np.linspace(925.0, 970.0, 901)
-    surface_cu = 1.0 - mat.surface_au_fraction(x)
+def xps_a2p(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
+    """A 2p region.  The shake-up satellite near 914 eV means A(II)."""
+    binding = np.linspace(897.0, 942.0, 901)
+    surface_a = 1.0 - mat.surface_b_fraction(x)
     oxide = mat.oxide_fraction(x)
 
-    counts = (gaussian(binding, 932.6, 1.6, 10000.0 * surface_cu)
-              + gaussian(binding, 952.4, 1.9, 5000.0 * surface_cu)
-              + gaussian(binding, 942.0, 4.2, 2600.0 * surface_cu * oxide)
-              + gaussian(binding, 962.0, 4.6, 1300.0 * surface_cu * oxide))
-    counts += 900.0 + 14.0 * (binding - 925.0)          # inelastic background
+    counts = (gaussian(binding, 904.6, 1.6, 10000.0 * surface_a)
+              + gaussian(binding, 924.4, 1.9, 5000.0 * surface_a)
+              + gaussian(binding, 914.0, 4.2, 2600.0 * surface_a * oxide)
+              + gaussian(binding, 934.0, 4.6, 1300.0 * surface_a * oxide))
+    counts += 900.0 + 14.0 * (binding - 897.0)          # inelastic background
     return binding, counts + rng.normal(0.0, np.sqrt(np.clip(counts, 1, None)))
 
 
-def xps_au4f(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
-    """Au 4f region: one spin-orbit doublet, split by 3.7 eV."""
-    binding = np.linspace(78.0, 95.0, 681)
-    surface_au = mat.surface_au_fraction(x)
-    counts = (gaussian(binding, 84.0, 1.1, 14000.0 * surface_au)
-              + gaussian(binding, 87.7, 1.2, 10500.0 * surface_au))
-    counts += 500.0 + 9.0 * (binding - 78.0)
+def xps_b4f(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
+    """B 4f region: one spin-orbit doublet, split by 3.7 eV."""
+    binding = np.linspace(58.0, 75.0, 681)
+    surface_b = mat.surface_b_fraction(x)
+    counts = (gaussian(binding, 64.0, 1.1, 14000.0 * surface_b)
+              + gaussian(binding, 67.7, 1.2, 10500.0 * surface_b))
+    counts += 500.0 + 9.0 * (binding - 58.0)
     return binding, counts + rng.normal(0.0, np.sqrt(np.clip(counts, 1, None)))
 
 
 #: Relative sensitivity factors needed to turn the two peak areas above into a
 #: surface atomic ratio.  Recorded in the metadata alongside the files.
-XPS_RSF = {"Cu 2p3/2": 5.32, "Au 4f7/2": 6.25}
+XPS_RSF = {"A 2p3/2": 5.32, "B 4f7/2": 6.25}
 
 
 # ---------------------------------------------------------------------------
@@ -160,11 +161,11 @@ XPS_RSF = {"Cu 2p3/2": 5.32, "Au 4f7/2": 6.25}
 # ---------------------------------------------------------------------------
 
 def raman_spectrum(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
-    """Raman: Cu₂O phonons on the copper-rich samples, carbon from the support.
+    """Raman: A-oxide phonons on the A-rich samples, carbon from the support.
 
-    The whole spectrum is multiplied by the gold plasmon's surface
-    enhancement, so the Cu₂O bands get *weaker* with gold for two independent
-    reasons and the carbon bands get stronger.  Intensity alone is therefore
+    The whole spectrum is multiplied by the B plasmon's surface enhancement,
+    so the oxide bands get *weaker* with B for two independent reasons and
+    the carbon bands get stronger.  Intensity alone is therefore
     not a composition measurement here — the band positions are.
     """
     shift = np.arange(100.0, 2200.0, 2.0)
@@ -172,9 +173,9 @@ def raman_spectrum(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
     gain = mat.sers_enhancement(x)
 
     intensity = np.zeros_like(shift)
-    for centre, weight, width in ((148.0, 1.00, 14.0), (218.0, 0.42, 18.0),
-                                  (412.0, 0.18, 24.0), (525.0, 0.30, 26.0),
-                                  (620.0, 0.55, 30.0)):
+    for centre, weight, width in ((172.0, 1.00, 14.0), (246.0, 0.42, 18.0),
+                                  (388.0, 0.18, 24.0), (498.0, 0.30, 26.0),
+                                  (596.0, 0.55, 30.0)):
         intensity += lorentzian(shift, centre, width, 2800.0 * weight * oxide)
 
     intensity += gaussian(shift, 1350.0, 120.0, 900.0)      # carbon D
@@ -185,45 +186,45 @@ def raman_spectrum(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def ir_spectrum(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
-    """Surface-enhanced IR of the working electrode under CO₂ reduction.
+    """Surface-enhanced IR of the working electrode during the reduction.
 
-    The band near 2100 cm⁻¹ is CO sitting atop a metal site.  Where it sits
-    tracks the composition; how big it is tracks how much CO the surface is
-    holding, which is why it follows the CO Faradaic efficiency.
+    The band near 2000 cm⁻¹ is the intermediate *P on a metal site.  Where it
+    sits tracks the composition; how big it is tracks how much *P the surface
+    is holding, which is why it follows the P Faradaic efficiency.
     """
     wavenumber = np.arange(1100.0, 2400.0, 1.0)
-    coverage = mat.faradaic_efficiency(x)["CO"] / 100.0
+    coverage = mat.faradaic_efficiency(x)["P"] / 100.0
 
     absorbance = (
-        gaussian(wavenumber, mat.co_stretch_cm1(x), 24.0, 0.055 * coverage)
+        gaussian(wavenumber, mat.p_stretch_cm1(x), 24.0, 0.055 * coverage)
         + gaussian(wavenumber, 1645.0, 65.0, 0.030)          # water bend
-        + gaussian(wavenumber, 1620.0, 40.0, 0.016)          # bicarbonate
-        + gaussian(wavenumber, 1400.0, 36.0, 0.014)          # carbonate
-        + gaussian(wavenumber, 1360.0, 32.0, 0.011)          # bicarbonate
+        + gaussian(wavenumber, 1620.0, 40.0, 0.016)          # electrolyte
+        + gaussian(wavenumber, 1400.0, 36.0, 0.014)          # electrolyte
+        + gaussian(wavenumber, 1360.0, 32.0, 0.011)          # electrolyte
     )
     absorbance += 0.004 + 1.2e-5 * (wavenumber - 1100.0)
     return wavenumber, absorbance + rng.normal(0.0, 3.0e-4, wavenumber.size)
 
 
 # ---------------------------------------------------------------------------
-# XAS: Cu K-edge
+# XAS: A K-edge
 # ---------------------------------------------------------------------------
 
 def xas_spectrum(x: float, state: str, rng) -> Tuple[np.ndarray, np.ndarray]:
-    """Normalised Cu K-edge XANES for *state* ``"as_made"`` or ``"reduced"``.
+    """Normalised A K-edge XANES for *state* ``"as_made"`` or ``"reduced"``.
 
-    Oxidised copper has its edge a few eV higher and a much stronger white
+    Oxidised A has its edge a few eV higher and a much stronger white
     line.  After the catalyst has been held at a reducing potential the edge
     comes back to the metallic position — which is the measurement that tells
     you what the active phase actually was.
     """
-    energy = np.linspace(8950.0, 9100.0, 601)
+    energy = np.linspace(mat.EDGE_A_eV - 29.0, mat.EDGE_A_eV + 121.0, 601)
     oxide = mat.oxide_fraction(x) if state == "as_made" else 0.03
-    edge = 8979.0 + 3.2 * oxide
+    edge = mat.EDGE_A_eV + 3.2 * oxide
 
     mu = 0.5 + np.arctan((energy - edge) / 2.2) / np.pi
     mu += gaussian(energy, edge + 5.0, 9.0, 0.30 + 0.85 * oxide)   # white line
-    mu += gaussian(energy, 8977.0, 2.0, 0.05 * oxide)              # 1s→3d
+    mu += gaussian(energy, mat.EDGE_A_eV - 2.0, 2.0, 0.05 * oxide)  # pre-edge
     above = energy > edge + 18.0
     mu[above] += 0.07 * np.sin(0.62 * np.sqrt(energy[above] - edge)) \
         * np.exp(-(energy[above] - edge) / 140.0)
@@ -341,8 +342,8 @@ def xpcs_g2(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
 def her_lsv(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
     """Hydrogen evolution in Ar-saturated electrolyte: the competing reaction.
 
-    Run without CO₂ on purpose — it is the control that says how much of the
-    current under CO₂ was never going to make a carbon product.
+    Run without the reactant on purpose — it is the control that says how
+    much of the current in the reduction was never going to make a product.
     """
     potential = np.linspace(-0.75, 0.05, 321)
     tafel_V = mat.her_tafel_mV(x) / 1000.0
@@ -367,8 +368,8 @@ def oer_lsv(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
     return potential, current + rng.normal(0.0, 0.05, potential.size)
 
 
-def co2rr_lsv(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
-    """Total current in CO₂-saturated electrolyte.
+def rr_lsv(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
+    """Total current of the reduction, reactant-saturated electrolyte.
 
     Scaled so the magnitude at the reporting potential equals
     :func:`materials.current_density`, which is what the Faradaic efficiencies
@@ -393,7 +394,7 @@ def co2rr_lsv(x: float, rng) -> Tuple[np.ndarray, np.ndarray]:
 FE_POTENTIALS = np.round(np.arange(-1.30, -0.39, 0.10), 2)[::-1]
 
 
-def co2rr_faradaic(x: float, rng) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+def rr_faradaic(x: float, rng) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
     """``{product: (potential, FE%)}`` from product quantification.
 
     One file per product, which is how a GC/HPLC campaign is actually
@@ -416,7 +417,7 @@ def dft_pdos(x: float) -> Tuple[np.ndarray, np.ndarray]:
     """Projected density of states of the surface layer, states/eV/atom.
 
     The d-band is the feature that matters: its centroid is the descriptor
-    that the CO binding energy, and through it the selectivity, follows.  No
+    that the *P binding energy, and through it the selectivity, follows.  No
     noise — a calculation is deterministic, and pretending otherwise would be
     a lie about where the number came from.
     """
@@ -444,9 +445,9 @@ def dft_pdos(x: float) -> Tuple[np.ndarray, np.ndarray]:
 
 __all__ = [
     "gaussian", "lorentzian", "pseudo_voigt", "UVVIS_AXIS", "uvvis_frames",
-    "EDS_LINES", "EDS_K_FACTOR_AU_CU", "eds_spectrum", "xps_cu2p", "xps_au4f",
+    "EDS_LINES", "EDS_K_FACTOR_B_A", "eds_spectrum", "xps_a2p", "xps_b4f",
     "XPS_RSF", "raman_spectrum", "ir_spectrum", "xas_spectrum", "saxs_curve",
     "FCC_REFLECTIONS", "waxs_curve", "dls_distribution", "xpcs_g2",
-    "XPCS_VISCOSITY_Pa_s", "XPCS_Q_INV_A", "her_lsv", "oer_lsv", "co2rr_lsv",
-    "FE_POTENTIALS", "co2rr_faradaic", "dft_pdos",
+    "XPCS_VISCOSITY_Pa_s", "XPCS_Q_INV_A", "her_lsv", "oer_lsv", "rr_lsv",
+    "FE_POTENTIALS", "rr_faradaic", "dft_pdos",
 ]

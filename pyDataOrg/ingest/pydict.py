@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # A sample key looks like "Sample000001", "S001", "AuNP_01" or
-# "Au standard_10nm" – a short name, not a sentence.  Used to decide whether a
+# "Ref standard_10nm" – a short name, not a sentence.  Used to decide whether a
 # dict is sample-keyed.
 _KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-. ]{0,63}$")
 
