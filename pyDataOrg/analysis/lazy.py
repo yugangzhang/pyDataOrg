@@ -179,9 +179,13 @@ class LazyFrames(Sequence):
         # Images and multi-file volumes alike: ``load`` means *all of them*.
         # One frame comes back as the plain 2D array, because a (1, h, w)
         # stack is a shape you would only ever index away again.
-        frames = [self[index][0] for index in range(count)]
+        read = [self[index] for index in range(count)]
+        frames = [array for array, _ in read]
         info = {"n_frames": count,
                 "files": [p.name for p in self.paths[:count]]}
+        # Frames of one sample are often taken at different magnifications.
+        if any("nm_per_pixel" in each for _, each in read):
+            info["nm_per_pixel"] = [each.get("nm_per_pixel") for _, each in read]
         if count == 1:
             info["source"] = self.paths[0].name
             return frames[0], info

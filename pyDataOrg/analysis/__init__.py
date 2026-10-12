@@ -355,9 +355,11 @@ def _plot_curves(result, ax=None):
 register_analysis(Analysis(
     key="particle_sizing",
     func=_imaging.particle_sizing,
+    kernel=_imaging.particle_sizing_method,
     label="Particle sizing from micrographs",
     modalities=("tem", "sem", "optical"),
-    description="Otsu threshold plus watershed separation, calibrated to nm.",
+    description="Background flattened, Otsu threshold, watershed for "
+                "touching particles; calibrated to nm.",
     plot=_plot_sizes,
 ))
 
@@ -385,7 +387,8 @@ register_analysis(Analysis(
 # ``docs/kernel_adapter_rule.md`` for why the split exists at all.
 from pyDataOrg.analysis.curves import CurveMetrics, measure_curve  # noqa: E402
 from pyDataOrg.analysis.imaging import (                           # noqa: E402
-    Segmentation, measure_particles, segment_micrograph, segment_particles,
+    Segmentation, flatten_background, measure_particles, particle_scale,
+    particle_sizing_method, segment_micrograph, segment_particles,
     size_from_image, size_statistics,
 )
 from pyDataOrg.analysis.peaks import PeakFitResult, fit_peaks      # noqa: E402
@@ -400,8 +403,10 @@ __all__ = [
     "run", "run_method", "targets", "batch", "batch_report", "jsonable",
     # kernels: arrays in, result out — no files, no project
     "fit_peaks", "PeakFitResult", "measure_curve", "CurveMetrics",
-    "segment_particles", "measure_particles", "size_from_image",
-    "size_statistics", "azimuthal_average", "radius_to_q",
+    "particle_scale", "flatten_background", "segment_particles",
+    "measure_particles", "size_from_image", "size_statistics",
+    "particle_sizing_method",
+    "azimuthal_average", "radius_to_q",
     "radius_to_two_theta", "weighted_mean",
     # the one-frame segmentation adapter, for checking before sizing
     "segment_micrograph", "Segmentation",

@@ -508,7 +508,13 @@ def plot_outlines(image, labels, ax=None, *, window: int = 700,
     span = float(np.ptp(tile)) or 1e-9
     normalised = (tile - tile.min()) / span
     overlay = np.dstack([normalised] * 3)
-    overlay[find_boundaries(labels[cut], mode="outer")] = list(color)
+    edges = find_boundaries(labels[cut], mode="outer")
+    # A tile much larger than it is shown would lose one-pixel lines.
+    width = int(round(max(tile.shape) / 700.0))
+    if width > 1:
+        from scipy import ndimage as ndi
+        edges = ndi.binary_dilation(edges, iterations=width - 1)
+    overlay[edges] = list(color)
 
     ax = _axes(ax, figsize=(6.0, 6.0))
     ax.imshow(overlay, interpolation="nearest")

@@ -467,6 +467,7 @@ def test_faint_blobs_are_rejected_before_strong_ones():
     some, labels_on = rejected(0.4)
     assert some == 1
     assert labels_on[24, 24] == 0
+    assert int(labels_on.max()) == expected        # the rest renumbered
 
     harsh, _ = rejected(0.99)
     assert harsh == expected + 1
@@ -481,6 +482,121 @@ def test_seed_spacing_adapts_to_particle_size():
     assert info["min_distance_auto"] is True
     assert info["min_distance_px"] > 5
     assert int(labels.max()) == expected
+
+
+def _discs(image, centres, radius, transmission):
+    """Dark discs seen in transmission: each passes a fraction of the light
+    that reaches it, whatever the film under it."""
+    yy, xx = np.ogrid[:image.shape[0], :image.shape[1]]
+    for row, column in centres:
+        inside = (yy - row) ** 2 + (xx - column) ** 2 <= radius ** 2
+        image[inside] *= transmission
+    return image
+
+
+def _uneven_film(size=512, radius=12):
+    """A film no single threshold fits: bright at the top, half as bright at
+    the bottom, a thicker band across it and a hole with a sharp edge — and
+    particles on all of it but the hole."""
+    yy, xx = np.mgrid[:size, :size].astype(float)
+    film = 220.0 - 110.0 * yy / size
+    film[300:360, :] *= 0.7                                  # thicker strand
+    hole = (yy - 70) ** 2 + (xx - 430) ** 2 <= 90 ** 2
+    film[hole] = 250.0
+    centres = [(row, column) for row in range(40, size - 30, 44)
+               for column in range(40, size - 30, 44)
+               if (row - 70) ** 2 + (column - 430) ** 2 > (90 + 2 * radius) ** 2]
+    image = _discs(film, centres, radius, 0.35)
+    return image + np.random.default_rng(1).normal(0, 2.0, image.shape), centres
+
+
+def test_an_uneven_film_is_flattened_before_the_threshold():
+    """One Otsu threshold over this frame splits bright film from dark film
+    and calls the dark half 'particles'; against the local background every
+    particle stands out and nothing else does — not the hole's edge, not the
+    thicker strand."""
+    from pyDataOrg.analysis.imaging import measure_particles, segment_particles
+
+    image, centres = _uneven_film()
+    labels, info = segment_particles(image, min_area_px=20)
+    assert info["dark_particles"] is True
+    assert int(labels.max()) == len(centres)
+    for row, column in centres:
+        assert labels[row, column] > 0
+    diameters, _ = measure_particles(labels, nm_per_pixel=1.0)
+    assert np.median(diameters) == pytest.approx(24.0, rel=0.06)
+
+
+def test_flattening_can_be_switched_off():
+    from pyDataOrg.analysis.imaging import segment_particles
+
+    image, _ = _disc_image()
+    labels, info = segment_particles(image, dark_particles=True,
+                                     min_area_px=20, background_px=0)
+    assert info["background_px"] == 0
+    assert "background_auto" not in info
+    assert int(labels.max()) == _disc_image()[1]
+
+
+def test_particles_on_dark_film_are_not_rejected_as_faint():
+    """In transmission a particle stops a fraction of the light: on film half
+    as bright it is darker by half as much, and still a particle."""
+    from pyDataOrg.analysis.imaging import segment_particles
+
+    film = np.full((256, 512), 200.0)
+    film[:, 256:] = 80.0
+    centres = [(row, column) for row in (64, 128, 192)
+               for column in (64, 128, 192, 320, 384, 448)]
+    image = _discs(film, centres, 12, 0.4)
+    image += np.random.default_rng(2).normal(0, 1.5, image.shape)
+    labels, info = segment_particles(image, dark_particles=True,
+                                     min_area_px=20)
+    assert info.get("n_rejected_contrast", 0) == 0
+    assert int(labels.max()) == len(centres)
+
+
+def test_a_ring_of_touching_particles_stays_a_ring():
+    """Filling every hole in the mask would fill the gap the ring encloses
+    and make eight particles one."""
+    from pyDataOrg.analysis.imaging import measure_particles, segment_particles
+
+    radius, n = 14, 8
+    spread = n * radius / np.pi                    # neighbours just touch
+    centres = [(128 + spread * np.sin(a), 128 + spread * np.cos(a))
+               for a in np.linspace(0, 2 * np.pi, n, endpoint=False)]
+    image = _discs(np.full((256, 256), 200.0), centres, radius, 0.35)
+    image += np.random.default_rng(3).normal(0, 2.0, image.shape)
+    labels, _ = segment_particles(image, dark_particles=True, min_area_px=20)
+    assert labels[128, 128] == 0                   # the gap is not a particle
+    assert int(labels.max()) == n
+    diameters, _ = measure_particles(labels, nm_per_pixel=1.0)
+    assert np.median(diameters) == pytest.approx(2 * radius, rel=0.1)
+
+
+def test_sizing_on_arrays_is_the_sizing_of_the_files(tmp_path):
+    """One settings dict, one answer: the method on the frames a notebook
+    holds, and the analysis run on the sample's files."""
+    from PIL import Image
+
+    from pyDataOrg.analysis import run_method
+
+    folder = tmp_path / "TEMData" / "S1"
+    folder.mkdir(parents=True)
+    image = _disc_image()[0].clip(0, 255).astype(np.uint8)
+    Image.fromarray(image).save(folder / "a.tif")
+    project = Project(tmp_path / "P")
+    sample = project.add_sample("S1")
+    sample.add_measurement(Measurement(sample_id="S1", modality="tem",
+                                       paths=[str(folder / "a.tif")]))
+
+    settings = dict(nm_per_pixel=0.5, min_circularity=0.5)
+    from_files = run("particle_sizing", sample.measurements[0],
+                     project.resolver, **settings)
+    from_arrays = run_method("particle_sizing", [image], [None], ["a.tif"],
+                             settings=settings)
+    assert from_files.values["n_particles"] > 0
+    assert from_arrays.values == pytest.approx(from_files.values)
+    assert from_arrays.diagnostics["per_image"][0]["file"] == "a.tif"
 
 
 def test_uncalibrated_images_report_pixels_not_nanometres(tmp_path):

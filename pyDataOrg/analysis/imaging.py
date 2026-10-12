@@ -17,22 +17,27 @@ append an information banner below the image — on a 2048-wide frame the file i
 2372 rows tall — and the banner is bright, uniform, and would otherwise be
 segmented as one enormous particle.
 
-Segmentation is deliberately classical: Otsu, then watershed on the distance
-transform to split particles that touch. Heavy-metal particles on a carbon film are a
-high-contrast, nearly bimodal image, which is the case classical thresholding
-handles well and where a learned model would add a dependency and an unaudited
-failure mode for nothing.
+Segmentation is deliberately classical: the background taken out, Otsu, then
+a watershed to split particles that touch. Heavy-metal particles on a carbon
+film are high-contrast once the film's own unevenness — holes, thicker
+strands, illumination fall-off — is removed, which is the case classical
+thresholding handles well and where a learned model would add a dependency
+and an unaudited failure mode for nothing. Every length it needs is read off
+the image, so one set of settings serves every magnification.
 
-Kernels and adapter (``docs/kernel_adapter_rule.md``) — four of the five
-functions here take arrays:
+Kernels and adapter (``docs/kernel_adapter_rule.md``) — the functions on
+arrays:
 
+``particle_scale(image)``           typical particle radius, and polarity
+``flatten_background(image, r)``    contrast against the local background
 ``segment_particles(image, ...)``   label map from one image
 ``measure_particles(labels, ...)``  diameters from one label map
 ``size_from_image(image, ...)``     the two above, in one call
 ``size_statistics(diameters)``      the pooled numbers
+``particle_sizing_method(images, scales, ...)``
+    the method: every frame sized, pooled, as an :class:`AnalysisResult`
 ``particle_sizing(measurement, resolver, ...)``
-    the **adapter** — reads every frame, calls the kernels, pools, and files
-    the answer as an :class:`AnalysisResult`.
+    the **adapter** — reads every frame and calls the method.
 ``segment_micrograph(measurement, resolver, ...)``
     the adapter for *checking* — one frame, segmented, returned as a
     :class:`Segmentation` for :func:`~pyDataOrg.viz.plots.plot_segmentation`
@@ -142,6 +147,131 @@ def read_micrograph(path, *, crop_banner: bool = True,
 # Segmentation
 # ---------------------------------------------------------------------------
 
+#: The background disc, in particle radii: wide enough that a particle — and
+#: two touching ones — fit inside it, narrow enough that a hole in the film,
+#: or the film's edge, does not.
+BACKGROUND_RADII = 2.5
+
+
+def _shrink(image: np.ndarray, factor: float) -> np.ndarray:
+    """*image* reduced *factor* times, averaged rather than sampled."""
+    from skimage.transform import resize
+
+    if factor <= 1.0:
+        return np.asarray(image, dtype=float)
+    shape = (max(1, round(image.shape[0] / factor)),
+             max(1, round(image.shape[1] / factor)))
+    return resize(image, shape, anti_aliasing=True, preserve_range=True)
+
+
+def particle_scale(image: np.ndarray, *, working_size: int = 512,
+                   ) -> Tuple[float, bool, Dict[str, Any]]:
+    """The typical particle radius in pixels, and whether particles are dark.
+
+    Returns ``(radius_px, dark, info)``. Read off a scale-normalised
+    Laplacian of Gaussian: a disc of radius *r* answers it most strongly at
+    σ = r/√2, a dark disc with one sign and a bright one with the other. The
+    particles are the stronger of the two answers — film texture and holes
+    in the film are blob-like too, but weakly.
+
+    Computed on a copy shrunk to about *working_size* pixels, so a 4k frame
+    costs what a small one does; if the answer is at the finest scale that
+    copy can show, it is looked for again at full size.
+    """
+    from scipy import ndimage as ndi
+
+    factor = max(1.0, max(image.shape) / float(working_size))
+    sigmas = None
+    while True:
+        small = _shrink(image, factor)
+        small = (small - small.mean()) / (small.std() or 1.0)
+        if sigmas is None:
+            sigmas = np.geomspace(1.0, max(1.5, min(small.shape) / 6.0), 24)
+        dark = np.empty(sigmas.size)
+        bright = np.empty(sigmas.size)
+        for index, sigma in enumerate(sigmas):
+            # σ²·LoG does not change when the image is shrunk, so a wide
+            # scale is measured on a smaller copy, at σ = 4.
+            step = max(1.0, sigma / 4.0)
+            response = (sigma / step) ** 2 * ndi.gaussian_laplace(
+                _shrink(small, step), sigma / step)
+            dark[index] = np.percentile(response, 99.9)
+            bright[index] = np.percentile(-response, 99.9)
+        is_dark = bool(dark.max() >= bright.max())
+        best = int(np.argmax(dark if is_dark else bright))
+        if best > 0 or factor == 1.0:
+            break
+        # Finer than the shrunk copy shows: once more at full size, up to
+        # the scale the shrunk copy started at.
+        sigmas, factor = np.geomspace(1.0, 2.0 * factor, 8), 1.0
+
+    radius = float(sigmas[best] * np.sqrt(2.0) * factor)
+    return radius, is_dark, {
+        "blob_radius_px": radius,
+        "blob_strength_dark": float(dark.max()),
+        "blob_strength_bright": float(bright.max()),
+    }
+
+
+def flatten_background(image: np.ndarray, radius_px: float, *,
+                       dark_particles: bool = True) -> np.ndarray:
+    """How much each pixel stands out from its surroundings; particles > 0.
+
+    The background is a morphological closing of the image (an opening, for
+    bright particles) with a disc of *radius_px*: anything narrower than the
+    disc — a particle — is lifted out of it, anything wider — the film, a
+    hole in it, uneven illumination — stays, steps included, so the edge of
+    a hole is not mistaken for a particle. **Kernel.**
+
+    Dark particles are seen in transmission: a particle passes a *fraction*
+    of what reaches it, so the same particle on a thicker, darker patch of
+    film is darker by less. Their contrast is therefore relative,
+    ``(background − image) / background`` — the fraction of the light the
+    particle stops. Bright particles (SEM, dark field) add signal, so theirs
+    is ``image − background``. A particle is positive either way. Computed on
+    a copy shrunk until the disc is ~15 px wide, and brought back to size.
+    """
+    from scipy import ndimage as ndi
+    from skimage.morphology import disk
+    from skimage.transform import resize
+
+    image = np.asarray(image, dtype=float)
+    factor = max(1.0, float(radius_px) / 15.0)
+    small = _shrink(image, factor)
+    footprint = disk(max(1, int(round(radius_px / factor))))
+    background = (ndi.grey_closing(small, footprint=footprint)
+                  if dark_particles
+                  else ndi.grey_opening(small, footprint=footprint))
+    background = ndi.gaussian_filter(background, 1.0)
+    if background.shape != image.shape:
+        background = resize(background, image.shape, order=1,
+                            preserve_range=True)
+    if not dark_particles:
+        return image - background
+    # Measured from zero signal; an image with negative values (a processed
+    # float frame) is measured from its own minimum instead.
+    floor = min(0.0, float(image.min()))
+    spread = float(np.ptp(image)) or 1.0
+    return (background - image) / np.maximum(background - floor,
+                                             1e-6 * spread)
+
+
+def _blob_response(contrast: np.ndarray, sigma: float) -> np.ndarray:
+    """The blob detector's answer at scale *sigma*: highest at a particle's
+    centre, lowest in the neck between two that touch."""
+    from scipy import ndimage as ndi
+    from skimage.transform import resize
+
+    sigma = max(float(sigma), 1.0)
+    factor = max(1.0, sigma / 4.0)
+    small = _shrink(contrast, factor)
+    response = -ndi.gaussian_laplace(small, sigma / factor)
+    if response.shape != contrast.shape:
+        response = resize(response, contrast.shape, order=1,
+                          preserve_range=True)
+    return response
+
+
 def segment_particles(image: np.ndarray, *,
                       dark_particles: Optional[bool] = None,
                       smooth_sigma: float = 1.0,
@@ -149,84 +279,138 @@ def segment_particles(image: np.ndarray, *,
                       split_touching: bool = True,
                       min_distance_px: Optional[int] = None,
                       min_contrast_frac: float = 0.2,
+                      background_px: Optional[float] = None,
                       ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """Label particles in a micrograph; return ``(labels, info)``.
+
+    The background is taken out first (:func:`flatten_background`), then
+    Otsu splits what stands out from what does not, and a watershed
+    separates particles that touch, seeded where each particle is both
+    furthest from its edge and darkest. Every scale it needs is read off the
+    image itself (:func:`particle_scale`, then the regions found): these
+    grids are imaged anywhere from 0.07 to 0.4 nm per pixel, and a fixed
+    number of pixels that suits one magnification is wrong at another.
 
     Parameters
     ----------
     dark_particles : bool, optional
         True for TEM, where metal absorbs and particles are darker than the
         support; False for SEM, where they are usually brighter. Left as None
-        the polarity is read off the image: particles are the minority phase
-        either side of the Otsu threshold, because a field of view that is
-        more than half particle is not one you can size anyway. Getting this
-        backwards segments the *support*, which is the single most common way
-        a sizing run produces confident nonsense, so it is worth not having to
-        remember.
+        the polarity is read off the image: particles answer a blob detector
+        more strongly than film texture or a hole in the film does. Getting
+        this backwards segments the *support*, which is the single most
+        common way a sizing run produces confident nonsense, so it is worth
+        not having to remember.
+    background_px : float, optional
+        Radius of the disc the background is estimated with. Features
+        narrower than it are particles, wider ones background. Left as None
+        it is ``BACKGROUND_RADII`` particle radii; 0 switches flattening off
+        (one threshold for the whole frame, which is right only when the
+        illumination and the film are even).
     split_touching : bool
-        Watershed on the distance transform, which separates particles that
-        merely touch. It cannot separate genuinely overlapping ones — those
-        stay merged and are usually caught by the shape filter afterwards.
+        Separate touching particles (watershed). Overlapping ones are
+        separated when each still has a darker centre; a pile that has none
+        stays merged and is usually caught by the shape filter afterwards.
     min_distance_px : int, optional
-        Minimum separation between watershed seeds. Left as None it is derived
-        from the distance transform of the mask itself, which is the only way
-        it can be right across magnifications: these grids are imaged anywhere
-        from 0.07 to 0.4 nm per pixel, and a fixed seed spacing that keeps two
-        touching particles apart at one magnification cuts a single particle in
-        half at another.
+        Minimum separation between watershed seeds. Left as None it is 0.7
+        of the particle radius read off the image.
     min_contrast_frac : float
-        Reject regions whose mean intensity is less than this fraction of the
-        way from the threshold to the darkest part of the image. A metal
+        Reject regions whose contrast is less than this fraction of the way
+        from the threshold to that of the strongest particles. A metal
         particle absorbs strongly; the carbon film's texture does not, so a
-        faint blob the size of a small particle is film, not metal. Set to 0 to keep everything.
+        faint blob the size of a small particle is film, not metal. Set to 0
+        to keep everything.
     """
     from scipy import ndimage as ndi
     from skimage.feature import peak_local_max
     from skimage.filters import gaussian, threshold_otsu
-    from skimage.morphology import remove_small_objects
+    from skimage.morphology import remove_small_holes, remove_small_objects
     from skimage.segmentation import watershed
 
     info: Dict[str, Any] = {}
+    image = np.asarray(image, dtype=float)
     work = gaussian(image, sigma=smooth_sigma, preserve_range=True)
-    threshold = float(threshold_otsu(work))
+    radius, looks_dark, scale_info = particle_scale(work)
+    info.update(scale_info)
     if dark_particles is None:
-        dark_fraction = float((work < threshold).mean())
-        dark_particles = dark_fraction <= 0.5
+        dark_particles = looks_dark
         info["dark_particles_auto"] = True
-        info["dark_area_fraction"] = dark_fraction
-    mask = work < threshold if dark_particles else work > threshold
-    info["threshold"] = threshold
     info["dark_particles"] = bool(dark_particles)
 
-    mask = ndi.binary_fill_holes(mask)
+    # At high magnification a pixel is a fraction of a nanometre and the
+    # film's grain is many pixels wide; smoothed less than ~1/15 of a
+    # radius, every particle's edge comes out ragged.
+    edge_sigma = max(float(smooth_sigma), radius / 15.0)
+    if edge_sigma > smooth_sigma:
+        work = gaussian(image, sigma=edge_sigma, preserve_range=True)
+    info["smooth_sigma_px"] = edge_sigma
+
+    if background_px is None:
+        background_px = BACKGROUND_RADII * radius
+        info["background_auto"] = True
+    info["background_px"] = float(background_px)
+    if background_px > 0:
+        contrast = flatten_background(work, background_px,
+                                      dark_particles=dark_particles)
+    else:
+        contrast = -work if dark_particles else work
+
+    threshold = float(threshold_otsu(contrast))
+    info["threshold"] = threshold
+    mask = contrast > threshold
+
+    # A particle's own holes (a bright twin boundary) are filled; the gap a
+    # ring of touching particles encloses is not — filled, the ring would be
+    # one particle.
+    mask = remove_small_holes(mask, area_threshold=max(
+        int(0.2 * np.pi * radius ** 2), 1))
     mask = remove_small_objects(mask, min_size=max(int(min_area_px), 1))
     if not mask.any():
         return np.zeros(image.shape, dtype=int), info
 
+    regions, n_regions = ndi.label(mask)
     distance = ndi.distance_transform_edt(mask)
+    # The blob detector answers clusters too, so its radius can only be too
+    # big; so can the typical region's inscribed radius when one cluster
+    # dominates the frame. The smaller of the two is the particle.
+    inscribed = ndi.maximum(distance, regions, np.arange(1, n_regions + 1))
+    radius = min(radius, float(np.median(inscribed)))
+    info["particle_radius_px"] = radius
 
     if split_touching:
         if min_distance_px is None:
-            # The typical particle radius in pixels, read off the distance
-            # transform: seeds closer than ~0.7 of it are two maxima inside
-            # one particle, not two particles.
-            radius = float(np.percentile(distance[mask], 95))
+            # Seeds closer than ~0.7 of a radius are two maxima inside one
+            # particle, not two particles.
             min_distance_px = max(3, int(round(0.7 * radius)))
             info["min_distance_auto"] = True
         info["min_distance_px"] = int(min_distance_px)
 
+        # A particle's centre is both the furthest point from its edge and,
+        # being thickest, its darkest: seeds where the sum of the two peaks
+        # find the two of a pair that overlap as well as the two that merely
+        # touch. Flooded on the same surface, they part at the neck.
+        response = _blob_response(contrast, radius / np.sqrt(2.0))
+        strongest = float(np.percentile(response[mask], 99))
+        surface = distance / max(radius, 1.0)
+        if strongest > 0:
+            surface = surface + response / strongest
         coordinates = peak_local_max(
-            distance, min_distance=max(int(min_distance_px), 1), labels=mask)
-        markers = np.zeros(distance.shape, dtype=int)
+            surface, min_distance=max(int(min_distance_px), 1),
+            labels=regions, exclude_border=False)
+        markers = np.zeros(mask.shape, dtype=int)
         for index, (row, column) in enumerate(coordinates, start=1):
             markers[row, column] = index
-        labels = (watershed(-distance, markers, mask=mask)
-                  if markers.max() else ndi.label(mask)[0])
+        labels = watershed(-surface, markers, mask=mask)
+        # A region with no seed in it is still one particle.
+        unseeded = mask & (labels == 0)
+        if unseeded.any():
+            extra, _ = ndi.label(unseeded)
+            labels = np.where(unseeded, extra + labels.max(), labels)
     else:
-        labels = ndi.label(mask)[0]
+        labels = regions
 
     if min_contrast_frac > 0:
-        labels, n_faint = _drop_faint(image, labels, threshold, dark_particles,
+        labels, n_faint = _drop_faint(contrast, labels, threshold,
                                       min_contrast_frac)
         info["n_rejected_contrast"] = n_faint
 
@@ -245,10 +429,11 @@ def _consensus(per_image: List[Dict[str, Any]], key: str) -> Any:
     return max(set(values), key=values.count)
 
 
-def _drop_faint(image: np.ndarray, labels: np.ndarray, threshold: float,
-                dark_particles: bool, min_contrast_frac: float,
-                ) -> Tuple[np.ndarray, int]:
-    """Zero out labels whose contrast against the support is too weak."""
+def _drop_faint(contrast: np.ndarray, labels: np.ndarray, threshold: float,
+                min_contrast_frac: float) -> Tuple[np.ndarray, int]:
+    """Zero out labels whose contrast is too weak: less than
+    *min_contrast_frac* of the way from *threshold* to the strongest
+    particles' (the 95th percentile inside the labels)."""
     from scipy import ndimage as ndi
 
     n_labels = int(labels.max())
@@ -256,27 +441,19 @@ def _drop_faint(image: np.ndarray, labels: np.ndarray, threshold: float,
         return labels, 0
 
     index = np.arange(1, n_labels + 1)
-    means = np.asarray(ndi.mean(image, labels, index), dtype=float)
-
-    if dark_particles:
-        extreme = float(np.percentile(image, 1))
-        depth = threshold - means
-        full = threshold - extreme
-    else:
-        extreme = float(np.percentile(image, 99))
-        depth = means - threshold
-        full = extreme - threshold
-
+    means = np.asarray(ndi.mean(contrast, labels, index), dtype=float)
+    full = float(np.percentile(contrast[labels > 0], 95)) - threshold
     if full <= 0:
         return labels, 0
 
-    faint = index[(depth / full) < min_contrast_frac]
-    if faint.size == 0:
+    weak = (means - threshold) / full < min_contrast_frac
+    if not weak.any():
         return labels, 0
 
-    remap = np.arange(n_labels + 1)
-    remap[faint] = 0
-    return remap[labels], int(faint.size)
+    # The rest renumbered 1…n, so the largest label is still the count.
+    remap = np.zeros(n_labels + 1, dtype=labels.dtype)
+    remap[index[~weak]] = np.arange(1, int((~weak).sum()) + 1)
+    return remap[labels], int(weak.sum())
 
 
 def measure_particles(labels: np.ndarray, nm_per_pixel: Optional[float], *,
@@ -467,77 +644,60 @@ def segment_micrograph(measurement, resolver, *, image_index: int = 0,
 
 
 # ---------------------------------------------------------------------------
-# Adapter: every frame of a measurement, pooled
+# Every frame of a sample, pooled: the method on arrays, then its adapter
 # ---------------------------------------------------------------------------
 
-def particle_sizing(measurement, resolver, *,
-                    dark_particles: Optional[bool] = None,
-                    nm_per_pixel: Optional[float] = None,
-                    smooth_sigma: float = 1.0,
-                    min_diameter_nm: float = 2.0,
-                    max_diameter_nm: float = 200.0,
-                    min_circularity: float = 0.6,
-                    border_margin_px: int = 2,
-                    min_distance_px: Optional[int] = None,
-                    min_contrast_frac: float = 0.2,
-                    split_touching: bool = True,
-                    max_images: Optional[int] = None,
-                    **_ignored) -> AnalysisResult:
-    """Size distribution pooled over every micrograph of one measurement.
+def particle_sizing_method(images, scales=None, names=None, *,
+                           dark_particles: Optional[bool] = None,
+                           nm_per_pixel: Optional[float] = None,
+                           smooth_sigma: float = 1.0,
+                           min_diameter_nm: float = 2.0,
+                           max_diameter_nm: float = 200.0,
+                           min_circularity: float = 0.6,
+                           border_margin_px: int = 2,
+                           min_distance_px: Optional[int] = None,
+                           min_contrast_frac: float = 0.2,
+                           split_touching: bool = True,
+                           background_px: Optional[float] = None,
+                           max_images: Optional[int] = None,
+                           ) -> AnalysisResult:
+    """Size distribution pooled over a sample's micrographs. **Kernel.**
 
-    All frames of a sample are pooled into one distribution rather than
-    averaged per image: five fields of view of the same grid are five samples
-    of one population, and averaging per-image means throws away how many
-    particles each field contributed.
+    *images* are the frames as 2D arrays, banners already cropped (what
+    :func:`read_micrograph` gives, or ``org.data(sample, "tem",
+    lazy=True).load()``); *scales* the nm per pixel each file records (None
+    for one that records none); *names* what to call each frame in the
+    per-image table. *nm_per_pixel* overrides every scale.
 
-    The size filters are expressed in nanometres and only applied when the data
-    is calibrated; on an uncalibrated image they would silently reject in the
-    wrong units, so they are converted to pixels and reported as such.
+    All frames are pooled into one distribution rather than averaged per
+    image: five fields of view of the same grid are five samples of one
+    population, and averaging per-image means throws away how many particles
+    each field contributed.
+
+    The size filters are in nanometres and only applied to calibrated
+    frames; on an uncalibrated one they would silently reject in the wrong
+    units, so its diameters stay in pixels and say so.
     """
-    result = AnalysisResult(
-        analysis="particle_sizing",
-        sample_id=measurement.sample_id,
-        measurement_id=measurement.measurement_id,
-    )
-
-    paths = measurement.resolve(resolver)
-    if not paths:
-        return AnalysisResult.failure(
-            "particle_sizing",
-            f"No images resolve for {measurement.measurement_id}",
-            sample_id=measurement.sample_id,
-            measurement_id=measurement.measurement_id,
-        )
-    if max_images is not None:
-        paths = paths[:max_images]
-
-    try:
-        import skimage  # noqa: F401
-    except ImportError as exc:
-        return AnalysisResult.failure(
-            "particle_sizing",
-            "particle sizing needs scikit-image: pip install scikit-image",
-            sample_id=measurement.sample_id,
-            measurement_id=measurement.measurement_id,
-        )
+    images = list(images)[:max_images]
+    if scales is None:
+        scales = [None] * len(images)
+    if names is None:
+        names = [f"image {index}" for index in range(len(images))]
+    result = AnalysisResult(analysis="particle_sizing")
+    if not images:
+        return AnalysisResult.failure("particle_sizing", "no images to size")
 
     all_diameters: List[np.ndarray] = []
     per_image: List[Dict[str, Any]] = []
-    scales: List[float] = []
+    calibrations: List[float] = []
     rejected_total = {"edge": 0, "size": 0, "shape": 0, "contrast": 0}
-    problems: List[str] = []
 
-    for path in paths:
-        try:
-            image, scale, info = read_micrograph(
-                path, nm_per_pixel=nm_per_pixel)
-        except Exception as exc:
-            problems.append(f"{path.name}: {type(exc).__name__}: {exc}")
-            continue
-
+    for image, recorded, name in zip(images, scales, names):
+        image = np.asarray(image, dtype=float)
+        scale = nm_per_pixel if nm_per_pixel is not None else recorded
         calibrated = scale is not None
         if calibrated:
-            scales.append(float(scale))
+            calibrations.append(float(scale))
 
         diameters, seg_info = size_from_image(
             image, scale, min_diameter=min_diameter_nm,
@@ -545,7 +705,7 @@ def particle_sizing(measurement, resolver, *,
             border_margin_px=border_margin_px,
             dark_particles=dark_particles, smooth_sigma=smooth_sigma,
             split_touching=split_touching, min_distance_px=min_distance_px,
-            min_contrast_frac=min_contrast_frac,
+            min_contrast_frac=min_contrast_frac, background_px=background_px,
         )
         for key, value in seg_info["rejected"].items():
             rejected_total[key] += value
@@ -553,27 +713,20 @@ def particle_sizing(measurement, resolver, *,
 
         all_diameters.append(diameters)
         per_image.append({
-            "file": path.name,
+            "file": str(name),
             "n_particles": int(diameters.size),
             "nm_per_pixel": scale,
             "calibrated": calibrated,
             "fov_nm": float(image.shape[1] * scale) if calibrated else None,
             "mean_nm": float(diameters.mean()) if diameters.size else float("nan"),
-            "shape": info.get("shape"),
-            "banner_rows": info.get("banner_rows", 0),
+            "shape": image.shape,
             "min_distance_px": seg_info.get("min_distance_px"),
+            "background_px": seg_info.get("background_px"),
             "dark_particles": seg_info.get("dark_particles"),
         })
 
-    if not all_diameters:
-        return AnalysisResult.failure(
-            "particle_sizing", "; ".join(problems) or "no images could be read",
-            sample_id=measurement.sample_id,
-            measurement_id=measurement.measurement_id,
-        )
-
-    pooled = np.concatenate(all_diameters) if all_diameters else np.array([])
-    calibrated = bool(scales)
+    pooled = np.concatenate(all_diameters)
+    calibrated = bool(calibrations)
     unit = "nm" if calibrated else "px"
 
     statistics = size_statistics(pooled, unit=unit)
@@ -596,10 +749,11 @@ def particle_sizing(measurement, resolver, *,
     result.diagnostics.update({
         "calibrated": calibrated,
         "unit": unit,
-        "nm_per_pixel_min": float(min(scales)) if scales else None,
-        "nm_per_pixel_max": float(max(scales)) if scales else None,
-        "magnification_spread": (float(max(scales) / min(scales))
-                                 if scales and min(scales) > 0 else None),
+        "nm_per_pixel_min": float(min(calibrations)) if calibrations else None,
+        "nm_per_pixel_max": float(max(calibrations)) if calibrations else None,
+        "magnification_spread": (float(max(calibrations) / min(calibrations))
+                                 if calibrations and min(calibrations) > 0
+                                 else None),
         "dark_particles": (dark_particles if dark_particles is not None
                            else _consensus(per_image, "dark_particles")),
         "dark_particles_auto": dark_particles is None,
@@ -609,6 +763,7 @@ def particle_sizing(measurement, resolver, *,
         "min_contrast_frac": min_contrast_frac,
         "border_margin_px": border_margin_px,
         "split_touching": split_touching,
+        "background_px": background_px,
         "n_rejected_edge": rejected_total["edge"],
         "n_rejected_size": rejected_total["size"],
         "n_rejected_shape": rejected_total["shape"],
@@ -632,15 +787,62 @@ def particle_sizing(measurement, resolver, *,
         )
     if result.message:
         notes.insert(0, result.message)
-    notes.extend(problems)
     result.message = "; ".join(notes)
+    return result
+
+
+def particle_sizing(measurement, resolver, **settings) -> AnalysisResult:
+    """Every micrograph of one measurement, read and sized.
+
+    **Adapter** over :func:`particle_sizing_method`: it reads the frames —
+    banner cropped, the calibration each file records — and files the
+    answer; the settings are the method's.
+    """
+    def failure(message: str) -> AnalysisResult:
+        return AnalysisResult.failure(
+            "particle_sizing", message, sample_id=measurement.sample_id,
+            measurement_id=measurement.measurement_id)
+
+    paths = measurement.resolve(resolver)
+    if not paths:
+        return failure(f"No images resolve for {measurement.measurement_id}")
+    paths = paths[:settings.get("max_images")]
+
+    try:
+        import skimage  # noqa: F401
+    except ImportError:
+        return failure("particle sizing needs scikit-image: "
+                       "pip install scikit-image")
+
+    images, scales, names, banners, problems = [], [], [], [], []
+    for path in paths:
+        try:
+            image, scale, info = read_micrograph(path)
+        except Exception as exc:
+            problems.append(f"{path.name}: {type(exc).__name__}: {exc}")
+            continue
+        images.append(image)
+        scales.append(scale)
+        names.append(path.name)
+        banners.append(info.get("banner_rows", 0))
+    if not images:
+        return failure("; ".join(problems) or "no images could be read")
+
+    result = particle_sizing_method(images, scales, names, **settings)
+    result.sample_id = measurement.sample_id
+    result.measurement_id = measurement.measurement_id
+    for row, banner in zip(result.diagnostics.get("per_image", []), banners):
+        row["banner_rows"] = banner
+    if problems:
+        result.message = "; ".join(filter(None, [result.message, *problems]))
     return result
 
 
 __all__ = [
     # kernels — arrays in
-    "segment_particles", "measure_particles", "size_from_image",
-    "size_statistics",
+    "particle_scale", "flatten_background", "segment_particles",
+    "measure_particles", "size_from_image", "size_statistics",
+    "particle_sizing_method",
     # adapters — a measurement in
     "particle_sizing", "segment_micrograph", "Segmentation",
     # readers

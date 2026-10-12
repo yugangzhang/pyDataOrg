@@ -757,7 +757,7 @@ call on arrays and an adapter `batch` runs:
 |---|---|---|
 | `peak_fit` | `fit_peaks(x, y)` | one or more peaks plus a constant or linear background, on any 1D curve |
 | `curve_metrics` | `measure_curve(x, y)` | height, position, area, centroid and threshold crossing in a window — no model fitted |
-| `particle_sizing` | `size_from_image(image, nm_per_pixel)` | micrographs: Otsu plus watershed, calibrated to nm from the image's own metadata |
+| `particle_sizing` | `size_from_image(image, nm_per_pixel)` | micrographs: background flattened, Otsu plus watershed, calibrated to nm from the image's own metadata |
 
 `curve_metrics`' threshold crossing is the same operation as *the potential at
 10 mA cm⁻²*, *the onset of an absorption edge* and *the lag time at which a

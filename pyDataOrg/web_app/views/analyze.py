@@ -38,12 +38,22 @@ st.caption(
     "them filterable on **Explore** and plottable on **Compare**."
 )
 
-available = workbench.analyses()
+
+def analysable(spec, measurement) -> bool:
+    """A stored result (``fit``) is the input of an analysis built on
+    results; to any other analysis it is an output, not data."""
+    return spec.applies_to(measurement) and bool(
+        spec.results_of or measurement.modality != "fit")
+
+
+measurements = workbench.measurements()
+specs = {key: analysis_api.get_analysis(key) for key in workbench.analyses()}
+specs = {key: spec for key, spec in specs.items()
+         if any(analysable(spec, m) for m in measurements)}
+available = list(specs)
 if not available:
     st.info("Nothing in the current selection can be analysed.", icon="📭")
     st.stop()
-
-specs = {key: analysis_api.get_analysis(key) for key in available}
 
 # The two settings that pick a curve out of a series; the page offers them as
 # "which curve", not as raw numbers in the form.
@@ -97,7 +107,7 @@ with st.container(border=True):
                            format_func=lambda k: specs[k].label or k)
     spec = specs[key]
 
-    usable = [m for m in workbench.measurements() if spec.applies_to(m)]
+    usable = [m for m in measurements if analysable(spec, m)]
     techniques = list(dict.fromkeys(sorted(technique_id(m) for m in usable)))
     tech = top[1].selectbox(
         "Technique", techniques, key=f"org_analysis_tech_{key}",

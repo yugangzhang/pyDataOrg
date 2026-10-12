@@ -216,6 +216,19 @@ def test_analyze_offers_technique_sample_and_curve(workbench):
     assert result.diagnostics["curve_source"].startswith("frame 2 of 10")
 
 
+def test_kept_results_are_not_offered_as_data_to_analyse(workbench):
+    """A kept result is linked as a measurement too; to an analysis of data
+    it is an output, and listing it first left the page on a result file."""
+    workbench.run("peak_fit", "Sample000001", link=True, verbose=False)
+    app = page("analyze.py", workbench)
+    app.run()
+    app.selectbox(key="org_analysis_key").select("curve_metrics").run()
+    assert_clean(app, "kept result")
+    assert app.selectbox(key="org_analysis_tech_curve_metrics").options == [
+        "UV-Vis"]
+    assert not any("No preview" in c.value for c in app.caption)
+
+
 def test_analyze_previews_the_curve_it_will_fit(workbench):
     app = page("analyze.py", workbench)
     app.run()

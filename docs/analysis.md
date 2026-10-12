@@ -12,7 +12,7 @@
 > |---|---|
 > | `fit_peaks(x, y, …)` | `peak_fit(measurement, resolver, …)` |
 > | `measure_curve(x, y, …)` | `curve_metrics(measurement, resolver, …)` |
-> | `size_from_image(image, …)`, `size_statistics(d)` | `particle_sizing(measurement, resolver, …)` |
+> | `particle_sizing_method(images, scales, …)` ← `size_from_image(image, …)`, `size_statistics(d)` | `particle_sizing(measurement, resolver, …)` |
 > | `segment_particles(image, …)` | `segment_micrograph(measurement, resolver, …)` → `Segmentation` |
 > | `azimuthal_average(image)`, `radius_to_q`, `weighted_mean` | — (reductions that used to hide inside plots) |
 > | `plot_fit`, `plot_distribution`, `plot_outlines`, `plot_series`, `plot_marked_curve`, `plot_image` | `plot_peak_fit`, `plot_size_distribution`, `plot_segmentation`, `plot_spectra`, `plot_endpoint_spectrum` |
@@ -269,23 +269,35 @@ feature entirely.
 
 ## Particle sizing
 
-Otsu threshold, then watershed on the distance transform to separate particles
-that touch. Classical rather than learned on purpose: particles on a support
-are a high-contrast, nearly bimodal image, which is exactly the case
-thresholding handles well and where a model would add a dependency and an
-unaudited failure mode for nothing.
+The background taken out, an Otsu threshold, then a watershed to separate
+particles that touch. Classical rather than learned on purpose: particles on
+a support are high-contrast once the support's own unevenness is removed,
+which is exactly the case thresholding handles well and where a model would
+add a dependency and an unaudited failure mode for nothing.
 
-Five decisions worth knowing:
+Six decisions worth knowing:
+
+**The background is taken out before the threshold.** A real film is not
+even: holes in it are bright, its strands are thicker and darker, and the
+illumination falls off across the frame. One threshold for the whole frame
+then splits bright film from dark film and calls the dark half "particles".
+`flatten_background` estimates the background with a morphological closing
+(an opening, for bright particles) by a disc a few particle radii wide —
+narrower features are lifted out of it, wider ones, steps included, stay —
+and the threshold is applied to the contrast against it. Dark particles are
+seen in transmission and stop a *fraction* of the light, so their contrast is
+relative, `(background − image) / background`: the same particle on a darker
+patch of film is darker by less, and is still a particle. `background_px=0`
+switches flattening off.
 
 **Contrast polarity is read off the image, not assumed.** TEM particles are
 dark on a light film; SEM particles are usually bright on a dark support.
 Getting it backwards segments the *support* and reports its size with exactly
 the same confidence — the worst available failure mode. Left as
-`dark_particles=None`, the particle phase is taken to be the minority one
-either side of the Otsu threshold, because a field more than half covered in
-particles is not one you can size anyway. The decision is reported in
-`diagnostics`.
-
+`dark_particles=None`, the polarity is the one a scale-normalised blob
+detector (`particle_scale`) answers more strongly: particles are compact and
+high-contrast, film texture and holes in the film are not. The decision is
+reported in `diagnostics`.
 
 **Sizes are in nm only when the file says so.** The pixel calibration is read
 from the image's own metadata — electron microscopes commonly write it into the
@@ -297,9 +309,16 @@ TIFF description tag (`XpixCal=… Unit=um`). With no calibration and no
 carries an information bar below the image; it is bright, uniform, and would
 otherwise segment as one enormous particle.
 
-**Watershed seed spacing is derived from the data**, not fixed. The same grid
-gets imaged across a wide range of magnifications, and a spacing that separates
-touching particles at one of them bisects a single particle at another.
+**Every length is read off the image**, not fixed: the particle radius (the
+blob detector's scale, or the regions' typical inscribed radius when that is
+smaller — clusters can only make either look bigger), and from it the
+background disc, the smoothing of the edges, the smallest hole filled and
+the watershed seed spacing. The same grid gets imaged across a wide range of
+magnifications, and a number of pixels that separates touching particles at
+one of them bisects a single particle at another. Seeds sit where a particle
+is both furthest from its edge and darkest (thickest), which separates two
+that overlap as well as two that touch; the gap a ring of particles encloses
+is not filled, or the ring would be one particle.
 
 **Faint blobs are rejected by contrast.** A dense particle absorbs strongly, a
 support's texture does not, so a particle-sized blob barely darker than the
