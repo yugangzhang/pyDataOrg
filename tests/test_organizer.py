@@ -295,6 +295,41 @@ def test_results_table_lists_what_has_been_analysed(org, data):
     assert "fit_r2" in table.columns
 
 
+def test_two_measurements_of_one_modality_keep_a_result_each(org, data, tmp_path):
+    """A sample measured before and after a treatment: two roles of one
+    modality, each with its own kept fit — neither replaces the other."""
+    for role in ("before", "after"):
+        org.link("S01", "waxs1d", f"{data['xrd']}/S01.dat", role=role)
+    keep = dict(modality="waxs1d", x_range=(2.5, 3.5), n_peaks=1, link=True,
+                write=False, folder=tmp_path, verbose=False)
+    first = org.batch("peak_fit", "S01", **keep)
+    assert list(first["status"]) == ["ran", "ran"]
+    again = org.batch("peak_fit", "S01", **keep)
+    assert list(again["status"]) == ["loaded", "loaded"]
+
+    fits = org["S01"].get_measurements(modality="fit")
+    assert sorted(m.role for m in fits) == ["peak_fit-waxs1d-after",
+                                            "peak_fit-waxs1d-before"]
+    before = org.result("S01", "peak_fit", role="before")
+    assert before.measurement_id.endswith("-before")
+    with pytest.raises(KeyError, match="role="):
+        org.result("S01", "peak_fit")
+    assert sorted(org.results(analysis="peak_fit")["role"]) == ["after", "before"]
+
+
+def test_a_result_rerun_after_its_file_went_is_readable_at_once(org, toy, tmp_path):
+    """The kept file is deleted; the rerun writes it again where the resolver
+    last looked and missed — it must be found, in the same session."""
+    keep = dict(link=True, write=False, folder=tmp_path, verbose=False)
+    org.batch("toy_peak", **keep)
+    for path in tmp_path.glob("*.result.npz"):
+        path.unlink()
+    assert list(org.batch("toy_peak", **keep)["status"]) == ["ran", "ran"]
+    table = org.results(analysis="toy_peak")
+    assert table["readable"].all()
+    assert "height" in table.columns
+
+
 def test_results_can_live_in_a_project_folder_beside_the_organizer(
         tmp_path, records, data):
     """Many organizers in one folder, each project's results in its own."""

@@ -223,6 +223,11 @@ class PathResolver:
                     out.append(rewritten)
         return out
 
+    def forget(self, path: object) -> None:
+        """Drop what was cached for *path* — a file just written where it
+        was looked for and missed must be found next time."""
+        self._cache.pop(_normalise(path), None)
+
     def resolve(self, path: object) -> Optional[Path]:
         """Return the first existing candidate for *path*, or None."""
         recorded = _normalise(path)

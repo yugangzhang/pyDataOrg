@@ -804,6 +804,9 @@ class Workbench:
                                             self.project.root)).as_posix()
         except ValueError:                 # another drive: nothing relative
             recorded = str(path)
+        # A rerun writes where a missing result was looked for: the resolver
+        # must not keep answering "missing".
+        self.resolver.forget(recorded)
 
         source = sample.get_measurement(result.measurement_id)
         if write and result.ok:
@@ -818,10 +821,15 @@ class Workbench:
         # The role carries the modality it was fitted on, for the same reason
         # the derived columns do: peak-fitting a UV-Vis band and then a
         # diffraction peak are two results, and a shared id would make the
-        # second quietly replace the first.
+        # second quietly replace the first. A sample with two measurements of
+        # one modality (roles "before" and "after") keeps one result of each,
+        # so the source's role goes in too.
         source_modality = source.modality if source is not None else ""
+        source_role = source.role if source is not None else ""
         role = (f"{result.analysis}-{source_modality}" if source_modality
                 else result.analysis)
+        if source_role:
+            role = f"{role}-{source_role}"
 
         return self.project.link(
             result.sample_id, "fit", recorded, stage="analysis",
@@ -832,11 +840,12 @@ class Workbench:
                   "ran_on": result.diagnostics.get("ran_on",
                                                    result.measurement_id),
                   "source_modality": source_modality,
+                  "source_role": source_role,
                   "ok": result.ok},
         )
 
     def _stored_fit(self, sample_id: str, analysis: str = "",
-                    modality: str = "") -> Measurement:
+                    modality: str = "", role: str = "") -> Measurement:
         """The one stored fit matching, or an error naming the candidates."""
         sample = self.project.get_sample(sample_id)
         if sample is None:
@@ -850,6 +859,8 @@ class Workbench:
         if modality:
             found = [m for m in found
                      if m.meta.get("source_modality") == modality]
+        if role:
+            found = [m for m in found if m.meta.get("source_role") == role]
 
         if len(found) == 1:
             return found[0]
@@ -857,6 +868,7 @@ class Workbench:
         catalogue = ", ".join(
             f"{m.meta.get('analysis', m.role)} of "
             f"{m.meta.get('source_modality', '?')}"
+            + (f" ({m.meta['source_role']})" if m.meta.get("source_role") else "")
             for m in sample.get_measurements(modality="fit"))
         if not found:
             raise KeyError(
@@ -865,19 +877,20 @@ class Workbench:
                    ". Run an analysis with link=True first."))
         raise KeyError(
             f"{sample_id} has {len(found)} stored results matching: "
-            f"{catalogue}. Narrow with modality=.")
+            f"{catalogue}. Narrow with modality= or role=.")
 
     def result(self, sample_id: str, analysis: str = "", *,
-               modality: str = ""):
+               modality: str = "", role: str = ""):
         """Load a stored result back. Returns an :class:`AnalysisResult`.
 
         ``modality=`` picks between two fits of the same analysis on one
         sample — a peak fit of the spectrum and one of the diffraction
-        pattern are two results, not one.
+        pattern are two results, not one; ``role=`` between fits of two
+        measurements of one modality (the role of the measurement fitted).
         """
         from pyDataOrg.analysis import store as _store
 
-        measurement = self._stored_fit(sample_id, analysis, modality)
+        measurement = self._stored_fit(sample_id, analysis, modality, role)
         paths = measurement.resolve(self.resolver)
         if not paths:
             raise FileNotFoundError(
@@ -911,6 +924,7 @@ class Workbench:
                     "analysis": measurement.meta.get("analysis",
                                                      measurement.role),
                     "modality": measurement.meta.get("source_modality", ""),
+                    "role": measurement.meta.get("source_role", ""),
                     "of": measurement.meta.get("source_measurement", ""),
                     "ok": measurement.meta.get("ok", True),
                     "file": paths[0].name if paths else "",
@@ -924,12 +938,13 @@ class Workbench:
         return pd.DataFrame(rows)
 
     def plot_result(self, sample_id: str, analysis: str = "", *,
-                    modality: str = "", engine: str = "static", **options):
+                    modality: str = "", role: str = "", engine: str = "static",
+                    **options):
         """Redraw a stored fit over its data — no analysis is run."""
         from pyDataOrg.viz import show as _show
 
         return _show.result_figure(
-            self.result(sample_id, analysis, modality=modality),
+            self.result(sample_id, analysis, modality=modality, role=role),
             engine=engine, **options)
 
     # ------------------------------------------------------------------
