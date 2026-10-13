@@ -356,7 +356,8 @@ def series_controls(key: str, n_curves: int, *, spacing: str = "linear",
                     expanded: bool = False) -> SeriesStyle:
     """Plot options for a stack of curves (``plot_series``), in an expander.
 
-    The keywords are the starting values. ``spacing`` picks the rows
+    The keywords are the starting values; the title starts again whenever
+    *title* changes (a page passes the sample's). ``spacing`` picks the rows
     (:func:`~pyDataOrg.viz.plots.series_indices`), or ``"listed"`` for
     rows typed in (``0, 1, 50, -1``).
     """
@@ -419,7 +420,13 @@ def series_controls(key: str, n_curves: int, *, spacing: str = "linear",
         with right:
             ylim = axis_limits(f"{key}_y", "y", ylim)
             logy = st.toggle("log y", value=False, key=f"{key}_logy")
-        title = st.text_input("title", value=title, key=f"{key}_title")
+        # A keyed box keeps its value when *title* changes (another
+        # sample), so it is reset to the new one; what is typed stays until then.
+        if (st.session_state.get(f"{key}_title_from") != title
+                or f"{key}_title" not in st.session_state):
+            st.session_state[f"{key}_title_from"] = title
+            st.session_state[f"{key}_title"] = title
+        title = st.text_input("title", key=f"{key}_title")
         figsize = figure_size(key, figsize)
 
     return SeriesStyle(rows=tuple(rows), cmap=cmap, color_range=color_range,

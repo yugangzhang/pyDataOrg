@@ -795,6 +795,30 @@ def test_the_series_controls_pick_the_rows_to_draw():
     assert app.session_state["style"].rows == (0, -1)
 
 
+def _titled_series_script():
+    import streamlit as st
+
+    from pyDataOrg.web_app.components.plot_controls import series_controls
+
+    sample = st.selectbox("Sample", ["A", "B"], key="sample")
+    st.session_state["style"] = series_controls("s", 10, title=sample)
+
+
+def test_the_series_title_follows_the_sample():
+    app = AppTest.from_function(_titled_series_script, default_timeout=60)
+    app.run()
+    assert app.session_state["style"].title == "A"
+    app.selectbox(key="sample").set_value("B").run()
+    assert app.session_state["style"].title == "B"
+
+    app.text_input(key="s_title").set_value("mine").run()      # typed: kept
+    app.selectbox(key="s_cmap").set_value("viridis").run()
+    assert app.session_state["style"].title == "mine"
+    app.selectbox(key="sample").set_value("A").run()           # until the next
+    assert not app.exception, _why(app)
+    assert app.session_state["style"].title == "A"
+
+
 # ---------------------------------------------------------------------------
 # Plugins: the general app is pyDataOrg alone
 # ---------------------------------------------------------------------------
