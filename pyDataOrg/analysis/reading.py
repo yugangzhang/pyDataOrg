@@ -69,6 +69,11 @@ def _read_text(path: Path, suffix: str) -> np.ndarray:
     corrupt file — it is the single most common shape of exported data. So a
     first line that will not parse as numbers is skipped, once. A *second*
     unparseable line is a real problem and is reported as one.
+
+    A header that starts with an empty name (``,q,I`` — what
+    ``DataFrame.to_csv()`` writes by default) announces a pandas row index in
+    the first column; when that column really does count rows it is dropped,
+    so the data's own first column comes back as column 0.
     """
     delimiter = "," if suffix == ".csv" else None
     comments = ("#", "%", ";")
@@ -78,21 +83,56 @@ def _read_text(path: Path, suffix: str) -> np.ndarray:
         pass
 
     try:
-        return np.loadtxt(path, delimiter=delimiter, comments=comments,
-                          skiprows=1, ndmin=2)
+        array = np.loadtxt(path, delimiter=delimiter, comments=comments,
+                           skiprows=1, ndmin=2)
     except ValueError as exc:
         # Comma-separated data in a ``.dat``/``.txt`` is the other common case.
+        array = None
         if delimiter is None:
             try:
-                return np.loadtxt(path, delimiter=",", comments=comments,
-                                  skiprows=1, ndmin=2)
+                delimiter = ","
+                array = np.loadtxt(path, delimiter=",", comments=comments,
+                                   skiprows=1, ndmin=2)
             except ValueError:
                 pass
-        raise ValueError(
-            f"Cannot read {path.name} as a numeric table: {exc}. "
-            f"More than one header row, or an unusual delimiter — convert it, "
-            f"or give this modality a loader of its own."
-        ) from exc
+        if array is None:
+            raise ValueError(
+                f"Cannot read {path.name} as a numeric table: {exc}. "
+                f"More than one header row, or an unusual delimiter — convert it, "
+                f"or give this modality a loader of its own."
+            ) from exc
+    return _drop_row_index(array, _first_line(path), delimiter)
+
+
+# How pandas names the column it writes for an unnamed row index.
+_INDEX_NAMES = {"", "unnamed: 0", "index"}
+
+
+def _first_line(path: Path) -> str:
+    with open(path, "r", errors="replace") as handle:
+        return handle.readline()
+
+
+def _drop_row_index(array: np.ndarray, header: str,
+                    delimiter: Optional[str]) -> np.ndarray:
+    """*array* without its first column if that column is a row counter.
+
+    Both have to hold: the header names the column as an index (empty,
+    ``Unnamed: 0`` or ``index``), and its values are consecutive integers. An
+    unnamed column holding wavelengths, say, is data and is kept.
+    """
+    if array.shape[1] < 3:
+        return array
+    names = header.strip().split(delimiter)
+    if len(names) != array.shape[1]:
+        return array
+    if names[0].strip().strip('"\'').lower() not in _INDEX_NAMES:
+        return array
+    first = array[:, 0]
+    if np.all(first == np.round(first)) and (
+            len(first) < 2 or np.all(np.diff(first) == 1)):
+        return array[:, 1:]
+    return array
 
 
 def frame_paths(measurement, resolver) -> List[Path]:

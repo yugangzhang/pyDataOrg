@@ -868,3 +868,41 @@ def test_two_header_rows_are_reported_not_guessed_at(tmp_path):
     path.write_text("instrument,LabSpec\nwavelength,absorbance\n400,0.1\n")
     with pytest.raises(ValueError, match="header row"):
         read_array(path)
+
+
+def test_a_pandas_row_index_column_is_dropped(tmp_path):
+    """``DataFrame.to_csv()`` writes ``,q,I`` and a row counter first.
+
+    Read plainly, the counter becomes x and q becomes y: every curve is a
+    straight line against its row number.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from pyDataOrg.analysis.reading import read_array
+
+    q = np.geomspace(0.005, 0.3, 50)
+    path = tmp_path / "Cir_Avg_frame.csv"
+    pd.DataFrame({"q_ca": q, "iq_ca": 1 / q}).to_csv(path)
+    assert path.read_text().startswith(",q_ca,iq_ca")
+
+    array = read_array(path)
+    assert array.shape == (50, 2)
+    assert np.allclose(array[:, 0], q)
+
+    # The Unnamed: 0 that a second round trip through pandas leaves behind.
+    pd.read_csv(path).to_csv(tmp_path / "twice.csv", index=False)
+    assert read_array(tmp_path / "twice.csv").shape == (50, 2)
+
+
+def test_an_unnamed_first_column_of_data_is_kept(tmp_path):
+    """An empty first name is only an index if the values count rows."""
+    import numpy as np
+
+    from pyDataOrg.analysis.reading import read_array
+
+    path = tmp_path / "spectrum.csv"
+    x = np.linspace(400.0, 700.0, 31)
+    np.savetxt(path, np.column_stack([x, x / 700, x / 1400]), delimiter=",",
+               header=",a,b", comments="")
+    assert read_array(path).shape == (31, 3)
