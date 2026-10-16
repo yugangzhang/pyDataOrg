@@ -88,7 +88,11 @@ setup(
             "dataorg=pyDataOrg.cli:main",
         ],
     },
-    package_data={"pyDataOrg": ["web_app/*.json", "web_app/views/*.py",
+    # web_app/ is not a package (Streamlit runs its files by path), so every
+    # file of it must be listed here; tests/test_packaging.py checks that none
+    # is missing.
+    package_data={"pyDataOrg": ["web_app/*.py", "web_app/*.json", "web_app/*.md",
+                                "web_app/components/*.py", "web_app/views/*.py",
                                 "web_app/tools/*.py"]},
     include_package_data=True,
     zip_safe=False,
