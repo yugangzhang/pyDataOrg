@@ -6,6 +6,7 @@ goes in as a **live dict** you can keep editing, and an analysis result can be
 **linked back** so it is readable again without being recomputed.
 """
 
+import json
 from pathlib import Path
 
 import matplotlib
@@ -103,6 +104,17 @@ def test_reopening_restores_everything(org, data):
     assert again.project.sample_ids() == ["S01", "S02"]
     assert again["S01"].stage("synthesis").params["operator"] == "RH"
     assert again.measurement("S01", modality="waxs1d").resolve(again.resolver)
+
+
+def test_another_packages_settings_are_kept_as_written(org):
+    """A package keeps its own settings with the organizer, under its name."""
+    assert "extensions" not in json.loads(org.save().read_text())["project"]
+    org.project.config.extensions["viewer"] = {"layout": "cms", "root": "../data"}
+    org.save()
+
+    again = Organizer(org.path)
+    assert again.project.config.extensions == {
+        "viewer": {"layout": "cms", "root": "../data"}}
 
 
 def test_metadata_is_the_record_that_was_ingested(org, records):

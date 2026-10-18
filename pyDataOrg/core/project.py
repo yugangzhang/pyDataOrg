@@ -84,9 +84,12 @@ class ProjectConfig:
         default_factory=lambda: dict(DEFAULT_MODALITY_DIRS)
     )
     updated_at: str = ""
+    # Settings another package keeps with the project, each under its own
+    # key (its name); kept as written, never read here.
+    extensions: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "name": self.name,
             "description": self.description,
             "path_aliases": [a.to_dict() for a in self.path_aliases],
@@ -95,6 +98,9 @@ class ProjectConfig:
             "modality_dirs": dict(self.modality_dirs),
             "updated_at": self.updated_at,
         }
+        if self.extensions:
+            data["extensions"] = dict(self.extensions)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "ProjectConfig":
@@ -107,6 +113,7 @@ class ProjectConfig:
             metadata_sources=list(data.get("metadata_sources", [])),
             modality_dirs=dict(data.get("modality_dirs") or DEFAULT_MODALITY_DIRS),
             updated_at=data.get("updated_at", ""),
+            extensions=dict(data.get("extensions") or {}),
         )
 
 
