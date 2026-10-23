@@ -385,7 +385,9 @@ register_analysis(Analysis(
 # Kernels, re-exported so the numeric half of every analysis is one import
 # away without having to know which module it lives in. See
 # ``docs/kernel_adapter_rule.md`` for why the split exists at all.
-from pyDataOrg.analysis.curves import CurveMetrics, measure_curve  # noqa: E402
+from pyDataOrg.analysis.curves import (                             # noqa: E402
+    CurveMetrics, measure_curve, median_curve,
+)
 from pyDataOrg.analysis.imaging import (                           # noqa: E402
     Segmentation, flatten_background, measure_particles, particle_scale,
     particle_sizing_method, segment_micrograph, segment_particles,
@@ -395,6 +397,9 @@ from pyDataOrg.analysis.peaks import PeakFitResult, fit_peaks      # noqa: E402
 from pyDataOrg.analysis.profiles import (                          # noqa: E402
     azimuthal_average, radius_to_q, radius_to_two_theta, weighted_mean,
 )
+from pyDataOrg.analysis.spheres import (                           # noqa: E402
+    SphereFit, fit_spheres, sphere_amplitude, sphere_intensity,
+)
 
 __all__ = [
     "Analysis", "ANALYSIS_REGISTRY", "AnalysisResult",
@@ -403,11 +408,13 @@ __all__ = [
     "run", "run_method", "targets", "batch", "batch_report", "jsonable",
     # kernels: arrays in, result out — no files, no project
     "fit_peaks", "PeakFitResult", "measure_curve", "CurveMetrics",
+    "median_curve",
     "particle_scale", "flatten_background", "segment_particles",
     "measure_particles", "size_from_image", "size_statistics",
     "particle_sizing_method",
     "azimuthal_average", "radius_to_q",
     "radius_to_two_theta", "weighted_mean",
+    "sphere_amplitude", "sphere_intensity", "fit_spheres", "SphereFit",
     # the one-frame segmentation adapter, for checking before sizing
     "segment_micrograph", "Segmentation",
 ]

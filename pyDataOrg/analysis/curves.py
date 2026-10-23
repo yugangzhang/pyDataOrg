@@ -29,6 +29,7 @@ Kernel/adapter pair (``docs/kernel_adapter_rule.md``):
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
@@ -36,6 +37,27 @@ import numpy as np
 
 from pyDataOrg.analysis.result import AnalysisResult
 
+
+
+# ---------------------------------------------------------------------------
+# Kernel: several curves as one
+# ---------------------------------------------------------------------------
+
+def median_curve(xs, ys, x=None) -> Tuple[np.ndarray, np.ndarray]:
+    """Several curves as one: each interpolated onto *x* (default: the first
+    curve's), then the median at every point. One curve that went wrong — a
+    spot that missed the sample, a frame with little signal — does not pull
+    it, as it would a mean. Points outside a curve's range do not count."""
+    if len(xs) != len(ys) or not len(xs):
+        raise ValueError(f"{len(xs)} x arrays for {len(ys)} curves")
+    x = np.asarray(xs[0] if x is None else x, dtype=float)
+    stack = np.vstack([
+        np.interp(x, np.asarray(xi, dtype=float), np.asarray(yi, dtype=float),
+                  left=np.nan, right=np.nan)
+        for xi, yi in zip(xs, ys)])
+    with warnings.catch_warnings():             # an all-NaN column is NaN
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return x, np.nanmedian(stack, axis=0)
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +308,6 @@ def curve_metrics(measurement, resolver, *,
 
 
 __all__ = [
-    "measure_curve", "CurveMetrics",   # kernel
+    "measure_curve", "CurveMetrics", "median_curve",   # kernels
     "curve_metrics",                   # adapter
 ]

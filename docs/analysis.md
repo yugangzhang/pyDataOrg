@@ -15,6 +15,8 @@
 > | `particle_sizing_method(images, scales, …)` ← `size_from_image(image, …)`, `size_statistics(d)` | `particle_sizing(measurement, resolver, …)` |
 > | `segment_particles(image, …)` | `segment_micrograph(measurement, resolver, …)` → `Segmentation` |
 > | `azimuthal_average(image)`, `radius_to_q`, `weighted_mean` | — (reductions that used to hide inside plots) |
+> | `fit_spheres(q, y, background, …)` ← `sphere_intensity(q, R, s)`, `sphere_amplitude(x)` | — (a project registers its own SAXS analysis on them) |
+> | `median_curve(xs, ys)` | — (several curves as one: spots, repeats) |
 > | `plot_fit`, `plot_distribution`, `plot_outlines`, `plot_series`, `plot_marked_curve`, `plot_image` | `plot_peak_fit`, `plot_size_distribution`, `plot_segmentation`, `plot_spectra`, `plot_endpoint_spectrum` |
 >
 > **Analysing and drawing are never one function.** An analysis returns a
