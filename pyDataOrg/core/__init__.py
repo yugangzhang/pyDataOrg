@@ -9,6 +9,7 @@ from pyDataOrg.core.linking import (
     link, link_folder, link_many, link_table, links_table, mount_prefix,
     unlink,
 )
+from pyDataOrg.core.merge import merge_projects
 from pyDataOrg.core.access_config import (
     AccessConfig, UserAccess, configured_extra_roots, configured_start_dir,
     discover_config_path, load_access_config,
@@ -20,7 +21,7 @@ __all__ = [
     'Sample', 'Stage', 'Measurement', 'DerivedValue', 'flatten_dict',
     'PathResolver', 'PathAlias', 'suggest_aliases',
     'link', 'link_folder', 'link_many', 'link_table', 'links_table',
-    'unlink', 'mount_prefix',
+    'unlink', 'mount_prefix', 'merge_projects',
 
     # Access configuration
     'AccessConfig', 'UserAccess', 'configured_extra_roots',

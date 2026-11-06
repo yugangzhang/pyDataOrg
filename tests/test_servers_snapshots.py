@@ -6,8 +6,8 @@ import pytest
 
 from pyDataOrg import servers
 from pyDataOrg.snapshots import (
-    FileSource, GitSource, compare_records, latest_snapshots, plan_sync,
-    read_records, snapshots, write_snapshots,
+    FileSource, GitSource, compare_records, inline_imports, latest_snapshots,
+    plan_sync, read_records, snapshots, write_snapshots,
 )
 
 
@@ -146,3 +146,45 @@ def test_a_git_source_reads_a_ref_without_touching_the_tree(tmp_path):
     assert plan.diffs["synthesis"].added == ["S1", "S2"]
     with pytest.raises(KeyError, match="no records for stage"):
         source.text("testing")
+
+
+def test_records_kept_partly_in_a_module_beside_them_snapshot_as_one_file(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "records").mkdir(parents=True)
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(repo), *args], check=True,
+                       capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.org")
+    git("config", "user.name", "t")
+    (repo / "records" / "Synthesis_dict.py").write_text(
+        "import json\n" + RECORDS_V1
+        + "from records.recent import RECENT as _recent\n"
+          "Synthesis_dict.update(_recent)\n")
+    (repo / "records" / "recent.py").write_text(
+        "from __future__ import annotations\n"
+        'RECENT = {"S3": {"sample_id": "S3", "T_C": 85}}')
+    git("add", ".")
+    git("commit", "-q", "-m", "records in two files")
+
+    source = GitSource(repo, "HEAD", {"synthesis": "records/Synthesis_dict.py"})
+    text = source.text("synthesis")
+    assert "from records.recent" not in text.replace("in place of: from", "")
+    assert "import json" in text and "__future__" not in text
+    assert sorted(read_records(text)["Synthesis_dict"]) == ["S1", "S2", "S3"]
+    plan = plan_sync(tmp_path / "P", source, tag="G", today="20260102")
+    snapshot = write_snapshots(plan)[0]
+    assert sorted(read_records(snapshot)["Synthesis_dict"]) == ["S1", "S2", "S3"]
+
+
+def test_a_module_that_would_overwrite_the_records_names_is_refused():
+    def fetch(path):
+        return "Synthesis_dict = {}\nRECENT = {}\n" if path == "records/recent.py" else None
+
+    text = RECORDS_V1 + "from records.recent import RECENT\n"
+    with pytest.raises(ValueError, match="both bind Synthesis_dict"):
+        inline_imports(text, fetch)
+    assert inline_imports("from datetime import date\n", fetch) == \
+        "from datetime import date\n"

@@ -398,7 +398,7 @@ from pyDataOrg.analysis.profiles import (                          # noqa: E402
     azimuthal_average, radius_to_q, radius_to_two_theta, weighted_mean,
 )
 from pyDataOrg.analysis.spheres import (                           # noqa: E402
-    SphereFit, fit_spheres, sphere_amplitude, sphere_intensity,
+    SphereFit, fit_spheres, sphere_amplitude, sphere_intensity, tabulated_profile,
 )
 
 __all__ = [
@@ -414,7 +414,8 @@ __all__ = [
     "particle_sizing_method",
     "azimuthal_average", "radius_to_q",
     "radius_to_two_theta", "weighted_mean",
-    "sphere_amplitude", "sphere_intensity", "fit_spheres", "SphereFit",
+    "sphere_amplitude", "sphere_intensity", "tabulated_profile", "fit_spheres",
+    "SphereFit",
     # the one-frame segmentation adapter, for checking before sizing
     "segment_micrograph", "Segmentation",
 ]

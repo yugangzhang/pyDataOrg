@@ -70,6 +70,7 @@ CASES = {
     "plot_outlines": lambda ax: plots.plot_outlines(
         _discs(), (_discs() < 100).astype(int), ax=ax),
     "plot_image": lambda ax: plots.plot_image(_discs(), ax=ax),
+    "plot_micrograph": lambda ax: plots.plot_micrograph(_discs(), 0.5, ax=ax),
     "plot_fit without residual": lambda ax: plots.plot_fit(
         X, _peak(X), _peak(X), ax=ax),
     "plot_picked_curve": lambda ax: plots.plot_picked_curve(
@@ -138,6 +139,21 @@ def test_every_public_plot_function_takes_ax():
     for name in ("curve_figure", "image_figure", "volume_figure",
                  "result_figure", "overlay"):
         assert "ax" in inspect.signature(getattr(show, name)).parameters, name
+
+
+def test_a_micrograph_has_a_round_scale_bar_measured_on_the_full_image():
+    assert plots.scale_bar_length(512.0) == 100.0
+    assert plots.scale_bar_length(240.0) == 20.0
+    assert plots.scale_bar_length(4.0) == 0.5
+    image = np.random.default_rng(0).normal(size=(3000, 2000))
+    ax = plots.plot_micrograph(image, 0.25, max_pixels=500)    # 500 nm wide
+    bar = ax.patches[0]
+    assert bar.get_width() == pytest.approx(100.0 / 0.25)      # 100 nm in px
+    assert ax.images[0].get_array().shape == (500, 334)        # strided
+    assert ax.get_xlim() == (0.0, 2000.0)                       # full-image px
+    assert any(t.get_text() == "100 nm" for t in ax.texts)
+    assert not plots.plot_micrograph(image, None, max_pixels=500).patches
+    plt.close("all")
 
 
 def test_plot_fit_splits_a_residual_strip_off_one_axes():

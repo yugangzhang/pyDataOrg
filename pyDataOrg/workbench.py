@@ -166,6 +166,24 @@ class Workbench:
     def save(self) -> Path:
         return self.project.save()
 
+    def merge(self, other, *, copy_to: Union[str, Path, None] = None,
+              copy: Sequence[str] = ("fit",), samples: Sequence[str] = ()):
+        """Fold what *other* (an organiser file, a workbench or a project)
+        holds and this one does not into this one; this one wins where they
+        differ — :func:`pyDataOrg.core.merge.merge_projects`. *other* is
+        never changed; nothing is saved. Returns the table of what was
+        added, what clashed and what could not be read.
+
+        >>> wb.merge("../Coworker/organizer.json", copy_to="Results")  # doctest: +SKIP
+        """
+        from pyDataOrg.core.merge import merge_projects
+
+        if isinstance(other, (str, Path)):
+            other = Organizer(Path(other).expanduser())
+        project = getattr(other, "project", other)
+        return merge_projects(self.project, project, copy_to=copy_to,
+                              copy=copy, samples=samples)
+
     # ------------------------------------------------------------------
     # selection
     # ------------------------------------------------------------------
@@ -1061,7 +1079,10 @@ class Workbench:
             if not paths:
                 return None                       # the file is gone
             kept = _store.peek(paths[0])
-            if kept.get("settings") != settings or not kept.get("ok", True):
+            # Compared with the defaults filled in on both sides: a result
+            # kept before a setting was added ran as its default does.
+            if kept.get("settings") is None or not kept.get("ok", True) \
+                    or spec.settings_for(kept["settings"]) != settings:
                 return None                       # other settings, or failed
             if spec.results_of:
                 inputs = measurement.resolve(self.resolver)
@@ -1082,11 +1103,18 @@ class Workbench:
         while the kept ones load::
 
             wb.batch(key, settings=wb.kept_settings(key), link=True)
+
+        Across samples, only settings this version of the analysis can run
+        count (a co-worker's results, merged in, may have been made by
+        another); a sample's own are returned as kept.
         """
         import json
         from collections import Counter
 
         from pyDataOrg.analysis import store as _store
+
+        spec = _analysis.ANALYSIS_REGISTRY.get(key)
+        known = set(spec.settings_for()) if spec is not None else None
 
         if sample_id:
             sample = self.project.get_sample(sample_id)
@@ -1102,7 +1130,7 @@ class Workbench:
             paths = [path for path in stored.resolve(self.resolver)
                      if Path(path).exists()]
             settings = _store.peek(paths[0]).get("settings") if paths else None
-            if settings:
+            if settings and (sample_id or known is None or set(settings) <= known):
                 counts[json.dumps(settings, sort_keys=True)] += 1
         return json.loads(counts.most_common(1)[0][0]) if counts else {}
 
@@ -1263,16 +1291,20 @@ class Workbench:
         """Load or run one measurement; keep and write as asked.
         Returns ``(result, status)``, status ``loaded``, ``ran`` or ``failed``."""
         spec = _analysis.get_analysis(key)
-        settings = spec.settings_for(options, strict=spec.kernel is not None)
+        settings = spec.settings_for(options)
         sample = self.project.get_sample(measurement.sample_id)
         prefix = spec.prefix_for(measurement) if prefix is None else prefix
 
+        # A result kept with these very settings loads — even one made by
+        # another version of the analysis, with settings this one has not
+        # got (a co-worker's, merged in); only a run refuses unknown names.
         result = None if overwrite else self._kept(key, measurement, settings)
         if result is not None:
             if write:
                 result.write_to(sample, prefix=prefix)
             return result, "loaded"
 
+        spec.settings_for(options, strict=spec.kernel is not None)
         result = _analysis.run(key, measurement, self.resolver, **options)
         if result.ok and write:
             result.write_to(sample, prefix=prefix)

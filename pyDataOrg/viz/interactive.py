@@ -293,6 +293,83 @@ def _ramp(values, colorscale: str) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# Points that can be clicked
+# ---------------------------------------------------------------------------
+
+def points_figure(x, y, ids: Sequence[str], *,
+                  values: Optional[Sequence[float]] = None,
+                  value_label: str = "", colorscale: str = "Viridis",
+                  hover: Optional[Dict[str, Sequence]] = None,
+                  selected: str = "", marker_size: float = 11.0,
+                  xlabel: str = "", ylabel: str = "", title: str = "",
+                  width: Optional[int] = None, height: int = 460,
+                  fig=None, row: Optional[int] = None,
+                  col: Optional[int] = None):
+    """One point per sample, each carrying its id (``customdata``), so a
+    page can tell which was clicked.
+
+    *values* colour the points along *colorscale*, with a colour bar named
+    *value_label*; a point without a value is drawn open, not dropped.
+    *hover* adds ``{label: values}`` lines to each point's tooltip;
+    *selected* is ringed. Returns the figure.
+    """
+    go = _plotly()
+    fig, own = _canvas(fig)
+    cell = _cell(row, col)
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    ids = [str(i) for i in ids]
+    hover = dict(hover or {})
+    extra = list(hover)
+    custom = [[ids[i]] + [hover[k][i] for k in extra] for i in range(len(ids))]
+    lines = "".join(f"<br>{k}: %{{customdata[{j + 1}]}}" for j, k in enumerate(extra))
+    template = (f"<b>%{{customdata[0]}}</b><br>{xlabel or 'x'}: %{{x:.4g}}"
+                f"<br>{ylabel or 'y'}: %{{y:.4g}}{lines}<extra></extra>")
+    v = (np.asarray(values, dtype=float) if values is not None
+         else np.full(len(ids), np.nan))
+    has = np.isfinite(v)
+
+    def subset(mask):
+        index = np.flatnonzero(mask)
+        return x[index], y[index], [custom[i] for i in index]
+
+    if (~has).any():
+        sx, sy, sc = subset(~has)
+        fig.add_trace(go.Scatter(
+            x=sx, y=sy, customdata=sc, mode="markers",
+            name=f"no {value_label}" if value_label else "no value",
+            marker=dict(size=marker_size, color="white",
+                        line=dict(color=INK_SOFT, width=1.5)),
+            hovertemplate=template, showlegend=bool(has.any())), **cell)
+    if has.any():
+        sx, sy, sc = subset(has)
+        fig.add_trace(go.Scatter(
+            x=sx, y=sy, customdata=sc, mode="markers", name=value_label or "value",
+            marker=dict(size=marker_size, color=v[has], colorscale=colorscale,
+                        line=dict(color="white", width=0.8),
+                        colorbar=dict(title=dict(text=value_label,
+                                                 font=dict(color=INK_SOFT, size=11)),
+                                      outlinewidth=0, thickness=14)),
+            hovertemplate=template, showlegend=False), **cell)
+    if selected in ids:
+        i = ids.index(selected)
+        fig.add_trace(go.Scatter(
+            x=[x[i]], y=[y[i]], customdata=[custom[i]], mode="markers",
+            name=selected, marker=dict(size=marker_size + 12, color="rgba(0,0,0,0)",
+                                       line=dict(color="#D55E00", width=3)),
+            hovertemplate=template, showlegend=False), **cell)
+    _layout(fig, title=title, xlabel=xlabel, ylabel=ylabel, width=width,
+            height=height, show_legend=bool((~has).any() and has.any()),
+            legend_position="top left", own=own, row=row, col=col)
+    if own:
+        fig.update_layout(clickmode="event+select", dragmode="pan",
+                          legend=dict(orientation="h", x=0.0, xanchor="left",
+                                      y=1.02, yanchor="bottom"),
+                          margin=dict(t=50 if title else 36))
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Images
 # ---------------------------------------------------------------------------
 
@@ -599,6 +676,7 @@ def surface_figure(array: np.ndarray, *, colorscale: str = "Viridis",
 
 __all__ = [
     "COLORSCALES", "MARKERS", "DASHES", "VOLUME_MODES", "MAX_VOXELS",
-    "curves_figure", "image_figure", "volume_figure", "surface_figure",
+    "curves_figure", "points_figure", "image_figure", "volume_figure",
+    "surface_figure",
     "downsample",
 ]

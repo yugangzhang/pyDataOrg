@@ -503,6 +503,57 @@ def test_a_mistyped_setting_is_refused_not_ignored(org, toy):
                                 x_range=(2.5, 3.5)).settings
 
 
+def test_a_result_kept_by_another_version_loads_and_new_ones_run_ours(
+        org, toy, tmp_path):
+    """A co-worker's result, merged in, made by a version of the analysis
+    with a setting this one has not got: loaded as kept, never re-run; the
+    settings new samples run with are ones this version knows."""
+    keep = dict(link=True, write=False, folder=tmp_path, verbose=False)
+    for sample in ("S01", "S02"):                         # made by theirs
+        theirs = org.run("toy_peak", sample, settings={"scale": 5.0})
+        theirs.settings = {**theirs.settings, "reference": "N2H4"}
+        org.link_result(theirs, folder=tmp_path, write=False)
+    assert org.kept_settings("toy_peak") == {}            # none we can run
+    kept = org.kept_settings("toy_peak", "S01")
+    assert kept["reference"] == "N2H4"
+    assert org.run("toy_peak", "S01", settings=kept).values["height"] == \
+        pytest.approx(theirs.values["height"])
+    assert toy == ["S01", "S02"]                          # loaded, not run
+    with pytest.raises(TypeError, match="no setting 'reference'"):
+        org.run("toy_peak", "S01", settings=kept, overwrite=True)
+
+    org.batch("toy_peak", "S02", settings={"scale": 2.0}, **keep)   # ours
+    assert org.kept_settings("toy_peak") == {"scale": 2.0, "window": [2.0, 4.0]}
+
+
+def test_a_result_kept_before_a_setting_was_added_loads(org, toy, tmp_path):
+    """A setting added to an analysis since a result was kept: the result
+    ran as the new setting's default does, so it loads — and is run again
+    once the setting is asked for at another value."""
+    kept = org.run("toy_peak", "S01", settings={"scale": 2.0})
+    kept.settings = {"scale": 2.0}                        # before "window"
+    org.link_result(kept, folder=tmp_path, write=False)
+    assert toy == ["S01"]
+    org.run("toy_peak", "S01", settings={"scale": 2.0}, verbose=False)
+    org.run("toy_peak", "S01", settings={"scale": 2.0, "window": (2.0, 4.0)},
+            verbose=False)
+    assert toy == ["S01"]                                 # loaded, twice
+    org.run("toy_peak", "S01", settings={"scale": 2.0, "window": (2.5, 3.5)},
+            verbose=False)
+    assert toy == ["S01", "S01"]                          # another window: ran
+
+
+def test_another_resolver_can_be_handed_to_the_project(org):
+    from pyDataOrg.core.pathmap import PathResolver
+
+    own = org.resolver
+    other = PathResolver(base=org.project.root)
+    org.project.resolver = other
+    assert org.resolver is other
+    org.project.resolver = None                           # its own again
+    assert org.resolver is not other and org.resolver.aliases == own.aliases
+
+
 def test_run_method_is_run_on_arrays_you_hold(org, toy):
     from pyDataOrg.analysis.peaks import load_curve
 

@@ -548,6 +548,75 @@ def plot_segmentation(segmentation, ax=None, *, window: int = 700,
                         f"{segmentation.n_particles} particles, {scale_text}"))
 
 
+#: Scale-bar lengths: 1, 2 or 5 times a power of ten.
+_BAR_STEPS = (1.0, 2.0, 5.0)
+
+
+def scale_bar_length(width: float, fraction: float = 0.2) -> float:
+    """The round length (1, 2 or 5 × 10ⁿ) nearest below *fraction* of
+    *width* — the scale bar a reader expects on an image *width* wide.
+    Display arithmetic: nothing to keep."""
+    if not np.isfinite(width) or width <= 0:
+        raise ValueError(f"width must be positive, got {width}")
+    target = fraction * width
+    power = 10.0 ** np.floor(np.log10(target))
+    return max(step * power for step in _BAR_STEPS if step * power <= target)
+
+
+def plot_micrograph(image, nm_per_pixel: Optional[float] = None, ax=None, *,
+                    bar_nm: Optional[float] = None,
+                    percentile: Tuple[float, float] = (0.5, 99.5),
+                    cmap: str = "gray", max_pixels: int = 1024,
+                    title: str = "", bar_color: str = "white",
+                    figsize: Tuple[float, float] = (5.0, 5.0)):
+    """A micrograph as it was taken, with a scale bar. **Kernel.**
+
+    *image* is the 2D array (:func:`~pyDataOrg.analysis.imaging.read_micrograph`
+    reads one, banner cropped and calibrated). With *nm_per_pixel* a bar of
+    *bar_nm* nanometres (default a round fifth of the field,
+    :func:`scale_bar_length`) is drawn in the lower right, labelled; without
+    it the image is drawn alone. Display arithmetic only: the contrast is
+    clipped at *percentile*, and an image wider than *max_pixels* is strided
+    for drawing (the bar is measured on the full image). Returns the Axes.
+    """
+    from matplotlib import patheffects
+    from matplotlib.patches import Rectangle
+
+    array = np.asarray(image, dtype=float)
+    if array.ndim != 2:
+        raise ValueError(f"expected a 2D array, got shape {array.shape}")
+    ax = _axes(ax, figsize=figsize)
+    step = max(1, int(np.ceil(max(array.shape) / max_pixels))) if max_pixels else 1
+    shown = array[::step, ::step]
+    finite = shown[np.isfinite(shown)]
+    lo, hi = (np.percentile(finite, percentile) if finite.size else (0.0, 1.0))
+    height, width = array.shape
+    # Drawn on the full image's pixel grid, so the bar is measured there.
+    ax.imshow(shown, cmap=cmap, vmin=lo, vmax=hi, interpolation="antialiased",
+              extent=(0, width, height, 0))
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    if nm_per_pixel:
+        length = bar_nm or scale_bar_length(width * nm_per_pixel)
+        pixels = length / nm_per_pixel
+        pad = 0.04 * width
+        thick = max(0.012 * height, 2.0)
+        x0, y0 = width - pad - pixels, height - pad - thick
+        # Outlined, so it reads on a bright film and on a dark one alike.
+        ax.add_patch(Rectangle((x0, y0), pixels, thick, facecolor=bar_color,
+                               edgecolor="black", lw=0.8))
+        text = f"{length:g} nm" if length < 1000 else f"{length / 1000:g} µm"
+        ax.text(x0 + pixels / 2, y0 - 0.6 * thick, text, color=bar_color,
+                ha="center", va="bottom", fontsize=10, fontweight="bold",
+                path_effects=[patheffects.withStroke(linewidth=2.5,
+                                                     foreground="black")])
+    if title:
+        ax.set_title(title, color=INK, fontsize=10, loc="left")
+    return ax
+
+
 def plot_frame_map(t, x, frames, ax=None, *,
                    xlim: Optional[Tuple[float, float]] = None,
                    tlim: Optional[Tuple[float, float]] = None,
@@ -889,6 +958,7 @@ __all__ = [
     # kernels — arrays in, Axes out
     "plot_curves", "plot_fit", "plot_distribution", "plot_outlines",
     "plot_series", "plot_marked_curve", "plot_picked_curve", "plot_image",
+    "plot_micrograph", "scale_bar_length",
     "series_indices", "SERIES_SPACINGS",
     # adapters — a finished result in
     "plot_peak_fit", "plot_size_distribution", "plot_segmentation",

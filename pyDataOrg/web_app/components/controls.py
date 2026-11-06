@@ -178,6 +178,45 @@ def metadata(workbench, sample: str, stages: Sequence[str], key: str, *,
 # Plot options
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Clicking a point
+# ---------------------------------------------------------------------------
+
+def clickable(figure, key: str) -> None:
+    """A Plotly figure whose points can be clicked (:func:`clicked` reads
+    the click) — e.g. :func:`pyDataOrg.viz.interactive.points_figure`."""
+    st.plotly_chart(figure, key=key, on_select="rerun", selection_mode="points",
+                    theme=None,
+                    config={"displaylogo": False,
+                            "modeBarButtonsToRemove": ["lasso2d", "select2d"]})
+
+
+def clicked(key: str) -> Optional[str]:
+    """The id of the point just clicked on the figure *key*, or ``None``.
+
+    A click counts once: the figure keeps its selection from run to run, and
+    a choice made since (in a select box) must not be taken back by it.
+    Call it before the widgets the click should set are drawn.
+    """
+    try:
+        points = st.session_state[key]["selection"]["points"]
+    except (KeyError, TypeError):
+        points = []
+    now = None
+    for point in points:
+        custom = point.get("customdata")
+        if isinstance(custom, (list, tuple)):
+            custom = custom[0] if custom else None
+        if isinstance(custom, str) and custom:
+            now = custom
+            break
+    seen = f"{key}_seen"
+    if now == st.session_state.get(seen):
+        return None
+    st.session_state[seen] = now
+    return now
+
+
 def _pick(column, label: str, options: List[str], value: str, key: str):
     return column.selectbox(label, options,
                             index=options.index(value) if value in options
@@ -253,4 +292,5 @@ def by_sample(table, key: str, *, ys: List[str], xs: List[str],
 
 
 __all__ = ["show", "choices", "settings", "is_kept", "keep_buttons",
-           "metadata", "axes_options", "apply_axes", "by_sample"]
+           "metadata", "clickable", "clicked", "axes_options", "apply_axes",
+           "by_sample"]

@@ -240,6 +240,13 @@ class Project:
             )
         return self._resolver
 
+    @resolver.setter
+    def resolver(self, resolver: Optional[PathResolver]) -> None:
+        """Resolve through *resolver* instead — one that prefers some copies,
+        say; ``None`` builds the project's own again on the next use. A new
+        alias (:meth:`add_alias`) drops it."""
+        self._resolver = resolver
+
     def add_alias(self, prefix: str, candidates, label: str = "") -> PathAlias:
         """Map a recorded path *prefix* onto local *candidates*."""
         if isinstance(candidates, (str, Path)):

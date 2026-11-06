@@ -27,10 +27,16 @@ steps, each one call::
 
 Nothing here edits the source or fetches from a remote: a git ref is read as
 it stands (``git fetch`` there first for the very latest).
+
+A records file may keep part of its records in a module beside it
+(``from records.Synthesis_recent import RECENT``). Read from git, such a
+module is written into the text in place of its import
+(:func:`inline_imports`), so a snapshot stays one file that reads alone.
 """
 
 from __future__ import annotations
 
+import ast
 import datetime as _dt
 import json
 import re
@@ -38,7 +44,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Sequence, Union
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Union
 
 METADATA_DIR = "MetaData"
 
@@ -118,6 +124,74 @@ def read_records(source: Union[str, Path]) -> Dict[str, Dict[str, dict]]:
         path = Path(scratch) / "records.py"
         path.write_text(str(source), encoding="utf-8")
         return find_sample_dicts(path)
+
+
+def _bound(tree: ast.Module) -> set:
+    """The names a module's top level binds (not inside a function, class
+    or comprehension)."""
+    names = set()
+
+    def visit(node):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+            return
+        if isinstance(node, (ast.Lambda, ast.ListComp, ast.SetComp,
+                             ast.DictComp, ast.GeneratorExp)):
+            return
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update((a.asname or a.name).split(".")[0] for a in node.names)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    for statement in tree.body:
+        visit(statement)
+    return names
+
+
+def inline_imports(text: str, fetch: Callable[[str], Optional[str]], *,
+                   _seen: Sequence[str] = ()) -> str:
+    """*text* with each top-level ``from <module> import <names>`` whose
+    module *fetch* finds replaced by that module's own text.
+
+    *fetch* takes the module's path (``"records/Synthesis_recent.py"`` for
+    ``records.Synthesis_recent``) and returns its text, or None when it is
+    not one of the source's own (``datetime``, ``numpy``): that import is
+    left as it is. A module that binds a name the file binds too is refused
+    rather than let one overwrite the other.
+    """
+    tree = ast.parse(text)
+    lines = text.splitlines(keepends=True)
+    for node in reversed(tree.body):
+        if not (isinstance(node, ast.ImportFrom) and node.module and not node.level):
+            continue
+        path = node.module.replace(".", "/") + ".py"
+        if path in _seen:
+            raise ValueError(f"{path} imports itself through {' → '.join(_seen)}")
+        found = fetch(path)
+        if found is None:
+            continue
+        found = inline_imports(found, fetch, _seen=(*_seen, path))
+        inner = ast.parse(found)
+        imported = {a.name for a in node.names}
+        clash = (_bound(inner) - imported) & _bound(tree)
+        if clash:
+            raise ValueError(f"cannot write {path} into the records: both bind "
+                             + ", ".join(sorted(clash)))
+        # A __future__ import is only allowed at the top of a file.
+        kept = found.splitlines(keepends=True)
+        for statement in reversed(inner.body):
+            if isinstance(statement, ast.ImportFrom) and statement.module == "__future__":
+                del kept[statement.lineno - 1:statement.end_lineno]
+        statement = "".join(lines[node.lineno - 1:node.end_lineno]).strip()
+        block = [f"# >>> {path}, written here in place of: {statement}\n",
+                 *kept, "" if not kept or kept[-1].endswith("\n") else "\n",
+                 *(f"{a.asname} = {a.name}\n" for a in node.names
+                   if a.asname and a.asname != a.name),
+                 f"# <<< end of {path}\n"]
+        lines[node.lineno - 1:node.end_lineno] = block
+    return "".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +318,9 @@ class GitSource(RecordSource):
     """Records in a git repository at a ref: ``{stage: path in the repo}``.
 
     Read with ``git show <ref>:<path>`` — the working tree is never touched,
-    so the ref can be a remote-tracking branch nobody has checked out.
+    so the ref can be a remote-tracking branch nobody has checked out. A
+    module of the repository the records import from is written into their
+    text (:func:`inline_imports`), as it stands at the same ref.
     """
 
     def __init__(self, repo: Union[str, Path], ref: str,
@@ -252,6 +328,7 @@ class GitSource(RecordSource):
         self.repo = Path(repo).expanduser()
         self.ref = ref
         self.files = dict(files)
+        self._tree: Optional[set] = None
 
     def _git(self, *args: str) -> str:
         try:
@@ -266,7 +343,15 @@ class GitSource(RecordSource):
         return done.stdout
 
     def text(self, stage: str) -> str:
-        return self._git("show", f"{self.ref}:{self._check(stage)}")
+        return inline_imports(self._git("show", f"{self.ref}:{self._check(stage)}"),
+                              self._module)
+
+    def _module(self, path: str) -> Optional[str]:
+        """The text of *path* at the ref, None when the ref has no such file."""
+        if self._tree is None:
+            self._tree = set(self._git("ls-tree", "-r", "--name-only",
+                                       self.ref).splitlines())
+        return self._git("show", f"{self.ref}:{path}") if path in self._tree else None
 
     def revision(self) -> Revision:
         line = self._git("log", "-1", "--format=%h%x1f%ci%x1f%s",
@@ -375,7 +460,7 @@ def write_snapshots(plan: SyncPlan, *, force: bool = False) -> List[Path]:
 
 __all__ = [
     "METADATA_DIR", "SNAPSHOT_RE", "Snapshot", "snapshots", "latest_snapshots",
-    "read_records", "RecordDiff", "compare_records",
+    "read_records", "inline_imports", "RecordDiff", "compare_records",
     "Revision", "RecordSource", "FileSource", "GitSource",
     "SyncPlan", "snapshot_path", "plan_sync", "write_snapshots",
 ]

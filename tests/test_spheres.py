@@ -5,6 +5,7 @@ import pytest
 
 from pyDataOrg.analysis import (
     fit_spheres, median_curve, sphere_amplitude, sphere_intensity,
+    tabulated_profile,
 )
 
 Q = np.geomspace(0.006, 0.3, 900)                 # 1/Å
@@ -38,6 +39,42 @@ def test_a_spread_of_radii_fills_the_minima_and_keeps_the_forward_value():
     assert smeared[first_zero] > 100 * sharp[first_zero]
 
 
+def test_a_tabulated_sphere_is_the_sphere():
+    """A shape's profile from a table stands in for the sphere's: the
+    sphere's own, tabulated, gives the sphere's intensity back; beyond the
+    table it falls as Porod's x^-4, below it it is 1."""
+    x = np.geomspace(1e-2, 300.0, 3000)
+    table = tabulated_profile(x, 7.0 * sphere_amplitude(x) ** 2 + 1e-30)
+    smeared = sphere_intensity(Q, 50.0, 0.15)
+    assert sphere_intensity(Q, 50.0, 0.15, profile=table) == pytest.approx(
+        smeared, rel=2e-3)
+    assert table(np.array([1e-4]))[0] == 1.0
+    far = table(np.array([600.0, 1200.0]))
+    assert far[0] / far[1] == pytest.approx(16.0)
+    assert far[0] == pytest.approx(9.0 / 600.0 ** 4 / 2, rel=0.1)   # ⟨F²⟩ ≈ 9/(2x⁴)
+    with pytest.raises(ValueError, match="increasing"):
+        tabulated_profile(x[::-1], x)
+
+
+def test_another_shape_is_fitted_as_the_sphere_is():
+    """A cube (its ⟨F²⟩ averaged over orientations, tabulated) is fitted by
+    the same fit with its profile — and the size found is the cube's."""
+    x = np.geomspace(1e-2, 300.0, 1500)
+    k = np.random.default_rng(1).normal(size=(4000, 3))
+    k /= np.linalg.norm(k, axis=1, keepdims=True)
+    p = np.mean(np.prod(np.sinc(np.outer(x, k.ravel()).reshape(len(x), -1, 3)
+                                / np.pi), axis=2) ** 2, axis=1)
+    cube = tabulated_profile(x, p)
+    rng = np.random.default_rng(0)
+    y = (2000.0 * sphere_intensity(Q, 40.0, 0.1, profile=cube) + solvent(Q)) \
+        * np.exp(rng.normal(0.0, 0.01, Q.size))
+    fit = fit_spheres(Q, y, solvent(Q), q_min=0.007, q_max=0.25, profile=cube)
+    assert fit.radius == pytest.approx(40.0, rel=0.02)
+    assert fit.rel_sigma == pytest.approx(0.1, abs=0.02)
+    as_spheres = fit_spheres(Q, y, solvent(Q), q_min=0.007, q_max=0.25)
+    assert as_spheres.rms > 1.5 * fit.rms
+
+
 def test_the_radius_must_be_positive():
     with pytest.raises(ValueError, match="positive"):
         sphere_intensity(Q, 0.0)
@@ -53,6 +90,21 @@ def test_the_fit_finds_the_radius_spread_and_background_put_in():
     assert 0 < fit.radius_err < 3.0
     assert fit.rms < 0.02
     assert not fit.notes
+
+
+def test_the_fit_says_what_it_fitted_within_which_bounds():
+    fit = fit_spheres(Q, curve(60.0, 0.1), solvent(Q), q_min=0.007,
+                      q_max=0.25, radius_bounds=(10.0, 400.0), max_rel_sigma=0.3)
+    assert fit.free == ("scale", "radius", "rel_sigma", "power_amplitude",
+                        "power_exponent", "background_scale")
+    assert set(fit.errors) == set(fit.bounds) == set(fit.free)
+    assert fit.bounds["radius"] == (10.0, 400.0)
+    assert fit.bounds["rel_sigma"] == (0.01, 0.3)
+    assert fit.errors["radius"] == pytest.approx(fit.radius_err)
+    held = fit_spheres(Q, curve(60.0, 0.1), solvent(Q), q_min=0.007,
+                       q_max=0.25, power_law=False, background_bounds=(1, 1))
+    assert held.free == ("scale", "radius", "rel_sigma")
+    assert held.background_scale == 1.0
 
 
 def test_a_low_q_rise_goes_to_the_power_law_not_to_the_radius():
@@ -76,6 +128,37 @@ def test_one_start_is_enough_near_the_answer():
     fit = fit_spheres(Q, curve(60.0, 0.1), solvent(Q), q_min=0.007,
                       q_max=0.25, radius_start=55.0)
     assert fit.radius == pytest.approx(60.0, rel=0.02)
+
+
+def test_a_fit_set_by_hand_starts_holds_and_bounds_as_told():
+    """Where the fit starts, which parameters are held and where each may
+    go, by name; every one held is the model at those values, not a fit."""
+    y = curve(radius=60.0, rel_sigma=0.1, power=5.0)
+    free = fit_spheres(Q, y, solvent(Q))
+    held = fit_spheres(Q, y, solvent(Q), fixed={"rel_sigma": 0.2},
+                       start={"radius": 50.0})
+    assert held.rel_sigma == 0.2 and held.held == {"rel_sigma": 0.2}
+    assert "rel_sigma" not in held.free and np.isnan(held.rel_sigma_err)
+    assert held.rms > free.rms                            # held off its best
+    bounded = fit_spheres(Q, y, solvent(Q), bounds={"radius": (30.0, 45.0)})
+    assert bounded.radius == pytest.approx(45.0, rel=1e-3)
+    assert "radius" in bounded.at_bound and bounded.bounds["radius"] == (30.0, 45.0)
+
+    values = {n: getattr(free, n) for n in ("scale", "radius", "rel_sigma",
+                                            "power_amplitude", "power_exponent",
+                                            "background_scale")}
+    model = fit_spheres(Q, y, solvent(Q), fixed=values)
+    assert model.free == () and model.rms == pytest.approx(free.rms, rel=1e-6)
+    assert model.model == pytest.approx(free.model)
+    with pytest.raises(ValueError, match="no parameter 'diameter'"):
+        fit_spheres(Q, y, solvent(Q), start={"diameter": 100.0})
+    with pytest.raises(ValueError, match="low bound"):
+        fit_spheres(Q, y, solvent(Q), bounds={"radius": (50.0, 40.0)})
+
+
+def test_a_background_held_as_measured_is_said_to_be_held():
+    fit = fit_spheres(Q, curve(), solvent(Q), background_bounds=(1.0, 1.0))
+    assert fit.held == {"background_scale": 1.0} and fit.background_scale == 1.0
 
 
 def test_without_a_background_a_constant_can_take_its_place():

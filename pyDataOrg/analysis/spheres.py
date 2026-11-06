@@ -16,9 +16,16 @@ in 1/Å).
 ``sphere_amplitude(x)``            F(x) = 3 (sin x − x cos x) / x³
 ``sphere_intensity(q, R, s)``      ⟨V² F²(qR)⟩ / ⟨V²⟩ over Gaussian radii of
                                    mean *R* and relative spread *s*; 1 at q = 0
+``tabulated_profile(x, p)``        another shape's orientation-averaged
+                                   ⟨F²⟩(x = qR), from a table, as a callable
 ``fit_spheres(q, y, background)``  *R* and *s*, with the measured background
                                    scaled in and a low-q power law (aggregates)
 =================================  ==========================================
+
+Any compact shape fits the same way: its intensity at a size *R* is
+``V(R)² · p(qR)`` (every length scales with *R*), so ``sphere_intensity`` and
+``fit_spheres`` take the shape's *profile* ``p(x)`` — 1 at x = 0 — and do the
+rest unchanged; spheres (``sphere_amplitude(x)²``) by default.
 
 The fit runs on the logarithm of the intensity, binned evenly in log q, so
 each decade of q counts alike and the steep low-q end does not outweigh the
@@ -28,7 +35,8 @@ oscillations that pin the radius down.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from types import SimpleNamespace
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -46,22 +54,63 @@ def sphere_amplitude(x) -> np.ndarray:
     return np.where(small, 1.0 - x ** 2 / 10.0, out)
 
 
+def _sphere_profile(x) -> np.ndarray:
+    return sphere_amplitude(x) ** 2
+
+
 def sphere_intensity(q, radius: float, rel_sigma: float = 0.0, *,
-                     n_points: int = 41) -> np.ndarray:
+                     n_points: int = 41,
+                     profile: Optional[Callable] = None) -> np.ndarray:
     """The form factor of spheres whose radii are Gaussian (number-weighted)
     with mean *radius* and standard deviation ``rel_sigma × radius``, cut at
     zero: ``Σ n V² F²(qR) / Σ n V²``, so 1 at q = 0. *radius* is in the
-    inverse unit of *q*."""
+    inverse unit of *q*.
+
+    *profile* puts another shape in the sphere's place: ``p(x)``, its
+    orientation-averaged form factor at ``x = q × size``, 1 at 0
+    (:func:`tabulated_profile`); *radius* is then that shape's size."""
     q = np.asarray(q, dtype=float)
     if radius <= 0:
         raise ValueError(f"radius must be positive, got {radius}")
+    shape = _sphere_profile if profile is None else profile
     if rel_sigma <= 0:
-        return sphere_amplitude(q * radius) ** 2
+        return shape(q * radius)
     lo = max(radius * (1.0 - _TAILS * rel_sigma), radius * 1e-3)
     radii = np.linspace(lo, radius * (1.0 + _TAILS * rel_sigma), int(n_points))
     weight = np.exp(-0.5 * ((radii - radius) / (rel_sigma * radius)) ** 2) * radii ** 6
-    f2 = sphere_amplitude(np.outer(q, radii)) ** 2
+    f2 = shape(np.outer(q, radii))
     return f2 @ weight / weight.sum()
+
+
+def tabulated_profile(x, p) -> Callable:
+    """A shape's form-factor profile from a table: ``p`` at the points
+    ``x = q × size`` (increasing, positive), normalised to 1 at the
+    smallest *x* — orientation-averaged ⟨F²⟩ of a cube, an octahedron …,
+    computed once by whatever package knows the shape. The callable
+    interpolates in log–log; below the table it is 1 (Guinier's plateau, the
+    table starting where p ≈ 1); beyond it falls as x⁻⁴ (Porod) from the
+    table's mean x⁴p over its last decade."""
+    x = np.asarray(x, dtype=float)
+    p = np.asarray(p, dtype=float)
+    if x.ndim != 1 or x.shape != p.shape or len(x) < 3 or np.any(np.diff(x) <= 0) \
+            or x[0] <= 0 or np.any(~np.isfinite(p)) or np.any(p <= 0):
+        raise ValueError("a profile table needs increasing x > 0 and p > 0, alike in length")
+    p = p / p[0]
+    lx, lp = np.log(x), np.log(p)
+    tail = x >= x[-1] / 10.0
+    porod = float(np.mean(x[tail] ** 4 * p[tail]))
+
+    def profile(values) -> np.ndarray:
+        values = np.asarray(values, dtype=float)
+        out = np.ones_like(values)
+        inside = (values > x[0]) & (values <= x[-1])
+        out[inside] = np.exp(np.interp(np.log(values[inside]), lx, lp))
+        beyond = values > x[-1]
+        out[beyond] = porod / values[beyond] ** 4
+        return out
+
+    profile.x_max = float(x[-1])
+    return profile
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +129,13 @@ class SphereFit:
     sample's intensity (spheres + power law) at the window's low end;
     ``contrast`` the most the sample scatters over its background, as a
     multiple of it (NaN with no background).
+
+    ``free`` names the parameters that were fitted, ``held`` those held at
+    a value (asked for — ``fixed`` — or a background scale whose bounds are
+    one number); the rest the curve had no use for (no power law, no
+    constant). ``errors`` and ``bounds`` give each fitted one's standard
+    error and the ``(low, high)`` it was allowed — so a reader can see how
+    the fit was set up and which value sits at a limit (``at_bound``).
     """
 
     radius: float
@@ -102,6 +158,10 @@ class SphereFit:
     background: np.ndarray = field(repr=False)
     at_bound: Tuple[str, ...] = ()
     notes: List[str] = field(default_factory=list)
+    free: Tuple[str, ...] = ()
+    errors: Dict[str, float] = field(default_factory=dict)
+    bounds: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+    held: Dict[str, float] = field(default_factory=dict)
 
     @property
     def diameter(self) -> float:
@@ -110,6 +170,12 @@ class SphereFit:
     @property
     def diameter_err(self) -> float:
         return 2.0 * self.radius_err
+
+
+#: The parameters of :func:`fit_spheres`, by name — what *start*, *fixed*
+#: and *bounds* take.
+PARAMETERS = ("scale", "radius", "rel_sigma", "power_amplitude",
+              "power_exponent", "background_scale", "constant")
 
 
 def _binned(q: np.ndarray, y: np.ndarray, b: Optional[np.ndarray], n_bins: int):
@@ -134,7 +200,11 @@ def fit_spheres(q, y, background=None, *,
                 background_bounds: Tuple[float, float] = (0.7, 1.3),
                 constant: bool = False,
                 n_starts: int = 8, radius_start: Optional[float] = None,
-                n_bins: int = 160, n_points: int = 41) -> SphereFit:
+                n_bins: int = 160, n_points: int = 41,
+                profile: Optional[Callable] = None,
+                start: Optional[Dict[str, float]] = None,
+                fixed: Optional[Dict[str, float]] = None,
+                bounds: Optional[Dict[str, Tuple[float, float]]] = None) -> SphereFit:
     """Fit polydisperse spheres to the curve ``(q, y)``.
 
     Parameters
@@ -159,8 +229,20 @@ def fit_spheres(q, y, background=None, *,
         every multiple of its size, so one start can stall in the wrong one.
         *radius_start* starts from that radius alone — for a curve like one
         already fitted (another spot of the same sample).
+    profile
+        Another shape in the sphere's place (:func:`sphere_intensity`):
+        ``radius`` is then that shape's size.
+    start, fixed, bounds
+        The fit set by hand, by the parameters' names (:data:`PARAMETERS`):
+        where it starts (a ``radius`` here is its one start), which are
+        held at a value instead of fitted, and the ``(low, high)`` each may
+        go — over *radius_bounds*, *max_rel_sigma* and the rest. A name the
+        curve has no use for (``power_*`` with no *power_law*) is ignored.
+        With every parameter held nothing is fitted: the model at those
+        values, and its misfit.
 
-    Raises ``ValueError`` when the window holds too few usable points.
+    Raises ``ValueError`` when the window holds too few usable points, or
+    for a parameter's name that is not one.
     """
     from scipy.optimize import least_squares
 
@@ -180,18 +262,28 @@ def fit_spheres(q, y, background=None, *,
     if len(qq) < 12:
         raise ValueError(f"only {len(qq)} usable points in q {lo:g}–{hi:g}")
 
-    fit_bg = bb is not None and background_bounds[0] < background_bounds[1]
-    names = ["scale", "radius", "rel_sigma"]
+    start, fixed, bounds = dict(start or {}), dict(fixed or {}), dict(bounds or {})
+    unknown = sorted((set(start) | set(fixed) | set(bounds)) - set(PARAMETERS))
+    if unknown:
+        raise ValueError(f"no parameter {', '.join(map(repr, unknown))}; "
+                         f"the parameters are {', '.join(PARAMETERS)}")
+    used = ["scale", "radius", "rel_sigma"]
     if power_law:
-        names += ["power_amplitude", "power_exponent"]
-    if fit_bg:
-        names += ["background_scale"]
+        used += ["power_amplitude", "power_exponent"]
+    if bb is not None:
+        used += ["background_scale"]
     if constant:
-        names += ["constant"]
+        used += ["constant"]
+    held = {n: float(v) for n, v in fixed.items() if n in used}
+    if bb is not None and background_bounds[0] >= background_bounds[1] \
+            and "background_scale" not in held:
+        held["background_scale"] = float(background_bounds[0])
+    names = [n for n in used if n not in held]
     log_y = np.log(yy)
 
     def unpack(p):
         values = dict(zip(names, p))
+        values.update(held)
         values.setdefault("power_amplitude", 0.0)
         values.setdefault("power_exponent", 0.0)
         values.setdefault("background_scale",
@@ -202,7 +294,7 @@ def fit_spheres(q, y, background=None, *,
     def parts(p):
         v = unpack(p)
         spheres = v["scale"] * sphere_intensity(qq, v["radius"], v["rel_sigma"],
-                                                n_points=n_points)
+                                                n_points=n_points, profile=profile)
         power = (v["power_amplitude"] * (qq / qq[0]) ** -v["power_exponent"]
                  if power_law else np.zeros_like(qq))
         back = (v["background_scale"] * bb if bb is not None
@@ -224,15 +316,26 @@ def fit_spheres(q, y, background=None, *,
              "rel_sigma": max_rel_sigma, "power_amplitude": np.inf,
              "power_exponent": 4.5, "background_scale": background_bounds[1],
              "constant": abs(tail)}
+    for name, (low, high) in bounds.items():
+        if not low <= high:
+            raise ValueError(f"{name}: its low bound {low:g} is above its high {high:g}")
+        lower[name], upper[name] = float(low), float(high)
     best = None
-    starts = ([float(np.clip(radius_start, *radius_bounds))] if radius_start
-              else np.geomspace(*radius_bounds, int(n_starts) + 2)[1:-1])
-    for radius in starts:
-        start = {"scale": head, "radius": radius, "rel_sigma": 0.15,
+    if not names:                             # every parameter held: no fit
+        fun = residual(np.array([]))
+        best = SimpleNamespace(x=np.array([]), fun=fun, jac=None,
+                               cost=0.5 * float(np.sum(fun ** 2)))
+    elif "radius" in start or radius_start:
+        starts = [float(start.get("radius", radius_start))]
+    else:
+        starts = np.geomspace(lower["radius"], upper["radius"], int(n_starts) + 2)[1:-1]
+    for radius in (starts if names else []):
+        guess = {"scale": head, "radius": radius, "rel_sigma": 0.15,
                  "power_amplitude": 0.05 * head, "power_exponent": 3.0,
                  "background_scale": float(np.clip(1.0, *background_bounds)),
                  "constant": 0.0}
-        x0 = [start[n] for n in names]
+        guess.update({n: float(v) for n, v in start.items() if n != "radius"})
+        x0 = [float(np.clip(guess[n], lower[n], upper[n])) for n in names]
         found = least_squares(residual, x0, x_scale="jac",
                               bounds=([lower[n] for n in names],
                                       [upper[n] for n in names]))
@@ -245,10 +348,12 @@ def fit_spheres(q, y, background=None, *,
     errors = dict.fromkeys(names, np.nan)
     try:
         jac = best.jac
-        cov = np.linalg.pinv(jac.T @ jac) * (2.0 * best.cost / max(n - k, 1))
-        errors = dict(zip(names, np.sqrt(np.clip(np.diag(cov), 0.0, None))))
+        if jac is not None:
+            cov = np.linalg.pinv(jac.T @ jac) * (2.0 * best.cost / max(n - k, 1))
+            errors = dict(zip(names, np.sqrt(np.clip(np.diag(cov), 0.0, None))))
     except np.linalg.LinAlgError:          # pragma: no cover - degenerate
         pass
+    errors.update(dict.fromkeys(held, np.nan))
 
     at_bound = tuple(
         name for name, value in zip(names, best.x)
@@ -283,7 +388,11 @@ def fit_spheres(q, y, background=None, *,
         rms=float(np.sqrt(np.mean(best.fun ** 2))), power_share=power_share,
         contrast=contrast, q=qq, y=yy, model=spheres + power + back,
         spheres=spheres, power=power, background=back, at_bound=at_bound,
-        notes=notes)
+        notes=notes, free=tuple(names),
+        errors={n: float(errors[n]) for n in names},
+        bounds={n: (float(lower[n]), float(upper[n])) for n in names},
+        held=dict(held))
 
 
-__all__ = ["sphere_amplitude", "sphere_intensity", "SphereFit", "fit_spheres"]
+__all__ = ["sphere_amplitude", "sphere_intensity", "tabulated_profile",
+           "SphereFit", "fit_spheres", "PARAMETERS"]
